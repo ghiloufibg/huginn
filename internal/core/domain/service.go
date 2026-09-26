@@ -47,6 +47,9 @@ type ServiceSummary struct {
 	Created     time.Time
 	// Refs are the workloads of the repository.
 	Refs []WorkloadRef
+	// WorkloadStates are those workloads as last watched (replicas,
+	// rollout), in the order of Refs.
+	WorkloadStates []Workload
 	// Pods are the pods of those workloads.
 	Pods []Pod
 	// Unassigned marks a workload that no resolver attributed to a

@@ -13,6 +13,7 @@
      enter            open / zoom / apply                                                           
    Services                                                                                         
      s                sort: status, name, restarts, age                                             
+     p                preview of the selected service: on/off                                       
      r                resync the watches                                                            
                                                                                                     
  GLOBAL                                                                                             
@@ -21,7 +22,6 @@
      esc              back, close, exit fullscreen, clear the last filter                           
      ctrl+e           switch environment                                                            
      q  ctrl+c        quit                                                                          
-                                                                                                    
                                                                                                     
                                                                                                     
                                                                                                     

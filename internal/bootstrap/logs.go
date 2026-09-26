@@ -77,3 +77,8 @@ func newLogSessions(c *config.Config, cluster Cluster, clock ports.Clock, filter
 		Filter: filter, Decoder: dec, Clock: clock, Log: log, MaxHistory: c.Logs.BufferLines,
 	}
 }
+
+// newPodEvents reads pod events on demand for the services preview.
+func newPodEvents(c *config.Config, cluster Cluster) *app.PodEvents {
+	return &app.PodEvents{Cluster: cluster, Scopes: scopes(c)}
+}

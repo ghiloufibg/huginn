@@ -67,6 +67,7 @@ func Summarize(repo string, workloads []Workload, pods []Pod, f ContainerFilter)
 	progressing := false
 	for i, w := range workloads {
 		s.Refs = append(s.Refs, w.Ref)
+		s.WorkloadStates = append(s.WorkloadStates, w)
 		s.DesiredPods += w.DesiredReplicas
 		s.ReadyPods += w.ReadyReplicas
 		s.UpdatedPods += w.UpdatedReplicas
@@ -101,14 +102,14 @@ func Summarize(repo string, workloads []Workload, pods []Pod, f ContainerFilter)
 		s.Status = StatusDegraded
 	}
 	if len(workloads) > 0 {
-		s.Version = versionOf(workloads[0].Ref.Name, pods, f)
+		s.Version = WorkloadVersion(workloads[0].Ref.Name, pods, f)
 	}
 	return s
 }
 
-// versionOf returns the app image tag of workload's pods, "old→new" when
-// two versions run side by side during a rollout.
-func versionOf(workload string, pods []Pod, f ContainerFilter) string {
+// WorkloadVersion returns the app image tag of workload's pods, "old→new"
+// when two versions run side by side during a rollout.
+func WorkloadVersion(workload string, pods []Pod, f ContainerFilter) string {
 	type seen struct {
 		tag     string
 		created time.Time
@@ -176,4 +177,16 @@ func SortServices(rows []ServiceSummary, k SortKey) {
 		}
 		return c < 0
 	})
+}
+
+// WorstPod returns the pod that gives the service its status: the first
+// pod with the worst status, or false when there is no pod.
+func WorstPod(pods []Pod) (Pod, bool) {
+	best, found := Pod{}, false
+	for _, p := range pods {
+		if !found || PodStatus(p) < PodStatus(best) {
+			best, found = p, true
+		}
+	}
+	return best, found
 }

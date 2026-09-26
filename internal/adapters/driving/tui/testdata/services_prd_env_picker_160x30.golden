@@ -15,11 +15,11 @@
  search-api              2    3/3  Healthy│ enter switch  esc cancel                                                │                                           
  user-api                3    6/6  Healthy└─────────────────────────────────────────────────────────────────────────┘                                           
  legacy-cron (no repo)   1    1/1  Healthy             0     -  1.0               16d                                                                           
-                                                                                                                                                                
-                                                                                                                                                                
-                                                                                                                                                                
-                                                                                                                                                                
-                                                                                                                                                                
+ ─ catalog-indexer ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ WORKLOADS  Deployment catalog-indexer  0/2 ready  2/2 updated  v1.3.7                                                                                          
+ PODS       6kq2x  CrashLoopBackOff  0/1 ready  23 restarts  last: Error exit 1, 4m ago  gke-main-pool-1-bh2c  21m                                              
+ WARNINGS   reading events of 6kq2x…                                                                                                                            
+ HIDDEN     istio-proxy                                                                                                                                         
                                                                                                                                                                 
                                                                                                                                                                 
                                                                                                                                                                 

@@ -91,3 +91,11 @@ type PodDiagnostics struct {
 type Diagnostics interface {
 	Pod(ctx context.Context, env domain.Env, namespace, pod string) (PodDiagnostics, error)
 }
+
+// PodEvents is the driving port behind the services preview: the recent
+// events of one pod, read on demand when the cursor rests on a service —
+// never watched continuously (docs/DECISIONS.md D-004).
+type PodEvents interface {
+	// Recent returns the pod's events, most recently seen first.
+	Recent(ctx context.Context, env domain.Env, namespace, pod string) ([]domain.Event, error)
+}

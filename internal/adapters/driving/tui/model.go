@@ -43,6 +43,9 @@ type Options struct {
 	Window  domain.TimeWindow
 	// BufferLines bounds the entries kept per logs view.
 	BufferLines int
+	// Events reads a pod's recent events for the services preview; nil
+	// hides the warnings section.
+	Events ports.PodEvents
 	// Filter tells application containers from sidecars.
 	Filter domain.ContainerFilter
 	// Repo, when set, is the repository to open directly (--repo).

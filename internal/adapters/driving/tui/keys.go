@@ -29,6 +29,7 @@ const (
 	ActOpen         Action = "open"
 	ActFilter       Action = "filter"
 	ActSort         Action = "sort"
+	ActPreview      Action = "preview"
 	ActRefresh      Action = "refresh"
 	ActWindowNext   Action = "window_next"
 	ActWindowPick   Action = "window_pick"
@@ -90,7 +91,7 @@ var defaultKeys = map[Action][]string{
 	ActSwitchEnv: {"ctrl+e"}, ActFindService: {"ctrl+p"},
 	ActUp: {"k", "up"}, ActDown: {"j", "down"}, ActPageUp: {"pgup", "ctrl+b"}, ActPageDown: {"pgdown", "ctrl+d"},
 	ActTop: {"g", "home"}, ActBottom: {"G", "end"}, ActOpen: {"enter"},
-	ActFilter: {"/", "ctrl+f"}, ActSort: {"s"}, ActRefresh: {"r"},
+	ActFilter: {"/", "ctrl+f"}, ActSort: {"s"}, ActPreview: {"p"}, ActRefresh: {"r"},
 	ActWindowNext: {"t"}, ActWindowPick: {"T"},
 	ActWindow1: {"1", "&"}, ActWindow2: {"2", "é"}, ActWindow3: {"3", `"`}, ActWindow4: {"4", "'"},
 	ActWindow5: {"5", "("}, ActWindow6: {"6", "-"}, ActWindow7: {"7", "è"}, ActWindowTail: {"0", "à"},

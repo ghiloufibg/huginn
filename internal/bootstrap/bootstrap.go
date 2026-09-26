@@ -112,6 +112,7 @@ func Build(o cli.Options, loc config.Locator, getenv func(string) string, log *s
 			Env: current, Envs: envs, Theme: theme, Keys: keys, Source: clientName, Repo: o.Repo,
 			Catalog: newCatalog(c, cluster, clk, filter, log), Filter: filter,
 			Sessions: newLogSessions(c, cluster, clk, filter, dec, log),
+			Events:   newPodEvents(c, cluster),
 			Renderer: renderer, FullRenderer: springlayout.NewFull(),
 			Windows: domain.DefaultWindowPresets(c.Logs.TailLines), Window: window,
 			BufferLines: c.Logs.BufferLines, KeyBar: c.UI.KeyBar, LogColumns: c.UI.Logs.Columns,

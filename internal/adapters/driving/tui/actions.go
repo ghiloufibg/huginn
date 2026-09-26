@@ -25,6 +25,7 @@ var actions = map[Action]actionInfo{
 	ActOpen:         {"Inspect", "open / zoom / apply"},
 	ActFilter:       {"Filter", "filter as you type"},
 	ActSort:         {"Services", "sort: status, name, restarts, age"},
+	ActPreview:      {"Services", "preview of the selected service: on/off"},
 	ActRefresh:      {"Services", "resync the watches"},
 	ActWindowNext:   {"Time and stream", "next time window"},
 	ActWindowPick:   {"Time and stream", "pick a time window"},

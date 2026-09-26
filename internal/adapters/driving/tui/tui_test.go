@@ -30,7 +30,10 @@ var envs = []EnvInfo{
 	{Name: "prd", Context: "gke_acme_europe-west1_main", Namespaces: []string{"app-prd"}, Production: true},
 }
 
-var sessions *fakeSessions
+var (
+	sessions *fakeSessions
+	events   *fakeEvents
+)
 
 func newTestModel(t *testing.T, env int, repo string) (*Model, *fakeCatalog) {
 	t.Helper()
@@ -43,10 +46,10 @@ func newTestModel(t *testing.T, env int, repo string) (*Model, *fakeCatalog) {
 		t.Fatal(err)
 	}
 	fc := &fakeCatalog{}
-	sessions = &fakeSessions{}
+	sessions, events = &fakeSessions{}, &fakeEvents{}
 	m := NewModel(Options{
 		Env: envs[env], Envs: envs, Theme: theme, Keys: keys, Source: "demo", Catalog: fc, Repo: repo,
-		Sessions: sessions, Renderer: compactRenderer{}, FullRenderer: compactRenderer{},
+		Sessions: sessions, Events: events, Renderer: compactRenderer{}, FullRenderer: compactRenderer{},
 		Now:    func() time.Time { return t0 },
 		Filter: domain.ContainerFilter{Deny: []string{"istio-proxy", "istio-init", "vault-agent"}},
 	})
@@ -76,6 +79,8 @@ func run(m *Model, cmd tea.Cmd) {
 		if msg.err != nil {
 			m.Update(msg)
 		}
+	case eventsMsg:
+		m.Update(msg)
 	case tea.BatchMsg:
 		for _, c := range msg {
 			run(m, c)

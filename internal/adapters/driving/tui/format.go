@@ -81,3 +81,12 @@ func plural(n int, what string) string {
 	}
 	return fmt.Sprintf("%d %ss", n, what)
 }
+
+// podShortID is the random suffix of a pod name (m8q7v), enough to tell
+// the pods of one workload apart.
+func podShortID(pod string) string {
+	if i := strings.LastIndex(pod, "-"); i >= 0 {
+		return pod[i+1:]
+	}
+	return pod
+}

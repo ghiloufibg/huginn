@@ -702,12 +702,7 @@ func (l *logsScreen) podStrip(m *Model, w int) string {
 	return ansi.Truncate(strings.Join(parts, "   "), w, "…")
 }
 
-func (l *logsScreen) shortName(pod string) string {
-	if i := strings.LastIndex(pod, "-"); i >= 0 {
-		return pod[i+1:]
-	}
-	return pod
-}
+func (l *logsScreen) shortName(pod string) string { return podShortID(pod) }
 
 func (l *logsScreen) statusLeft(m *Model) string {
 	t := m.opts.Theme

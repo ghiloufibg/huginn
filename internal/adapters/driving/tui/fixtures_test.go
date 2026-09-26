@@ -71,6 +71,19 @@ func mockupSnapshot(env string) ports.CatalogSnapshot {
 			sum.Pods = paymentPods()
 		}
 		sum.Pods = append(sum.Pods, troubledPods(r)...)
+		for i := range r.workloads {
+			name := r.repo
+			if i > 0 {
+				name = fmt.Sprintf("%s-worker-%d", r.repo, i)
+			}
+			ready := r.ready * (i + 1) / r.workloads
+			ready -= r.ready * i / r.workloads
+			desired := r.desired*(i+1)/r.workloads - r.desired*i/r.workloads
+			sum.WorkloadStates = append(sum.WorkloadStates, domain.Workload{
+				Ref:             domain.WorkloadRef{Env: domain.Env(env), Namespace: "app-" + env, Kind: domain.KindDeployment, Name: name},
+				DesiredReplicas: desired, ReadyReplicas: ready, UpdatedReplicas: desired,
+			})
+		}
 		s.Services = append(s.Services, sum)
 	}
 	s.Services = append(s.Services, domain.ServiceSummary{Repo: "legacy-cron", Workloads: 1, ReadyPods: 1, DesiredPods: 1, Status: domain.StatusHealthy, Version: "1.0", Created: t0.Add(-400 * time.Hour), Unassigned: true})
@@ -82,7 +95,10 @@ func mockupSnapshot(env string) ports.CatalogSnapshot {
 func troubledPods(r row) []domain.Pod {
 	app := domain.Container{Name: "app", Image: "eu.gcr.io/acme/" + r.repo + ":" + r.version}
 	pod := func(cs ...domain.Container) domain.Pod {
-		return domain.Pod{Name: r.repo + "-7d4b9c-abcde", OwnerName: r.repo, Phase: domain.PodRunning, Containers: cs}
+		return domain.Pod{
+			Name: r.repo + "-7d4b9c-6kq2x", Namespace: "app-rec", OwnerName: r.repo, Phase: domain.PodRunning,
+			Node: "gke-main-pool-1-bh2c", Created: t0.Add(-r.age), Containers: append(cs, domain.Container{Name: "istio-proxy", State: domain.ContainerRunning, Ready: true}),
+		}
 	}
 	switch r.status {
 	case domain.StatusCrashLoopBackOff:
@@ -205,4 +221,27 @@ func paymentBatch() ports.LogBatch {
 		Entries: entries, HistoryDone: true,
 		Pods: []ports.PodState{{Pod: pods[0], Containers: []string{"payment-service"}}, {Pod: pods[1], Containers: []string{"payment-service"}}, {Pod: newPod, Containers: []string{"payment-service"}, New: true}},
 	}
+}
+
+// fakeEvents serves the events of the crash-looping mockup pod.
+type fakeEvents struct {
+	mu    sync.Mutex
+	calls int
+	err   error
+}
+
+func (f *fakeEvents) Recent(_ context.Context, _ domain.Env, _, pod string) ([]domain.Event, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls++
+	if f.err != nil {
+		return nil, f.err
+	}
+	if pod != "catalog-indexer-7d4b9c-6kq2x" {
+		return nil, nil
+	}
+	return []domain.Event{
+		{Type: "Warning", Reason: "BackOff", Message: "Back-off restarting failed container app in pod catalog-indexer-7d4b9c-6kq2x", Count: 87, LastSeen: t0.Add(-30 * time.Second)},
+		{Type: "Normal", Reason: "Pulled", Message: "Container image already present on machine", Count: 12, LastSeen: t0.Add(-4 * time.Minute)},
+	}, nil
 }

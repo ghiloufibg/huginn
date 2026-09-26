@@ -148,3 +148,17 @@ func TestSortServices(t *testing.T) {
 		t.Error("sort key cycle")
 	}
 }
+
+func TestWorstPod(t *testing.T) {
+	ok := Pod{Name: "a", Phase: PodRunning, Containers: []Container{{Name: "app", State: ContainerRunning, Ready: true}}}
+	bad := Pod{Name: "b", Phase: PodRunning, Containers: []Container{{Name: "app", State: ContainerWaiting, Reason: "CrashLoopBackOff"}}}
+	if _, found := WorstPod(nil); found {
+		t.Fatal("no pod expected")
+	}
+	if p, _ := WorstPod([]Pod{ok, bad, ok}); p.Name != "b" {
+		t.Fatalf("worst pod = %s, want b", p.Name)
+	}
+	if p, _ := WorstPod([]Pod{ok, {Name: "c", Phase: PodRunning, Containers: ok.Containers}}); p.Name != "a" {
+		t.Fatalf("worst pod = %s, want the first healthy one", p.Name)
+	}
+}

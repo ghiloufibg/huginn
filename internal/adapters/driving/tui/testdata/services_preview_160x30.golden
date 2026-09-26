@@ -18,7 +18,7 @@
  ─ catalog-indexer ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  WORKLOADS  Deployment catalog-indexer  0/2 ready  2/2 updated  v1.3.7                                                                                          
  PODS       6kq2x  CrashLoopBackOff  0/1 ready  23 restarts  last: Error exit 1, 4m ago  gke-main-pool-1-bh2c  21m                                              
- WARNINGS   reading events of 6kq2x…                                                                                                                            
+ WARNINGS    30s  BackOff  Back-off restarting failed container app in pod catalog-indexer-7d4b9c-6kq2x (x87)                                                   
  HIDDEN     istio-proxy                                                                                                                                         
                                                                                                                                                                 
                                                                                                                                                                 

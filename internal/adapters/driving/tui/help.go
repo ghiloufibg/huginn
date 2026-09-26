@@ -29,7 +29,7 @@ type helpLine struct {
 func helpActions(s screen) (string, []Action) {
 	switch s.(type) {
 	case *servicesScreen:
-		return "Services", []Action{ActUp, ActDown, ActPageUp, ActPageDown, ActTop, ActBottom, ActOpen, ActFilter, ActSort, ActRefresh}
+		return "Services", []Action{ActUp, ActDown, ActPageUp, ActPageDown, ActTop, ActBottom, ActOpen, ActFilter, ActSort, ActPreview, ActRefresh}
 	case *logsScreen:
 		return "Logs", []Action{
 			ActUp, ActDown, ActPageUp, ActPageDown, ActTop, ActBottom, ActNextError, ActPrevError,

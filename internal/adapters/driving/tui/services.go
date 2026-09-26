@@ -23,6 +23,7 @@ type servicesScreen struct {
 	openRepo string // --repo: open once it appears
 	missing  string // --repo that did not appear
 	height   int    // last body height, for paging
+	preview  preview
 }
 
 func newServicesScreen(openRepo string) *servicesScreen {
@@ -88,6 +89,28 @@ func (s *servicesScreen) move(rows []domain.ServiceSummary, delta int) {
 }
 
 func (s *servicesScreen) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
+	switch msg := msg.(type) {
+	case eventsRestMsg:
+		return true, s.preview.rest(m, msg)
+	case eventsMsg:
+		s.preview.store(m, msg)
+		return true, nil
+	}
+	used, cmd := s.handle(m, msg)
+	return used, tea.Batch(cmd, s.preview.watch(m, s.current(m)))
+}
+
+// current returns the selected service, nil when there is none.
+func (s *servicesScreen) current(m *Model) *domain.ServiceSummary {
+	rows := s.rows(m)
+	s.sync(rows)
+	if len(rows) == 0 {
+		return nil
+	}
+	return &rows[s.tbl.cursor]
+}
+
+func (s *servicesScreen) handle(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 	rows := s.rows(m)
 	s.sync(rows)
 	switch msg := msg.(type) {
@@ -162,6 +185,8 @@ func (s *servicesScreen) key(m *Model, k tea.KeyPressMsg, rows []domain.ServiceS
 	case keys.Is(key, ActSort):
 		s.sort = s.sort.Next()
 		m.flash("sort " + s.sort.String())
+	case keys.Is(key, ActPreview):
+		m.flash(s.preview.toggle())
 	case keys.Is(key, ActBack) && s.filter.String() != "":
 		s.filter.Clear()
 	default:
@@ -197,6 +222,20 @@ func (s *servicesScreen) view(m *Model, w, h int) string {
 	now := m.opts.Now()
 	for i, r := range rows {
 		cells[i] = s.cells(r, now, t, m.opts.Filter)
+	}
+	side, bottom := s.preview.place(w, h, len(rows))
+	s.preview.shown = side > 0 || bottom > 0
+	switch {
+	case side > 0:
+		tbl := strings.Split(s.tbl.render(cells, w-side, h, t), "\n")
+		pane := strings.Split(s.preview.render(m, rows[s.tbl.cursor], side-1, h), "\n")
+		for i := range tbl {
+			tbl[i] += t.Dim.Render("│") + pane[i]
+		}
+		return strings.Join(tbl, "\n")
+	case bottom > 0:
+		s.height = h - bottom
+		return s.tbl.render(cells, w, h-bottom, t) + "\n" + s.preview.render(m, rows[s.tbl.cursor], w, bottom)
 	}
 	return s.tbl.render(cells, w, h, t)
 }
@@ -271,7 +310,7 @@ func (s *servicesScreen) hints(m *Model) []hint {
 		return []hint{{"enter", "keep"}, {"esc", "clear"}, {"ctrl+u", "erase"}}
 	}
 	return []hint{
-		m.h(ActOpen, "logs"), m.h(ActFilter, "filter"), m.h(ActSort, "sort"), m.h(ActRefresh, "resync"),
+		m.h(ActOpen, "logs"), m.h(ActFilter, "filter"), m.h(ActSort, "sort"), m.h(ActPreview, "preview"), m.h(ActRefresh, "resync"),
 		m.h(ActSwitchEnv, "env"), m.h(ActKeyBar, "keys"), m.h(ActQuit, "quit"), m.h(ActHelp, "help"),
 	}
 }
@@ -283,7 +322,7 @@ func (s *servicesScreen) fullHints(m *Model) []hint {
 	return []hint{
 		m.pair(ActDown, ActUp, "move"), m.pair(ActTop, ActBottom, "top/bottom"), m.pair(ActPageDown, ActPageUp, "page"),
 		m.h(ActOpen, "logs"), m.h(ActFilter, "filter by name"), m.h(ActSort, "sort: status, name, restarts, age"),
-		m.h(ActRefresh, "resync"), m.h(ActSwitchEnv, "switch env"), m.h(ActBack, "clear filter"),
+		m.h(ActPreview, "preview on/off"), m.h(ActRefresh, "resync"), m.h(ActSwitchEnv, "switch env"), m.h(ActBack, "clear filter"),
 		m.h(ActKeyBar, "keys"), m.h(ActQuit, "quit"), m.h(ActHelp, "help"),
 	}
 }
