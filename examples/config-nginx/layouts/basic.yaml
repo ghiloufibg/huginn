@@ -1,0 +1,8 @@
+# yaml-language-server: $schema=../../../docs/schema/layout.schema.json
+version: 1
+stream:
+  columns:
+    - { name: time,   key: t, show: "{time}",           role: time }
+    - { name: level,  key: l, show: "{level|right:5}",  role: level }
+    - { name: logger, key: n, show: "{logger|default:-}", role: logger, hide_below: 110 }
+  separator: { text: ": ", after: [logger] }

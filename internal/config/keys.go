@@ -8,10 +8,8 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-var typeOfConfig = reflect.TypeFor[Config]()
-
 // checkKeys walks the YAML tree alongside the Go type and reports unknown
-// keys with their line and the closest known key.
+// keys with their position and the closest known key.
 func checkKeys(n *yaml.Node, t reflect.Type, path string) []Problem {
 	for t.Kind() == reflect.Pointer {
 		t = t.Elem()
@@ -46,7 +44,7 @@ func checkStruct(n *yaml.Node, t reflect.Type, path string) []Problem {
 			if s := closest(k.Value, keys(fields)); s != "" {
 				msg += fmt.Sprintf(" (did you mean %q?)", s)
 			}
-			probs = append(probs, Problem{Path: path, Line: k.Line, Msg: msg})
+			probs = append(probs, Problem{Path: path, Line: k.Line, Col: k.Column, Msg: msg})
 			continue
 		}
 		probs = append(probs, checkKeys(n.Content[i+1], f.Type, join(path, k.Value))...)
@@ -66,7 +64,7 @@ func yamlFields(t reflect.Type) map[string]reflect.StructField {
 	return out
 }
 
-func keys(m map[string]reflect.StructField) []string {
+func keys[V any](m map[string]V) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {
 		out = append(out, k)
@@ -111,4 +109,45 @@ func levenshtein(a, b string) int {
 		prev = cur
 	}
 	return prev[len(b)]
+}
+
+// positions indexes the position of every key path of a YAML document, so
+// semantic problems can point at a line.
+type positions map[string][2]int
+
+func indexPositions(n *yaml.Node, path string, out positions) {
+	switch n.Kind {
+	case yaml.DocumentNode:
+		for _, c := range n.Content {
+			indexPositions(c, path, out)
+		}
+	case yaml.MappingNode:
+		for i := 0; i+1 < len(n.Content); i += 2 {
+			k := n.Content[i]
+			p := join(path, k.Value)
+			out[p] = [2]int{k.Line, k.Column}
+			indexPositions(n.Content[i+1], p, out)
+		}
+	case yaml.SequenceNode:
+		for i, c := range n.Content {
+			p := fmt.Sprintf("%s[%d]", path, i)
+			out[p] = [2]int{c.Line, c.Column}
+			indexPositions(c, p, out)
+		}
+	}
+}
+
+// at returns the position of path, or of its closest indexed parent.
+func (ps positions) at(path string) (line, col int) {
+	for p := path; p != ""; {
+		if pos, ok := ps[p]; ok {
+			return pos[0], pos[1]
+		}
+		i := strings.LastIndexAny(p, ".[")
+		if i < 0 {
+			break
+		}
+		p = p[:i]
+	}
+	return 0, 0
 }

@@ -26,5 +26,5 @@
                                                                                                     
                                                                                                     
                                                                                                     
- HELP   keys follow ui.keymap in the configuration                                                  
+ HELP   keys follow keymap in ui.yaml                                                               
  j/k scroll  / search  esc close                                                                    

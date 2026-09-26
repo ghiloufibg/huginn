@@ -54,7 +54,7 @@ const (
 
 // conditions per environment; repos not listed are healthy.
 var conditions = map[domain.Env]map[string]condition{
-	domain.EnvRec: {
+	domain.Env("rec"): {
 		"catalog-indexer":     crashLoop,
 		"order-orchestrator":  oomKilled,
 		"document-renderer":   imagePull,
@@ -65,14 +65,14 @@ var conditions = map[domain.Env]map[string]condition{
 		"payment-service":     restartedOnce,
 		"fraud-detector":      restartedOnce,
 	},
-	domain.EnvDev: {
+	domain.Env("dev"): {
 		"catalog-indexer": crashLoop,
 		"search-api":      rollingOut,
 	},
-	domain.EnvPrprd: {
+	domain.Env("prprd"): {
 		"billing-gateway": rollingOut,
 	},
-	domain.EnvPrd: {
+	domain.Env("prd"): {
 		"payment-service": restartedOnce,
 	},
 }

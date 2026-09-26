@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "default_env": {
+      "description": "Environment opened when none is given on the command line; a key of environments.yaml.",
+      "type": "string"
+    },
+    "demo": {
+      "additionalProperties": false,
+      "description": "Synthetic cluster used by --demo.",
+      "properties": {
+        "rate": {
+          "description": "Average live log lines per second per pod. Default 1.",
+          "type": "number"
+        },
+        "seed": {
+          "description": "Random seed; the same seed gives the same cluster and logs. Default 42.",
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "logs": {
+      "additionalProperties": false,
+      "description": "Log loading limits.",
+      "properties": {
+        "buffer_lines": {
+          "description": "Maximum lines kept in memory per logs screen; older lines are dropped. At least 1000. Default 50000.",
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "repos_root": {
+      "description": "Folder containing your repositories, used by the manifests rule of services.yaml. ~ is expanded.",
+      "type": "string"
+    },
+    "version": {
+      "description": "Structure version of this file; must be 1.",
+      "type": "integer"
+    },
+    "windows": {
+      "additionalProperties": false,
+      "description": "Time-window presets of the logs screen.",
+      "properties": {
+        "default": {
+          "description": "Window used when a logs screen opens: a duration such as 15m, or tail. Default 15m.",
+          "type": "string"
+        },
+        "presets": {
+          "description": "Windows bound to keys 1…7, e.g. [15m, 30m, 1h, 1d]; at most 7. Default: 15m 30m 40m 45m 1h 1d 2d.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "tail_lines": {
+          "description": "Lines loaded by the tail window (key 0). Default 500.",
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "required": [
+    "version",
+    "default_env"
+  ],
+  "title": "Huginn config folder: huginn.yaml",
+  "type": "object"
+}

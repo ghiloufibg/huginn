@@ -1,117 +1,64 @@
 package config
 
-// Built-in defaults. Only zero values are filled, so anything set in the
-// file wins. Lists and maps set in the file replace the default entirely.
+// Neutral technical defaults. Only zero values are filled, so anything set
+// in the folder wins. Nothing here describes an application: environments,
+// formats, layouts, labels and sidecars always come from the folder.
 
-// DefaultContainerDenylist is the built-in list of auxiliary containers
-// hidden from the logs screen; containers.denylist extends it.
-var DefaultContainerDenylist = []string{
-	"istio-proxy", "istio-init", "istio-validation", "linkerd-proxy", "linkerd-init",
-	"vault-agent", "vault-agent-init", "cloud-sql-proxy", "cloudsql-proxy", "fluent-bit",
-	"fluentd", "filebeat", "otel-collector", "opentelemetry-collector", "datadog-agent",
-	"config-reloader", "envoy", "oauth2-proxy",
-}
-
-// DefaultLogFormatName is the profile used when logs.format is empty.
-const DefaultLogFormatName = "logstash"
-
-// Default returns a configuration with every default applied.
-func Default() *Config {
-	c := &Config{}
-	applyDefaults(c)
-	return c
-}
-
-func logstashFormat() LogFormat {
-	return LogFormat{
-		Decoder: "json-fields",
-		Fields: FieldMap{
-			Timestamp: Paths{"@timestamp", "timestamp", "time"},
-			Level:     Paths{"level", "severity", "log.level", "levelname"},
-			Logger:    Paths{"logger_name", "logger", "log.logger"},
-			Thread:    Paths{"thread_name", "thread", "process.thread.name"},
-			Message:   Paths{"message", "msg"},
-			Stack:     Paths{"stack_trace", "error.stack_trace", "exception"},
-			TraceID:   Paths{"traceId", "trace_id", "trace.id", "X-B3-TraceId", "correlationId", "requestId"},
-			App:       Paths{"app", "application", "service.name", "springAppName"},
-			PID:       Paths{"pid", "process.pid"},
-		},
-		Hidden: []string{"kubernetes.*", "k8s.*", "docker.*", "host*", "@version", "level_value", "stream", "logtag"},
-	}
-}
+// DefaultWindowPresets are bound to keys 1…7 when windows.presets is empty.
+var DefaultWindowPresets = []string{"15m", "30m", "40m", "45m", "1h", "1d", "2d"}
 
 func applyDefaults(c *Config) {
-	if c.Cluster.Client == "" {
-		c.Cluster.Client = "kubernetes"
+	h := &c.Huginn
+	if len(h.Windows.Presets) == 0 {
+		h.Windows.Presets = DefaultWindowPresets
 	}
-	if c.DefaultEnv == "" {
-		c.DefaultEnv = "rec"
+	if h.Windows.TailLines == 0 {
+		h.Windows.TailLines = 500
 	}
-	if len(c.Environments) == 0 {
-		c.Environments = map[string]Environment{
-			"dev":   {Namespaces: []string{"app-dev"}},
-			"rec":   {Namespaces: []string{"app-rec"}},
-			"prprd": {Namespaces: []string{"app-prprd"}},
-			"prd":   {Namespaces: []string{"app-prd"}, Production: true},
-		}
+	if h.Windows.Default == "" {
+		h.Windows.Default = "15m"
 	}
-	if len(c.Resolver.Order) == 0 {
-		c.Resolver.Order = []string{"config", "labels", "manifests"}
+	if h.Logs.BufferLines == 0 {
+		h.Logs.BufferLines = 50000
 	}
-	if len(c.Resolver.LabelKeys) == 0 {
-		c.Resolver.LabelKeys = []string{"app.kubernetes.io/part-of", "app.kubernetes.io/name", "app"}
+	if h.Demo.Seed == 0 {
+		h.Demo.Seed = 42
 	}
-	if c.Manifests.Scanner == "" {
-		c.Manifests.Scanner = "kustomize"
+	if h.Demo.Rate == 0 {
+		h.Demo.Rate = 1
 	}
-	if c.Manifests.OverlayGlob == "" {
-		c.Manifests.OverlayGlob = "**/overlays/{env}"
-	}
-	if len(c.Manifests.Files) == 0 {
-		c.Manifests.Files = []string{"kustomization.yaml", "kustomization.yml"}
-	}
-	applyLogDefaults(c)
-	if c.Secrets.Provider == "" {
-		c.Secrets.Provider = "sops"
-	}
-	if c.Secrets.Sops.Binary == "" {
-		c.Secrets.Sops.Binary = "sops"
-	}
+	h.ReposRoot = expandHome(h.ReposRoot)
 	if c.UI.Theme == "" {
 		c.UI.Theme = "light"
 	}
 	if c.UI.KeyBar == "" {
 		c.UI.KeyBar = "compact"
 	}
-	if c.Demo.Seed == 0 {
-		c.Demo.Seed = 42
+	for name, l := range c.Layouts {
+		if len(l.Zoom.Columns) == 0 {
+			l.Zoom, l.ZoomIsStream = l.Stream, true
+		}
+		for _, line := range []*Line{&l.Stream, &l.Zoom} {
+			if line.TimeFormat == "" {
+				line.TimeFormat = "15:04:05.000"
+			}
+			for i := range line.Columns {
+				if line.Columns[i].Role == "" {
+					line.Columns[i].Role = "plain"
+				}
+			}
+		}
+		c.Layouts[name] = l
 	}
-	if c.Demo.Rate == 0 {
-		c.Demo.Rate = 1
-	}
-}
-
-func applyLogDefaults(c *Config) {
-	l := &c.Logs
-	if l.DefaultWindow == "" {
-		l.DefaultWindow = "15m"
-	}
-	if l.TailLines == 0 {
-		l.TailLines = 500
-	}
-	if l.BufferLines == 0 {
-		l.BufferLines = 50000
-	}
-	if l.Format == "" {
-		l.Format = DefaultLogFormatName
-	}
-	if l.Renderer == "" {
-		l.Renderer = "spring-compact"
-	}
-	if c.LogFormats == nil {
-		c.LogFormats = map[string]LogFormat{}
-	}
-	if _, ok := c.LogFormats[DefaultLogFormatName]; !ok {
-		c.LogFormats[DefaultLogFormatName] = logstashFormat()
+	for i := range c.Services.Explicit {
+		for j := range c.Services.Explicit[i].Workloads {
+			w := &c.Services.Explicit[i].Workloads[j]
+			if w.Kind == "" {
+				w.Kind = "Deployment"
+			}
+			if e, ok := c.Environments.ByName[w.Env]; w.Namespace == "" && ok && len(e.Namespaces) > 0 {
+				w.Namespace = e.Namespaces[0]
+			}
+		}
 	}
 }

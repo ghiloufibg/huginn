@@ -1,0 +1,3 @@
+# yaml-language-server: $schema=../../docs/schema/containers.schema.json
+version: 1
+hide: [nginx-exporter]

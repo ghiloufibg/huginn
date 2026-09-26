@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "key_bar": {
+      "description": "Key bar at the bottom. Default compact.",
+      "enum": [
+        "compact",
+        "full",
+        "hidden"
+      ],
+      "type": "string"
+    },
+    "keymap": {
+      "additionalProperties": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "description": "Action name to keys, replacing the default keys of that action, e.g. {follow: [f, ctrl+l]}.",
+      "type": "object"
+    },
+    "log_columns": {
+      "description": "Columns shown when a logs screen opens: pod and names of layout columns. Empty: every visible column, narrowed automatically.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "paint_background": {
+      "description": "Paint the theme background instead of using the terminal's.",
+      "type": "boolean"
+    },
+    "theme": {
+      "description": "Color theme. Default light.",
+      "enum": [
+        "light",
+        "accessible",
+        "classic",
+        "none"
+      ],
+      "type": "string"
+    },
+    "version": {
+      "description": "Structure version of this file; must be 1.",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "version"
+  ],
+  "title": "Huginn config folder: ui.yaml",
+  "type": "object"
+}

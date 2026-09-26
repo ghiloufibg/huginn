@@ -17,21 +17,21 @@ const (
 )
 
 // ResolveEnv picks the environment: --env, then the positional argument,
-// then HUGINN_ENV, then default_env. Giving different values as flag and
+// then HUGINN_ENV, then huginn.yaml default_env. Giving different values as flag and
 // argument is an error, as is a name that is not configured.
 func ResolveEnv(o cli.Options, getenv func(string) string, c *config.Config) (domain.Env, error) {
 	if o.EnvFlag != "" && o.EnvArg != "" && o.EnvFlag != o.EnvArg {
 		return "", fmt.Errorf("environment given twice: argument %q and --env %q", o.EnvArg, o.EnvFlag)
 	}
-	name := firstNonEmpty(o.EnvFlag, o.EnvArg, getenv(EnvEnv), c.DefaultEnv)
-	if _, ok := c.Environments[name]; !ok {
-		return "", fmt.Errorf("unknown environment %q (configured: %s)", name, strings.Join(config.EnvNames(c), ", "))
+	name := firstNonEmpty(o.EnvFlag, o.EnvArg, getenv(EnvEnv), c.Huginn.DefaultEnv)
+	if _, ok := c.Environments.ByName[name]; !ok {
+		return "", fmt.Errorf("unknown environment %q (environments.yaml has: %s)", name, strings.Join(c.Environments.Names, ", "))
 	}
 	return domain.ParseEnv(name)
 }
 
 // ResolveTheme picks the theme: --theme, then NO_COLOR (forces "none"),
-// then HUGINN_THEME, then ui.theme.
+// then HUGINN_THEME, then ui.yaml theme.
 func ResolveTheme(flag string, getenv func(string) string, c *config.Config) string {
 	if flag != "" {
 		return flag

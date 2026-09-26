@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/ghiloufibg/huginn/internal/adapters/driven/demo"
-	"github.com/ghiloufibg/huginn/internal/config"
 	"github.com/ghiloufibg/huginn/internal/core/domain"
 	"github.com/ghiloufibg/huginn/internal/core/ports"
 	"github.com/ghiloufibg/huginn/internal/core/ports/portstest"
@@ -18,11 +17,11 @@ var t0 = time.Date(2026, 9, 26, 19, 0, 0, 0, time.UTC)
 // clock: the same wiring as Build, deterministic.
 func demoCatalog(t *testing.T) (<-chan ports.CatalogSnapshot, *portstest.FakeClock) {
 	t.Helper()
-	c := config.Default()
+	c := demoConfig(t)
 	clock := portstest.NewFakeClock(t0)
-	cluster := demo.New(demo.Options{Seed: c.Demo.Seed, Rate: c.Demo.Rate, Clock: clock})
+	cluster := demo.New(demo.Options{Seed: c.Huginn.Demo.Seed, Rate: c.Huginn.Demo.Rate, Clock: clock})
 	cat := newCatalog(c, cluster, clock, containerFilter(c), diag.Discard())
-	ch, err := cat.Watch(t.Context(), domain.EnvRec)
+	ch, err := cat.Watch(t.Context(), domain.Env("rec"))
 	if err != nil {
 		t.Fatal(err)
 	}

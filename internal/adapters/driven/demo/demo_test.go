@@ -15,7 +15,7 @@ import (
 
 var t0 = time.Date(2026, 9, 26, 19, 0, 0, 0, time.UTC)
 
-var recScope = ports.Scope{Env: domain.EnvRec, Namespaces: []string{"app-rec"}}
+var recScope = ports.Scope{Env: domain.Env("rec"), Namespaces: []string{"app-rec"}}
 
 func newTest(t *testing.T) (*Cluster, *portstest.FakeClock) {
 	t.Helper()

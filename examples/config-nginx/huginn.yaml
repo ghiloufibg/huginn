@@ -1,0 +1,8 @@
+# yaml-language-server: $schema=../../docs/schema/huginn.schema.json
+# Example: text access logs of nginx next to JSON application logs, two
+# formats chosen per container. Reference: docs/CONFIG.md
+version: 1
+default_env: prod
+windows:
+  presets: [5m, 15m, 1h, 6h, 1d]
+  default: 5m

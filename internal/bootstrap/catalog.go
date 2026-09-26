@@ -2,7 +2,6 @@ package bootstrap
 
 import (
 	"log/slog"
-	"slices"
 
 	"github.com/ghiloufibg/huginn/internal/config"
 	"github.com/ghiloufibg/huginn/internal/core/app"
@@ -10,27 +9,21 @@ import (
 	"github.com/ghiloufibg/huginn/internal/core/ports"
 )
 
-// containerFilter combines the built-in sidecar denylist with the
-// configured one.
+// containerFilter hides the sidecars listed in containers.yaml.
 func containerFilter(c *config.Config) domain.ContainerFilter {
-	deny := slices.Clone(config.DefaultContainerDenylist)
-	for _, d := range c.Containers.Denylist {
-		if !slices.Contains(deny, d) {
-			deny = append(deny, d)
-		}
-	}
-	return domain.ContainerFilter{Deny: deny, Allow: c.Containers.Allowlist, IncludeInit: c.Containers.IncludeInit}
+	return domain.ContainerFilter{Deny: c.Containers.Hide, Allow: c.Containers.AlwaysShow, IncludeInit: c.Containers.ShowInit}
 }
 
-// resolverChain builds the repository resolvers in resolver.order.
+// resolverChain builds the repository resolvers in services.yaml resolve
+// order.
 func resolverChain(c *config.Config, log *slog.Logger) ports.RepoResolver {
 	var chain app.ChainResolver
-	for _, name := range c.Resolver.Order {
+	for _, name := range c.Services.Resolve {
 		switch name {
-		case "config":
+		case "explicit":
 			chain.Resolvers = append(chain.Resolvers, app.MappingResolver{Repos: mappedRepos(c)})
 		case "labels":
-			chain.Resolvers = append(chain.Resolvers, app.LabelResolver{Keys: c.Resolver.LabelKeys})
+			chain.Resolvers = append(chain.Resolvers, app.LabelResolver{Keys: c.Services.LabelKeys})
 		case "manifests":
 			log.Debug("manifest resolver not available yet (milestone M4); skipped")
 		}
@@ -38,11 +31,11 @@ func resolverChain(c *config.Config, log *slog.Logger) ports.RepoResolver {
 	return chain
 }
 
-// mappedRepos converts the explicit repos: section to domain repositories.
+// mappedRepos converts the explicit list to domain repositories.
 func mappedRepos(c *config.Config) []domain.Repo {
 	var out []domain.Repo
-	for _, r := range c.Repos {
-		repo := domain.Repo{Name: r.Name}
+	for _, r := range c.Services.Explicit {
+		repo := domain.Repo{Name: r.Repo}
 		for _, w := range r.Workloads {
 			repo.Workloads = append(repo.Workloads, domain.WorkloadRef{
 				Env: domain.Env(w.Env), Namespace: w.Namespace, Kind: domain.WorkloadKind(w.Kind), Name: w.Name,
@@ -56,7 +49,7 @@ func mappedRepos(c *config.Config) []domain.Repo {
 // scopes returns the cluster scope of each configured environment.
 func scopes(c *config.Config) func(domain.Env) (ports.Scope, bool) {
 	return func(env domain.Env) (ports.Scope, bool) {
-		e, ok := c.Environments[env.String()]
+		e, ok := c.Environments.ByName[env.String()]
 		return ports.Scope{Env: env, Context: e.Context, Namespaces: e.Namespaces}, ok
 	}
 }

@@ -1,0 +1,5 @@
+# yaml-language-server: $schema=../../docs/schema/huginn.schema.json
+# Example: Node.js services logging JSON with pino. Only the files that
+# differ from examples/config are commented. Reference: docs/CONFIG.md
+version: 1
+default_env: staging

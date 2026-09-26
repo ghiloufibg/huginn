@@ -1,11 +1,14 @@
 // Package archtest enforces the layer rules of docs/ARCHITECTURE.md by
-// inspecting the import graph of every package under internal/ and cmd/.
-// It has no production code: the rules live in Rules and the check runs
-// as a test, so a forbidden import fails the build in CI.
+// inspecting the import graph of every package under internal/, cmd/ and
+// examples/, and checks that no application knowledge is written in the
+// generic code (AppData). It has no production code: the rules live in
+// Rules and AppDataRule and the checks run as tests, so a violation fails
+// the build in CI.
 package archtest
 
 import (
 	"fmt"
+	"go/ast"
 	"go/parser"
 	"go/token"
 	"io/fs"
@@ -45,7 +48,8 @@ var Rules = []Rule{
 	{Scope: "internal/diag", Why: "diagnostics use the standard library only"},
 	{Scope: "internal/buildinfo", Why: "build info uses the standard library only"},
 	{Scope: "internal/archtest", Why: "the architecture test uses the standard library only"},
-	{Scope: "internal/bootstrap", Allow: []string{"internal/"}, ThirdParty: true, Why: "the composition root wires everything"},
+	{Scope: "internal/bootstrap", Allow: []string{"internal/", "examples"}, ThirdParty: true, Why: "the composition root wires everything"},
+	{Scope: "examples", Why: "the example config folders are data, embedded for --demo"},
 	{Scope: "cmd/", Allow: []string{"internal/bootstrap"}, Why: "main only starts the composition root"},
 }
 
@@ -134,7 +138,7 @@ func isStdlib(imp string) bool {
 func Imports(root string) (map[string][]string, error) {
 	out := map[string][]string{}
 	fset := token.NewFileSet()
-	for _, top := range []string{"internal", "cmd"} {
+	for _, top := range []string{"internal", "cmd", "examples"} {
 		err := filepath.WalkDir(filepath.Join(root, top), func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return err
@@ -163,6 +167,79 @@ func Imports(root string) (map[string][]string, error) {
 					out[pkg] = append(out[pkg], imp)
 				}
 			}
+			return nil
+		})
+		if err != nil && !os.IsNotExist(err) {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
+// AppDataRule lists the packages that must hold no application knowledge
+// (docs/DECISIONS.md D-030) and strings that betray it: environment and
+// namespace names, framework packages, sidecars, JSON field names of a log
+// encoder. That knowledge belongs in the config folder. The demo and
+// Kubernetes adapters are not listed: synthetic data and Kubernetes API
+// names are theirs.
+var AppDataRule = struct {
+	Scopes    []string
+	Forbidden []string
+}{
+	Scopes: []string{
+		"internal/core/", "internal/config", "internal/bootstrap", "internal/adapters/driving/",
+		"internal/adapters/driven/layout", "internal/adapters/driven/logformat",
+	},
+	Forbidden: []string{
+		"springframework", "spring-", "logstash", "logger_name", "thread_name", "@timestamp", "stack_trace",
+		"istio", "vault-agent", "linkerd", "app-dev", "app-rec", "app-prd", "prprd",
+	},
+}
+
+// AppData returns the string literals of AppDataRule.Scopes (struct tags
+// and comments excluded) that contain a forbidden string, as
+// "file:line: literal".
+func AppData(root string) ([]string, error) {
+	var out []string
+	fset := token.NewFileSet()
+	for _, scope := range AppDataRule.Scopes {
+		dir := filepath.Join(root, filepath.FromSlash(strings.TrimSuffix(scope, "/")))
+		err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() && d.Name() == "testdata" {
+				return filepath.SkipDir
+			}
+			if d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				return nil
+			}
+			f, err := parser.ParseFile(fset, path, nil, 0)
+			if err != nil {
+				return err
+			}
+			tags := map[*ast.BasicLit]bool{}
+			ast.Inspect(f, func(n ast.Node) bool {
+				if fl, ok := n.(*ast.Field); ok && fl.Tag != nil {
+					tags[fl.Tag] = true
+				}
+				return true
+			})
+			ast.Inspect(f, func(n ast.Node) bool {
+				lit, ok := n.(*ast.BasicLit)
+				if !ok || lit.Kind != token.STRING || tags[lit] {
+					return true
+				}
+				low := strings.ToLower(lit.Value)
+				for _, bad := range AppDataRule.Forbidden {
+					if strings.Contains(low, bad) {
+						rel, _ := filepath.Rel(root, path)
+						out = append(out, fmt.Sprintf("%s:%d: %s", filepath.ToSlash(rel), fset.Position(lit.Pos()).Line, lit.Value))
+						break
+					}
+				}
+				return true
+			})
 			return nil
 		})
 		if err != nil && !os.IsNotExist(err) {

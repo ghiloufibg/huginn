@@ -1,0 +1,6 @@
+# yaml-language-server: $schema=../../docs/schema/environments.schema.json
+version: 1
+environments:
+  prod:
+    namespaces: [web]
+    production: true

@@ -1,6 +1,8 @@
 package archtest
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -48,5 +50,31 @@ func TestCheckCatchesViolations(t *testing.T) {
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("violations:\n%s\n\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+func TestNoApplicationDataInGenericCode(t *testing.T) {
+	found, err := AppData("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range found {
+		t.Errorf("application knowledge belongs in the config folder (docs/CONFIG.md), not in code: %s", f)
+	}
+}
+
+func TestAppDataCatchesLiteralsNotTagsOrComments(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "internal", "core", "x")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	src := "package x\n\n// istio is fine in a comment.\ntype T struct {\n\tA string `doc:\"e.g. app-rec\"`\n}\n\nvar ns = \"app-rec\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "x.go"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	found, err := AppData(root)
+	if err != nil || len(found) != 1 || !strings.HasPrefix(found[0], "internal/core/x/x.go:8:") {
+		t.Fatalf("found %v, %v", found, err)
 	}
 }

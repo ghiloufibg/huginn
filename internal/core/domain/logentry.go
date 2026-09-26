@@ -42,6 +42,9 @@ type LogEntry struct {
 	Raw string
 	// Structured is true when Raw was parsed as a structured record.
 	Structured bool
+	// Format is the name of the log format that decoded the entry; the
+	// view draws it with that format's layout.
+	Format string
 
 	search string // cached lower-cased searchable text, see searchText
 }

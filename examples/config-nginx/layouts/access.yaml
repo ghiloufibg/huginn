@@ -1,0 +1,8 @@
+# yaml-language-server: $schema=../../../docs/schema/layout.schema.json
+version: 1
+stream:
+  columns:
+    - { name: time,   key: t, show: "{time}",               role: time }
+    - { name: status, key: s, show: "{field:status}",       role: level }
+    - { name: bytes,  key: b, show: "{field:bytes|right:6}", role: dim, hide_below: 120 }
+    - { name: client, key: i, show: "{field:remote}",       role: thread, visible: false }

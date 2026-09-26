@@ -13,12 +13,12 @@ var t0 = time.Date(2026, 9, 26, 19, 0, 0, 0, time.UTC)
 func TestFakeClusterContract(t *testing.T) {
 	RunClusterContract(t, func(t *testing.T) ClusterFixture {
 		c := NewFakeCluster()
-		ref := domain.WorkloadRef{Env: domain.EnvRec, Namespace: "app-rec", Kind: domain.KindDeployment, Name: "api"}
+		ref := domain.WorkloadRef{Env: domain.Env("rec"), Namespace: "app-rec", Kind: domain.KindDeployment, Name: "api"}
 		c.AddWorkload(domain.Workload{Ref: ref})
-		c.AddWorkload(domain.Workload{Ref: domain.WorkloadRef{Env: domain.EnvPrd, Namespace: "app-prd", Name: "api"}})
-		c.PutPod(domain.Pod{Env: domain.EnvRec, Namespace: "app-rec", Name: "api-1", Labels: map[string]string{"app": "api"}})
-		c.PutPod(domain.Pod{Env: domain.EnvRec, Namespace: "app-rec", Name: "web-1", Labels: map[string]string{"app": "web"}})
-		return ClusterFixture{Client: c, Scope: ports.Scope{Env: domain.EnvRec, Namespaces: []string{"app-rec"}}, PodLabels: ports.Selector{"app": "api"}}
+		c.AddWorkload(domain.Workload{Ref: domain.WorkloadRef{Env: domain.Env("prd"), Namespace: "app-prd", Name: "api"}})
+		c.PutPod(domain.Pod{Env: domain.Env("rec"), Namespace: "app-rec", Name: "api-1", Labels: map[string]string{"app": "api"}})
+		c.PutPod(domain.Pod{Env: domain.Env("rec"), Namespace: "app-rec", Name: "web-1", Labels: map[string]string{"app": "web"}})
+		return ClusterFixture{Client: c, Scope: ports.Scope{Env: domain.Env("rec"), Namespaces: []string{"app-rec"}}, PodLabels: ports.Selector{"app": "api"}}
 	})
 }
 
@@ -69,11 +69,11 @@ func TestFakeClockTicker(t *testing.T) {
 func TestFakeClusterWatchDeliversChanges(t *testing.T) {
 	c := NewFakeCluster()
 	ctx := t.Context()
-	ch, err := c.WatchPods(ctx, ports.Scope{Env: domain.EnvRec}, nil)
+	ch, err := c.WatchPods(ctx, ports.Scope{Env: domain.Env("rec")}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	c.PutPod(domain.Pod{Env: domain.EnvRec, Namespace: "n", Name: "p"})
+	c.PutPod(domain.Pod{Env: domain.Env("rec"), Namespace: "n", Name: "p"})
 	c.DeletePod("n", "p")
 	if ev := <-ch; ev.Type != domain.PodAdded {
 		t.Fatalf("got %v", ev.Type)

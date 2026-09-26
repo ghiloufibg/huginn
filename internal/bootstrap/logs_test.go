@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/ghiloufibg/huginn/internal/adapters/driven/demo"
-	"github.com/ghiloufibg/huginn/internal/config"
 	"github.com/ghiloufibg/huginn/internal/core/domain"
 	"github.com/ghiloufibg/huginn/internal/core/ports"
 	"github.com/ghiloufibg/huginn/internal/core/ports/portstest"
@@ -48,15 +47,15 @@ func (r *logReader) until(step time.Duration, ok func() bool) {
 
 func openDemoLogs(t *testing.T, q ports.LogQuery) *logReader {
 	t.Helper()
-	c := config.Default()
+	c := demoConfig(t)
 	clock := portstest.NewFakeClock(t0)
-	cluster := demo.New(demo.Options{Seed: c.Demo.Seed, Rate: c.Demo.Rate, Clock: clock})
-	dec, _, err := logParts(c)
-	if err != nil {
-		t.Fatal(err)
+	cluster := demo.New(demo.Options{Seed: c.Huginn.Demo.Seed, Rate: c.Huginn.Demo.Rate, Clock: clock})
+	lp, probs := logParts(c)
+	if probs != nil {
+		t.Fatal(probs)
 	}
-	s := newLogSessions(c, cluster, clock, containerFilter(c), dec, diag.Discard())
-	q.Env, q.Repo = domain.EnvRec, "payment-service"
+	s := newLogSessions(c, cluster, clock, containerFilter(c), lp.decoders, diag.Discard())
+	q.Env, q.Repo = domain.Env("rec"), "payment-service"
 	ch, err := s.Open(t.Context(), q)
 	if err != nil {
 		t.Fatal(err)

@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "always_show": {
+      "description": "Container names always shown, even if matched by hide.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "hide": {
+      "description": "Container names, or substrings of their image, hidden from the logs screen (sidecars).",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "show_init": {
+      "description": "Show init containers too.",
+      "type": "boolean"
+    },
+    "version": {
+      "description": "Structure version of this file; must be 1.",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "version"
+  ],
+  "title": "Huginn config folder: containers.yaml",
+  "type": "object"
+}

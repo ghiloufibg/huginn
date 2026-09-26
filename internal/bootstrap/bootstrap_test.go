@@ -2,7 +2,8 @@ package bootstrap
 
 import (
 	"bytes"
-	"io/fs"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -14,8 +15,24 @@ import (
 
 func env(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
 
+// demoConfig is the embedded example folder, as --demo loads it.
+func demoConfig(t *testing.T) *config.Config {
+	t.Helper()
+	c, err := LoadConfig(cli.Options{Demo: true}, noFiles())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
+// noFiles is an environment without HUGINN_CONFIG whose user config
+// directory has no huginn folder.
+func noFiles() Env {
+	return Env{Getenv: func(string) string { return "" }, UserConfigDir: func() (string, error) { return "/none", nil }}
+}
+
 func TestResolveEnv(t *testing.T) {
-	c := config.Default()
+	c := demoConfig(t)
 	tests := []struct {
 		name    string
 		o       cli.Options
@@ -29,7 +46,7 @@ func TestResolveEnv(t *testing.T) {
 		{"flag", cli.Options{EnvFlag: "prprd"}, nil, "prprd", ""},
 		{"same twice", cli.Options{EnvFlag: "prd", EnvArg: "prd"}, nil, "prd", ""},
 		{"conflict", cli.Options{EnvFlag: "prd", EnvArg: "dev"}, nil, "", "given twice"},
-		{"unknown", cli.Options{EnvArg: "qa"}, nil, "", `unknown environment "qa" (configured: dev, rec, prprd, prd)`},
+		{"unknown", cli.Options{EnvArg: "qa"}, nil, "", `unknown environment "qa" (environments.yaml has: dev, rec, prprd, prd)`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -48,7 +65,7 @@ func TestResolveEnv(t *testing.T) {
 }
 
 func TestResolveTheme(t *testing.T) {
-	c := config.Default()
+	c := demoConfig(t)
 	if got := ResolveTheme("", env(nil), c); got != "light" {
 		t.Errorf("default: %s", got)
 	}
@@ -63,17 +80,8 @@ func TestResolveTheme(t *testing.T) {
 	}
 }
 
-func noFiles() config.Locator {
-	return config.Locator{
-		Getenv:        func(string) string { return "" },
-		UserConfigDir: func() (string, error) { return "/none", nil },
-		UserHomeDir:   func() (string, error) { return "/none", nil },
-		ReadFile:      func(string) ([]byte, error) { return nil, fs.ErrNotExist },
-	}
-}
-
 func TestBuildDemo(t *testing.T) {
-	app, err := Build(cli.Options{EnvArg: "prd", Demo: true, Since: "1h"}, noFiles(), env(nil), diag.Discard())
+	app, err := Build(cli.Options{EnvArg: "prd", Demo: true, Since: "1h"}, noFiles(), diag.Discard())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,20 +95,53 @@ func TestBuildDemo(t *testing.T) {
 }
 
 func TestBuildRejectsBadSince(t *testing.T) {
-	_, err := Build(cli.Options{Demo: true, Since: "soon"}, noFiles(), env(nil), diag.Discard())
+	_, err := Build(cli.Options{Demo: true, Since: "soon"}, noFiles(), diag.Discard())
 	if err == nil || !strings.Contains(err.Error(), "--since") {
 		t.Fatalf("err = %v", err)
 	}
 }
 
-func TestMainVersionAndConfigExample(t *testing.T) {
+func TestMainVersion(t *testing.T) {
 	var out, errOut bytes.Buffer
 	if code := Main([]string{"--version"}, &out, &errOut); code != 0 || !strings.HasPrefix(out.String(), "huginn ") {
 		t.Fatalf("version: %d %q %q", code, out.String(), errOut.String())
 	}
-	out.Reset()
-	if code := Main([]string{"config", "example"}, &out, &errOut); code != 0 || !bytes.Equal(out.Bytes(), config.Example) {
-		t.Fatalf("config example: %d", code)
+}
+
+func TestMissingFolderExitsWithTheStructure(t *testing.T) {
+	var out, errOut bytes.Buffer
+	code := Main([]string{"--config", filepath.Join(t.TempDir(), "nope")}, &out, &errOut)
+	if code != ExitConfig || !strings.Contains(errOut.String(), "formats/*.yaml") {
+		t.Fatalf("code %d, stderr %q", code, errOut.String())
+	}
+}
+
+func TestInvalidFolderListsEveryProblem(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.CopyFS(dir, os.DirFS("../../examples/config")); err != nil {
+		t.Fatal(err)
+	}
+	write := func(name, data string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(data), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("layouts/spring.yaml", "version: 1\nstream:\n  columns:\n    - {name: time, show: \"{tme}\"}\n")
+	write("ui.yaml", "version: 1\nkeymap: {folow: [f]}\n")
+	var out, errOut bytes.Buffer
+	code := Main([]string{"--config", dir}, &out, &errOut)
+	msg := strings.Join(strings.Fields(errOut.String()), " ") // alignment is not part of the contract
+	for _, want := range []string{
+		"has 2 errors",
+		`layouts/spring.yaml:4:20  stream.columns[0].show: unknown field "tme"`,
+		`ui.yaml:2:1  keymap: unknown action "folow"`,
+	} {
+		if !strings.Contains(msg, strings.Join(strings.Fields(want), " ")) {
+			t.Errorf("missing %q in:\n%s", want, errOut.String())
+		}
+	}
+	if code != ExitConfig {
+		t.Fatalf("exit code %d, want %d", code, ExitConfig)
 	}
 }
 
@@ -113,6 +154,6 @@ func TestMainReportsErrors(t *testing.T) {
 
 // scopeOf returns the cluster scope of the app's environment.
 func scopeOf(a *App) ports.Scope {
-	e := a.Config.Environments[a.Env.String()]
+	e := a.Config.Environments.ByName[a.Env.String()]
 	return ports.Scope{Env: a.Env, Context: e.Context, Namespaces: e.Namespaces}
 }

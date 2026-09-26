@@ -73,8 +73,8 @@ type logsScreen struct {
 	height     int
 
 	// columns (columns.go)
-	hide          ports.Columns // columns hidden by the user
-	manualColumns bool          // the user chose columns: no automatic narrowing
+	hide          ports.ColumnSet // names of columns hidden by the user
+	manualColumns bool            // the user chose columns: no automatic narrowing
 	focus         bool
 	beforeFocus   columnState
 	cycling       bool // c is hiding columns one by one
@@ -104,8 +104,8 @@ func newLogsScreen(m *Model, repo string) *logsScreen {
 	return (&logsScreen{
 		repo: repo, window: m.opts.Window, follow: true, tail: true,
 		buf: domain.NewLogBuffer(m.opts.BufferLines), podColor: map[string]int{},
-		filter: domain.NewLogFilter(),
-	}).withColumns(m.opts.LogColumns)
+		filter: domain.NewLogFilter(), hide: initialHide(m.opts.Columns),
+	}).withColumns(m.opts.LogColumns, m.opts.Columns)
 }
 
 func (l *logsScreen) crumbs() []string { return []string{"services", l.repo, "logs"} }
@@ -601,10 +601,11 @@ func (l *logsScreen) renderEntry(m *Model, e *domain.LogEntry, row viewRow, w in
 	if id := l.podLabel(e.Pod); id != "" {
 		b.WriteString(t.podStyle(l.podColor[e.Pod]).Render(id) + " ")
 	}
-	opts := ports.RenderOptions{Timestamps: l.timestamps, Now: m.opts.Now(), Hide: l.effectiveHide(w)}
-	for _, s := range m.opts.Renderer.Render(*e, opts) {
+	opts := ports.RenderOptions{Timestamps: l.timestamps, Now: m.opts.Now(), Hide: l.effectiveHide(m, w)}
+	warnColor := e.Level == domain.LevelWarn && levelHidden(m.opts.Columns, opts.Hide)
+	for _, s := range m.layout(e).Render(*e, opts) {
 		style := l.segmentStyle(t, e, s.Role)
-		if s.Role == ports.RoleMessage && e.Level == domain.LevelWarn && opts.Hide.Has(ports.ColLevel) {
+		if s.Role == ports.RoleMessage && warnColor {
 			style = t.Warn // the level column no longer says it
 		}
 		if row.context {
@@ -744,7 +745,7 @@ func (l *logsScreen) statusLeft(m *Model) string {
 		fmt.Sprintf("buffer %d%%", l.buf.Len()*100/max(l.buf.Cap(), 1)),
 		fmt.Sprintf("dropped %d", l.buf.Dropped()),
 	)
-	if cols := l.columnsLabel(m.width); cols != "" {
+	if cols := l.columnsLabel(m, m.width); cols != "" {
 		fields = append(fields, cols)
 	}
 	if l.wrap {

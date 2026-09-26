@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -157,25 +158,39 @@ func (f *fakeSessions) Open(ctx context.Context, q ports.LogQuery) (<-chan ports
 	return make(chan ports.LogBatch), nil
 }
 
-// compactRenderer mimics the Spring compact layout without importing the
-// adapter: time, level, logger, message.
+// compactRenderer is a test ports.LogLayout mimicking the Spring compact
+// layout of examples/config without importing the adapter: time, level,
+// thread, class, message.
 type compactRenderer struct{}
+
+var testColumns = []ports.ColumnSpec{
+	{Name: "time", Key: "t", Role: ports.RoleTimestamp, Visible: true},
+	{Name: "level", Key: "l", Role: ports.RoleLevel, Visible: true},
+	{Name: "thread", Key: "h", Role: ports.RoleThread, HideBelow: 140, Visible: true},
+	{Name: "class", Key: "c", Role: ports.RoleLogger, HideBelow: 110, Visible: true},
+}
+
+func (compactRenderer) Columns() []ports.ColumnSpec { return testColumns }
+
+func (compactRenderer) FrameworkFrame(frame string) bool {
+	return strings.HasPrefix(frame, "java.") || strings.HasPrefix(frame, "org.springframework.")
+}
 
 func (compactRenderer) Render(e domain.LogEntry, o ports.RenderOptions) []ports.Segment {
 	var out []ports.Segment
-	if o.Timestamps != ports.TimestampNone && !o.Hide.Has(ports.ColTime) {
+	if o.Timestamps != ports.TimestampNone && !o.Hide.Has("time") {
 		out = append(out, ports.Segment{Text: e.Time.UTC().Format("15:04:05.000") + " ", Role: ports.RoleTimestamp})
 	}
 	if !e.Structured {
 		return append(out, ports.Segment{Text: e.Message, Role: ports.RoleMessage})
 	}
-	if !o.Hide.Has(ports.ColLevel) {
+	if !o.Hide.Has("level") {
 		out = append(out, ports.Segment{Text: fmt.Sprintf("%5s ", e.Level), Role: ports.RoleLevel})
 	}
-	if !o.Hide.Has(ports.ColThread) {
+	if !o.Hide.Has("thread") {
 		out = append(out, ports.Segment{Text: "[" + e.Thread + "] ", Role: ports.RoleThread})
 	}
-	if !o.Hide.Has(ports.ColLogger) {
+	if !o.Hide.Has("class") {
 		out = append(out, ports.Segment{Text: e.Logger + " : ", Role: ports.RoleLogger})
 	}
 	return append(out, ports.Segment{Text: e.Message, Role: ports.RoleMessage})

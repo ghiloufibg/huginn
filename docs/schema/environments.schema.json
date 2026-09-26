@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "environments": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "properties": {
+          "context": {
+            "description": "kubeconfig context name; empty means the current context.",
+            "type": "string"
+          },
+          "namespace_from": {
+            "description": "Read the namespace from a sops-encrypted dotenv file instead: sops:\u003cfile\u003e#\u003ckey\u003e.",
+            "type": "string"
+          },
+          "namespaces": {
+            "description": "Namespaces holding the environment's workloads. Set this or namespace_from.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "production": {
+            "description": "Show the production banner.",
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "description": "Environments by name (lower-case letters, digits, '-'), in the order the environment picker shows them.",
+      "type": "object"
+    },
+    "version": {
+      "description": "Structure version of this file; must be 1.",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "version",
+    "environments"
+  ],
+  "title": "Huginn config folder: environments.yaml",
+  "type": "object"
+}

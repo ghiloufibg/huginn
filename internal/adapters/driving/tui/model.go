@@ -32,11 +32,14 @@ type Options struct {
 	Keys    Keymap
 	Source  string // "demo" or "kubernetes", shown in the header
 	Catalog ports.ServiceCatalog
-	// Sessions opens log sessions; Renderer lays out stream lines and
-	// FullRenderer the zoomed entry.
-	Sessions     ports.LogSession
-	Renderer     ports.LogRenderer
-	FullRenderer ports.LogRenderer
+	// Sessions opens log sessions.
+	Sessions ports.LogSession
+	// Layouts draw entries, by the name of the format that decoded them;
+	// Layout draws the others. Columns are the optional columns of all
+	// layouts, in order, names merged (the columns picker and c use them).
+	Layouts map[string]ports.LogLayout
+	Layout  ports.LogLayout
+	Columns []ports.ColumnSpec
 	// Windows are the time-window presets (keys 1…7, then 0 for tail);
 	// Window is the initial one.
 	Windows []domain.TimeWindow
@@ -491,4 +494,12 @@ func (m *Model) findService(repo string) (domain.ServiceSummary, bool) {
 		return domain.ServiceSummary{}, false
 	}
 	return m.snap.Services[i], true
+}
+
+// layout returns the layout drawing e.
+func (m *Model) layout(e *domain.LogEntry) ports.LogLayout {
+	if l, ok := m.opts.Layouts[e.Format]; ok {
+		return l
+	}
+	return m.opts.Layout
 }

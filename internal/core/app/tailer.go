@@ -19,6 +19,14 @@ type tailer struct {
 	pod       domain.Pod
 	container string
 	msgs      chan<- tailMsg
+	dec       ports.LogDecoder // chosen on first use
+}
+
+func (t *tailer) decode(l domain.RawLine) domain.LogEntry {
+	if t.dec == nil {
+		t.dec = t.s.Decoders.For(t.q.Repo, t.container)
+	}
+	return t.dec.Decode(l)
 }
 
 func (t *tailer) send(ctx context.Context, m tailMsg) bool {
@@ -87,7 +95,7 @@ func (t *tailer) history(ctx context.Context) ([]domain.LogEntry, time.Time, map
 	var out []domain.LogEntry
 	var last time.Time
 	for l := range st.Lines() {
-		out = append(out, t.s.Decoder.Decode(l))
+		out = append(out, t.decode(l))
 		if l.Time.After(last) {
 			last = l.Time
 			clear(seen)
@@ -114,7 +122,7 @@ func (t *tailer) follow(ctx context.Context, req ports.LogRequest, seen map[stri
 				continue
 			}
 		}
-		e := t.s.Decoder.Decode(l)
+		e := t.decode(l)
 		if !t.send(ctx, tailMsg{live: &e}) {
 			return n, last, nil
 		}

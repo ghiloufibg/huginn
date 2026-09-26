@@ -1,0 +1,188 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "stack": {
+      "additionalProperties": false,
+      "description": "Stack traces.",
+      "properties": {
+        "framework_prefixes": {
+          "description": "Frames starting with one of these prefixes are framework frames; the others are highlighted as your code in zoom, e.g. [java., org.springframework.].",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "stream": {
+      "additionalProperties": false,
+      "description": "The line on the logs screen. Its columns are the ones c hides one by one and C toggles.",
+      "properties": {
+        "columns": {
+          "description": "Columns drawn before the message, in this order, separated by one space.",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "hide_below": {
+                "description": "stream only: hidden automatically when the terminal is narrower than this many cells, until you choose columns.",
+                "type": "integer"
+              },
+              "key": {
+                "description": "stream only: one letter toggling the column in the columns picker (C). p, z, r and f are taken.",
+                "type": "string"
+              },
+              "name": {
+                "description": "Column name, unique in the line; shown in the columns picker and the status bar.",
+                "type": "string"
+              },
+              "role": {
+                "description": "Color role from the theme. time columns follow ctrl+t; level columns hidden make WARN messages colored. Default plain.",
+                "enum": [
+                  "time",
+                  "level",
+                  "thread",
+                  "logger",
+                  "pid",
+                  "dim",
+                  "plain"
+                ],
+                "type": "string"
+              },
+              "show": {
+                "description": "Template of the column, e.g. \"[{thread|last:15|right:15}]\". A column whose text is empty is left out.",
+                "type": "string"
+              },
+              "visible": {
+                "description": "stream only: shown when a logs screen opens. Default true.",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "name",
+              "show"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "separator": {
+          "additionalProperties": false,
+          "description": "Text between the columns and the message.",
+          "properties": {
+            "after": {
+              "description": "Shown only when one of these columns is shown. Empty: whenever any column is shown.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "text": {
+              "description": "Separator text, e.g. \": \".",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "time_format": {
+          "description": "Go reference layout of {time}. Default 15:04:05.000.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "columns"
+      ],
+      "type": "object"
+    },
+    "version": {
+      "description": "Structure version of this file; must be 1.",
+      "type": "integer"
+    },
+    "zoom": {
+      "additionalProperties": false,
+      "description": "The first line of the zoom view (enter). Default: the stream line.",
+      "properties": {
+        "columns": {
+          "description": "Columns drawn before the message, in this order, separated by one space.",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "hide_below": {
+                "description": "stream only: hidden automatically when the terminal is narrower than this many cells, until you choose columns.",
+                "type": "integer"
+              },
+              "key": {
+                "description": "stream only: one letter toggling the column in the columns picker (C). p, z, r and f are taken.",
+                "type": "string"
+              },
+              "name": {
+                "description": "Column name, unique in the line; shown in the columns picker and the status bar.",
+                "type": "string"
+              },
+              "role": {
+                "description": "Color role from the theme. time columns follow ctrl+t; level columns hidden make WARN messages colored. Default plain.",
+                "enum": [
+                  "time",
+                  "level",
+                  "thread",
+                  "logger",
+                  "pid",
+                  "dim",
+                  "plain"
+                ],
+                "type": "string"
+              },
+              "show": {
+                "description": "Template of the column, e.g. \"[{thread|last:15|right:15}]\". A column whose text is empty is left out.",
+                "type": "string"
+              },
+              "visible": {
+                "description": "stream only: shown when a logs screen opens. Default true.",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "name",
+              "show"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "separator": {
+          "additionalProperties": false,
+          "description": "Text between the columns and the message.",
+          "properties": {
+            "after": {
+              "description": "Shown only when one of these columns is shown. Empty: whenever any column is shown.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "text": {
+              "description": "Separator text, e.g. \": \".",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "time_format": {
+          "description": "Go reference layout of {time}. Default 15:04:05.000.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "columns"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "version",
+    "stream"
+  ],
+  "title": "Huginn config folder: layouts/\u003cname\u003e.yaml",
+  "type": "object"
+}

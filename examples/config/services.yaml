@@ -1,0 +1,18 @@
+# yaml-language-server: $schema=../../docs/schema/services.schema.json
+# How a workload is attached to a repository. Reference: docs/CONFIG.md#servicesyaml
+version: 1
+
+# Rules tried in order; the first one that names a repository wins.
+#   explicit   the list below
+#   labels     the value of the first label (or annotation) of label_keys
+#   manifests  the repository whose overlay folder declares the workload
+resolve: [labels]
+
+label_keys: [app.kubernetes.io/part-of, app.kubernetes.io/name, app]
+
+# With resolve: [explicit, labels], list repositories by hand:
+# explicit:
+#   - repo: payment-service
+#     workloads:
+#       - { env: rec, name: payment-service }
+#       - { env: rec, name: payment-worker }

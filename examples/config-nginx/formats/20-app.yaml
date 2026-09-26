@@ -1,0 +1,10 @@
+# yaml-language-server: $schema=../../../docs/schema/format.schema.json
+# Every other container: JSON lines with the usual field names.
+version: 1
+decoder: json
+fields:
+  time:    [time, ts]
+  level:   [level, severity]
+  logger:  logger
+  message: [msg, message]
+layout: basic

@@ -76,5 +76,5 @@
                                                                                                                         
                                                                                                                         
                                                                                                                         
- sort name   HELP   keys follow ui.keymap in the configuration                                                          
+ sort name   HELP   keys follow keymap in ui.yaml                                                                       
  j/k scroll  / search  esc close                                                                                        

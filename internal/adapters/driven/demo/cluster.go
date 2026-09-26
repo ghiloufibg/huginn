@@ -3,6 +3,7 @@ package demo
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"sync"
 	"time"
@@ -23,6 +24,9 @@ type Options struct {
 	// Retention is how far back "the node" keeps logs; older lines are
 	// not returned, to reproduce the real retention caveat. Default 6h.
 	Retention time.Duration
+	// RolloutEnv is the environment where the live rollout plays
+	// (default: the first environment in name order).
+	RolloutEnv domain.Env
 }
 
 // Cluster is the demo implementation of ports.ClusterClient and
@@ -58,14 +62,20 @@ func New(opts Options) *Cluster {
 	}
 	if len(opts.Namespaces) == 0 {
 		opts.Namespaces = map[domain.Env]string{}
-		for _, e := range domain.DefaultEnvs() {
+		for _, e := range []domain.Env{"dev", "rec", "prprd", "prd"} {
 			opts.Namespaces[e] = "app-" + e.String()
+		}
+	}
+	if _, ok := opts.Namespaces[opts.RolloutEnv]; !ok {
+		opts.RolloutEnv = "rec"
+		if _, ok := opts.Namespaces["rec"]; !ok {
+			opts.RolloutEnv = slices.Sorted(maps.Keys(opts.Namespaces))[0]
 		}
 	}
 	return &Cluster{
 		opts:      opts,
 		world:     newWorld(opts.Seed, opts.Clock.Now(), opts.Namespaces),
-		rolloutNS: opts.Namespaces[domain.EnvRec],
+		rolloutNS: opts.Namespaces[opts.RolloutEnv],
 	}
 }
 
@@ -220,7 +230,7 @@ func (c *Cluster) stageAt(stage int) time.Duration {
 // applyStage runs one step of the live rollout in rec: 0 adds a new pod,
 // 1 makes it ready, 2 retires the oldest pod.
 func (c *Cluster) applyStage(stage int) ([]domain.PodEvent, []ports.WorkloadEvent) {
-	env := domain.EnvRec
+	env := domain.Env("rec")
 	if _, ok := c.opts.Namespaces[env]; !ok {
 		return nil, nil
 	}

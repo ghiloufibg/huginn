@@ -33,8 +33,8 @@ func TestColumnsPickerAndFocus(t *testing.T) {
 	press(m, "C")
 	golden(t, "columns_picker_160x20", render(m, 160, 20))
 	press(m, "h")
-	if !l.hide.Has(ports.ColThread) || l.hide.Has(ports.ColLogger) || !l.manualColumns {
-		t.Fatalf("h must hide only the thread: %b", l.hide)
+	if !l.hide.Has("thread") || l.hide.Has("class") || !l.manualColumns {
+		t.Fatalf("h must hide only the thread: %v", l.hide)
 	}
 	press(m, "p", "esc")
 	out := render(m, 160, 12)
@@ -47,11 +47,11 @@ func TestColumnsPickerAndFocus(t *testing.T) {
 		t.Fatal("focus layout: message right after the level")
 	}
 	press(m, "z")
-	if !l.hide.Has(ports.ColThread) || l.podID != podIDNone || l.hide.Has(ports.ColLogger) {
-		t.Fatalf("z twice restores the previous columns: %b pod %v", l.hide, l.podID)
+	if !l.hide.Has("thread") || l.podID != podIDNone || l.hide.Has("class") {
+		t.Fatalf("z twice restores the previous columns: %v pod %v", l.hide, l.podID)
 	}
 	press(m, "C", "r", "esc")
-	if l.hide != 0 || l.podID != podIDShort || l.manualColumns {
+	if len(l.hide) != 0 || l.podID != podIDShort || l.manualColumns {
 		t.Fatal("r resets to defaults and automatic narrowing")
 	}
 }
@@ -60,14 +60,14 @@ func TestTimeFormatNeverHides(t *testing.T) {
 	m, l := openLogs(t)
 	for _, want := range []string{"time UTC", "time relative", "time local", "time UTC"} {
 		press(m, "ctrl+t")
-		if m.flashText != want || l.hide.Has(ports.ColTime) {
-			t.Fatalf("flash %q (time hidden %v), want %q", m.flashText, l.hide.Has(ports.ColTime), want)
+		if m.flashText != want || l.hide.Has("time") {
+			t.Fatalf("flash %q (time hidden %v), want %q", m.flashText, l.hide.Has("time"), want)
 		}
 	}
 	press(m, "c") // hides the time
 	press(m, "ctrl+t")
-	if l.hide.Has(ports.ColTime) || l.cycling || l.timestamps != ports.TimestampRelative {
-		t.Fatalf("ctrl+t shows a hidden time in the next format and ends the cycle: hide %b cycling %v", l.hide, l.cycling)
+	if l.hide.Has("time") || l.cycling || l.timestamps != ports.TimestampRelative {
+		t.Fatalf("ctrl+t shows a hidden time in the next format and ends the cycle: hide %v cycling %v", l.hide, l.cycling)
 	}
 	press(m, "C", "f")
 	if l.timestamps != ports.TimestampLocal {
@@ -93,8 +93,8 @@ func TestColumnCycle(t *testing.T) {
 				t.Fatalf("width %d press %d: flash %q, want %q", c.width, i+1, m.flashText, want)
 			}
 		}
-		if l.hide != 0 || l.manualColumns || l.cycling {
-			t.Fatalf("width %d: the last press restores the layout from before (hide %b manual %v)", c.width, l.hide, l.manualColumns)
+		if len(l.hide) != 0 || l.manualColumns || l.cycling {
+			t.Fatalf("width %d: the last press restores the layout from before (hide %v manual %v)", c.width, l.hide, l.manualColumns)
 		}
 	}
 }
@@ -111,12 +111,12 @@ func TestColumnCycleEndsOnOtherColumnChanges(t *testing.T) {
 		before := columnState{hide: l.hide, podID: l.podID, manual: l.manualColumns}
 		press(m, "c")
 		if keys[0] == "z" { // time and level hidden by c, the rest by z: nothing left to hide
-			if m.flashText != "columns shown" || l.effectiveHide(160) != 0 {
-				t.Fatalf("z then c: flash %q, hide %b", m.flashText, l.hide)
+			if m.flashText != "columns shown" || len(l.effectiveHide(m, 160)) != 0 {
+				t.Fatalf("z then c: flash %q, hide %v", m.flashText, l.hide)
 			}
 			continue
 		}
-		if !l.cycling || l.beforeCycle != before {
+		if !l.cycling || !sameState(l.beforeCycle, before) {
 			t.Fatalf("%v then c starts a new cycle from the current layout", keys)
 		}
 	}
@@ -128,9 +128,9 @@ func TestResetDisplayKeepsTheData(t *testing.T) {
 	press(m, "/", "t", "i", "m", "e", "o", "u", "t", "enter", "e", "c", "c", "ctrl+t", "I", "W", "L")
 	window := l.window
 	press(m, "R")
-	if l.hide != 0 || l.manualColumns || l.cycling || l.focus || l.podID != podIDShort ||
+	if len(l.hide) != 0 || l.manualColumns || l.cycling || l.focus || l.podID != podIDShort ||
 		l.timestamps != ports.TimestampLocal || l.pan != 0 || l.wrap {
-		t.Fatalf("R resets the display: hide %b manual %v pod %v time %v pan %d wrap %v", l.hide, l.manualColumns, l.podID, l.timestamps, l.pan, l.wrap)
+		t.Fatalf("R resets the display: hide %v manual %v pod %v time %v pan %d wrap %v", l.hide, l.manualColumns, l.podID, l.timestamps, l.pan, l.wrap)
 	}
 	if !l.filter.Active() || l.window != window || m.flashText != "display reset" {
 		t.Fatalf("R keeps filters and window (filter %v, flash %q)", l.filter.Active(), m.flashText)
@@ -153,8 +153,8 @@ func TestConfiguredColumns(t *testing.T) {
 	m, _ := newTestModel(t, 1, "")
 	m.opts.LogColumns = []string{"time", "level"}
 	l := newLogsScreen(m, "payment-service")
-	if !l.manualColumns || l.podID != podIDNone || !l.hide.Has(ports.ColThread) || !l.hide.Has(ports.ColLogger) || l.hide.Has(ports.ColTime) {
-		t.Fatalf("configured columns: hide %b pod %v", l.hide, l.podID)
+	if !l.manualColumns || l.podID != podIDNone || !l.hide.Has("thread") || !l.hide.Has("class") || l.hide.Has("time") {
+		t.Fatalf("configured columns: hide %v pod %v", l.hide, l.podID)
 	}
 }
 

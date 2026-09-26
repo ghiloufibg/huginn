@@ -1,195 +1,200 @@
 package config
 
 import (
-	"bytes"
 	"errors"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 )
 
-func TestExampleIsValidAndMatchesDefaults(t *testing.T) {
-	c, err := Parse(Example, "example.yaml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if c.DefaultEnv != "rec" || c.Logs.DefaultWindow != "15m" || !c.Logs.RedactEnabled() || c.UI.Theme != "light" {
-		t.Fatalf("unexpected values: %+v", c)
-	}
-	d := Default()
-	if got, want := c.LogFormats["logstash"].Fields.TraceID, d.LogFormats["logstash"].Fields.TraceID; strings.Join(got, ",") != strings.Join(want, ",") {
-		t.Fatalf("example logstash profile drifted from built-in default: %v vs %v", got, want)
+// valid is a minimal valid folder; tests change one file at a time.
+func valid() fstest.MapFS {
+	return fstest.MapFS{
+		"huginn.yaml":        {Data: []byte("version: 1\ndefault_env: rec\n")},
+		"environments.yaml":  {Data: []byte("version: 1\nenvironments:\n  rec: {namespaces: [app-rec]}\n  prd: {namespaces: [app-prd], production: true}\n")},
+		"services.yaml":      {Data: []byte("version: 1\nresolve: [labels]\nlabel_keys: [app]\n")},
+		"formats/app.yaml":   {Data: []byte("version: 1\ndecoder: json\nfields: {message: msg}\nlayout: basic\n")},
+		"layouts/basic.yaml": {Data: []byte("version: 1\nstream:\n  columns:\n    - {name: time, key: t, show: \"{time}\", role: time}\n")},
 	}
 }
 
-func TestDefaultsValidate(t *testing.T) {
-	if err := Validate(Default(), ""); err != nil {
-		t.Fatal(err)
+func load(t *testing.T, fsys fstest.MapFS) (*Config, string) {
+	t.Helper()
+	c, err := LoadFS(fsys, "cfg")
+	if err == nil {
+		return c, ""
 	}
-}
-
-func TestEmptyFileUsesDefaults(t *testing.T) {
-	c, err := Parse(nil, "empty.yaml")
-	if err != nil || c.DefaultEnv != "rec" || len(c.Environments) != 4 {
-		t.Fatalf("got %+v, %v", c, err)
-	}
-}
-
-func TestUnknownKeysReportLineAndSuggestion(t *testing.T) {
-	in := "default_env: rec\nenvronments:\n  rec: {namespaces: [a]}\nlogs:\n  tail_line: 3\n"
-	_, err := Parse([]byte(in), "c.yaml")
 	var ce *Error
 	if !errors.As(err, &ce) {
 		t.Fatalf("want *Error, got %v", err)
 	}
-	msg := err.Error()
-	for _, want := range []string{
-		`c.yaml:2: unknown key "envronments" (did you mean "environments"?)`,
-		`c.yaml:5: logs: unknown key "tail_line" (did you mean "tail_lines"?)`,
-	} {
-		if !strings.Contains(msg, want) {
-			t.Errorf("missing %q in:\n%s", want, msg)
+	return nil, err.Error()
+}
+
+func wantErrors(t *testing.T, msg string, wants ...string) {
+	t.Helper()
+	if msg == "" {
+		t.Fatal("expected errors, the folder loaded")
+	}
+	msg = strings.Join(strings.Fields(msg), " ") // alignment is not part of the contract
+	for _, w := range wants {
+		if !strings.Contains(msg, strings.Join(strings.Fields(w), " ")) {
+			t.Errorf("missing %q in:\n%s", w, msg)
 		}
 	}
 }
 
-func TestValidationCollectsAllProblems(t *testing.T) {
-	in := `
-default_env: staging
-environments:
-  rec: {}
-  Bad_Name: {namespaces: [x]}
-logs:
-  default_window: soon
-  buffer_lines: 10
-  format: nope
-ui:
-  theme: dark
-repos:
-  - name: ""
-    workloads: [{env: prd, name: api}]
-`
-	_, err := Parse([]byte(in), "c.yaml")
-	if err == nil {
-		t.Fatal("expected errors")
+func TestMinimalFolderLoadsWithNeutralDefaults(t *testing.T) {
+	c, msg := load(t, valid())
+	if msg != "" {
+		t.Fatal(msg)
 	}
-	for _, want := range []string{
-		`default_env: "staging" is not a configured environment`,
-		"environments.rec: set namespaces or namespace_from",
-		"environments.Bad_Name: invalid environment name",
-		`logs.default_window: invalid time window "soon"`,
-		"logs.buffer_lines: must be at least 1000",
-		`logs.format: "nope" is not a defined log format`,
-		`ui.theme: "dark" is not one of: light, accessible, classic, none`,
-		"repos[0].name: must not be empty",
-		`repos[0].workloads[0].env: "prd" is not a configured environment`,
-	} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("missing %q in:\n%v", want, err)
+	if strings.Join(c.Environments.Names, ",") != "rec,prd" {
+		t.Fatalf("environments keep file order: %v", c.Environments.Names)
+	}
+	if c.Huginn.Windows.Default != "15m" || c.Huginn.Logs.BufferLines != 50000 || c.UI.Theme != "light" {
+		t.Fatalf("defaults: %+v %+v", c.Huginn, c.UI)
+	}
+	l := c.Layouts["basic"]
+	if l.File != "layouts/basic.yaml" || len(l.Zoom.Columns) != 1 || l.Stream.TimeFormat != "15:04:05.000" {
+		t.Fatalf("layout defaults: %+v", l)
+	}
+	if c.Formats[0].Name != "app" || c.Formats[0].File != "formats/app.yaml" {
+		t.Fatalf("format name from file: %+v", c.Formats[0])
+	}
+}
+
+func TestExamplesLoad(t *testing.T) {
+	dirs, _ := filepath.Glob("../../examples/config*")
+	if len(dirs) == 0 {
+		t.Fatal("no example folder")
+	}
+	for _, dir := range dirs {
+		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+			continue
+		}
+		if _, err := LoadDir(dir); err != nil {
+			t.Errorf("%s: %v", dir, err)
 		}
 	}
 }
 
-func TestPathsAcceptScalar(t *testing.T) {
-	in := "log_formats:\n  mine:\n    decoder: json-fields\n    fields:\n      message: msg\nlogs:\n  format: mine\n"
-	c, err := Parse([]byte(in), "c.yaml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := c.LogFormats["mine"].Fields.Message; len(got) != 1 || got[0] != "msg" {
-		t.Fatalf("got %v", got)
-	}
-	if _, ok := c.LogFormats["logstash"]; !ok {
-		t.Fatal("built-in profile must stay available")
-	}
-}
-
-func TestRedactCanBeDisabled(t *testing.T) {
-	c, err := Parse([]byte("logs: {redact: false}"), "c.yaml")
-	if err != nil || c.Logs.RedactEnabled() {
-		t.Fatalf("redact should be off: %v", err)
-	}
-}
-
-func testLocator(files map[string]string, env map[string]string) Locator {
-	return Locator{
-		Getenv:        func(k string) string { return env[k] },
-		UserConfigDir: func() (string, error) { return "/cfg", nil },
-		UserHomeDir:   func() (string, error) { return "/home/u", nil },
-		ReadFile: func(p string) ([]byte, error) {
-			if s, ok := files[filepath.ToSlash(p)]; ok {
-				return []byte(s), nil
-			}
-			return nil, fs.ErrNotExist
-		},
+func TestMissingAndUnexpectedFiles(t *testing.T) {
+	fsys := valid()
+	delete(fsys, "services.yaml")
+	delete(fsys, "layouts/basic.yaml")
+	fsys["enviroment.yaml"] = &fstest.MapFile{Data: []byte("x: 1")}
+	fsys["README.md"] = &fstest.MapFile{Data: []byte("notes")}
+	fsys[".git/HEAD"] = &fstest.MapFile{Data: []byte("ref")}
+	fsys["formats/notes.txt"] = &fstest.MapFile{Data: []byte("x")}
+	_, msg := load(t, fsys)
+	wantErrors(t, msg,
+		"services.yaml  missing file (required)",
+		"enviroment.yaml  unexpected file (did you mean environments.yaml?)",
+		"layouts/  missing folder",
+		"formats/notes.txt  unexpected entry",
+	)
+	if strings.Contains(msg, "README") || strings.Contains(msg, ".git") {
+		t.Fatalf("documentation and hidden files are ignored:\n%s", msg)
 	}
 }
 
-func TestLoadLookupOrder(t *testing.T) {
-	files := map[string]string{
-		"/explicit.yaml":                     "default_env: prd",
-		"/env.yaml":                          "default_env: dev",
-		"/cfg/huginn/config.yaml":            "default_env: prprd",
-		"/home/u/.config/huginn/config.yaml": "default_env: rec",
+func TestUnknownKeysAndTypesArePositioned(t *testing.T) {
+	fsys := valid()
+	fsys["services.yaml"].Data = []byte("version: 1\nresolver: [labels]\nlabel_keys: [app]\n")
+	fsys["huginn.yaml"].Data = []byte("version: 1\ndefault_env: rec\nlogs:\n  buffer_lines: many\n")
+	_, msg := load(t, fsys)
+	wantErrors(t, msg,
+		`services.yaml:2:1  unknown key "resolver" (did you mean "resolve"?)`,
+		"huginn.yaml:4",
+		"cannot unmarshal",
+	)
+}
+
+func TestAllProblemsReportedAtOnce(t *testing.T) {
+	fsys := valid()
+	fsys["huginn.yaml"].Data = []byte("version: 2\ndefault_env: staging\nwindows:\n  presets: [15m, tail, soon]\n")
+	fsys["environments.yaml"].Data = []byte("version: 1\nenvironments:\n  rec: {namespaces: [a], namespace_from: \"sops:x#K\"}\n  Prd: {}\n")
+	fsys["services.yaml"].Data = []byte("version: 1\nresolve: [labels, magic]\n")
+	fsys["formats/app.yaml"].Data = []byte("version: 1\ndecoder: regex\npattern: '(?P<time>\\S+) (?P<status>\\d+'\nlayout: fancy\n")
+	fsys["formats/web.yaml"] = &fstest.MapFile{Data: []byte("version: 1\ndecoder: regex\npattern: '(?P<time>\\S+) (?P<status>\\d+)'\nlevel_from: {field: code, map: {\"5*\": fatal}}\nlayout: basic\n")}
+	fsys["layouts/basic.yaml"].Data = []byte(`version: 1
+stream:
+  columns:
+    - {name: time, key: t, show: "{time}"}
+    - {name: time, key: p, show: "{level}", role: colour}
+  separator: {text: ": ", after: [class]}
+`)
+	fsys["ui.yaml"] = &fstest.MapFile{Data: []byte("version: 1\nlog_columns: [time, trace]\n")}
+	_, msg := load(t, fsys)
+	wantErrors(t, msg,
+		"huginn.yaml:1:1  version: must be 1",
+		`huginn.yaml:2:1  default_env: "staging" is not in environments.yaml`,
+		`huginn.yaml:4:18  windows.presets[1]: "tail" is not a duration`,
+		`windows.presets[2]: "soon"`,
+		"environments.rec: set namespaces or namespace_from, not both",
+		"environments.Prd: invalid environment name",
+		"environments.Prd: set namespaces or namespace_from",
+		`services.yaml:2:19  resolve[1]: "magic" is not one of: explicit, labels, manifests`,
+		"the labels rule needs label_keys",
+		"formats/app.yaml:3:1  pattern: invalid regular expression",
+		`formats/app.yaml:4:1  layout: "fancy" is not a file of layouts/`,
+		`level_from.field: "code" is not a group of pattern`,
+		"missing group (?P<message>…)",
+		`"fatal" is not one of: error, warn, info, debug`,
+		`stream.columns[1].name: "time" is already the name of stream.columns[0]`,
+		`stream.columns[1].key: "p" is used by the columns picker`,
+		`stream.columns[1].role: "colour" is not one of`,
+		`stream.separator.after[0]: "class" is not a column of stream`,
+		`ui.yaml:2:21  log_columns[1]: "trace" is neither pod nor a stream column`,
+	)
+	if !strings.HasPrefix(msg, "the config folder cfg has ") {
+		t.Fatalf("header: %s", msg)
 	}
-	tests := []struct {
-		name, explicit string
-		env            map[string]string
-		files          map[string]string
-		wantEnv        string
-		wantPath       string
+}
+
+func TestRequiredKeys(t *testing.T) {
+	fsys := valid()
+	fsys["huginn.yaml"].Data = []byte("version: 1\n")
+	fsys["formats/app.yaml"].Data = []byte("version: 1\ndecoder: json\n")
+	_, msg := load(t, fsys)
+	wantErrors(t, msg,
+		`huginn.yaml  missing required key "default_env"`,
+		`formats/app.yaml  missing required key "layout"`,
+		"the json decoder needs fields.message",
+	)
+}
+
+func TestLocate(t *testing.T) {
+	getenv := func(v string) func(string) string { return func(string) string { return v } }
+	home := func() (string, error) { return "/home/u/.config", nil }
+	cases := []struct {
+		explicit, env, want string
 	}{
-		{"flag wins", "/explicit.yaml", map[string]string{EnvConfigPath: "/env.yaml"}, files, "prd", "/explicit.yaml"},
-		{"env var", "", map[string]string{EnvConfigPath: "/env.yaml"}, files, "dev", "/env.yaml"},
-		{"os config dir", "", nil, files, "prprd", "/cfg/huginn/config.yaml"},
-		{"home fallback", "", nil, map[string]string{"/home/u/.config/huginn/config.yaml": "default_env: rec"}, "rec", "/home/u/.config/huginn/config.yaml"},
-		{"no file", "", nil, nil, "rec", ""},
+		{"/a", "/b", "/a"},
+		{"", "/b", "/b"},
+		{"", "", filepath.Join("/home/u/.config", "huginn")},
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			c, path, err := Load(testLocator(tt.files, tt.env), tt.explicit)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if c.DefaultEnv != tt.wantEnv || filepath.ToSlash(path) != tt.wantPath {
-				t.Fatalf("got %s from %q", c.DefaultEnv, path)
-			}
-		})
+	for _, c := range cases {
+		got, err := Locate(c.explicit, getenv(c.env), home)
+		if err != nil || got != c.want {
+			t.Errorf("Locate(%q, %q) = %q, %v; want %q", c.explicit, c.env, got, err, c.want)
+		}
 	}
 }
 
-func TestLoadExplicitMissingFails(t *testing.T) {
-	if _, _, err := Load(testLocator(nil, nil), "/nope.yaml"); err == nil {
-		t.Fatal("missing explicit file must fail")
+func TestLoadDirWithoutFolderShowsTheStructure(t *testing.T) {
+	_, err := LoadDir(filepath.Join(t.TempDir(), "missing"))
+	if err == nil || !strings.Contains(err.Error(), "environments.yaml   required") {
+		t.Fatalf("got %v", err)
 	}
 }
 
-func TestSchemaUpToDate(t *testing.T) {
-	want, err := Schema()
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err := os.ReadFile("../../docs/config.schema.json")
-	if err != nil {
-		t.Fatalf("%v (run: make schema)", err)
-	}
-	if !bytes.Equal(bytes.TrimSpace(got), bytes.TrimSpace(want)) {
-		t.Fatal("docs/config.schema.json is stale; run: make schema")
-	}
-}
-
-func TestEnvNamesOrder(t *testing.T) {
-	c := &Config{Environments: map[string]Environment{"prd": {}, "zeta": {}, "dev": {}, "alpha": {}, "rec": {}}}
-	if got := strings.Join(EnvNames(c), ","); got != "dev,rec,prd,alpha,zeta" {
-		t.Fatalf("got %s", got)
-	}
-}
-
-func TestExamplesCopyUpToDate(t *testing.T) {
-	got, err := os.ReadFile("../../examples/config.yaml")
-	if err != nil || !bytes.Equal(got, Example) {
-		t.Fatal("examples/config.yaml is stale; run: make schema")
+func TestSchemas(t *testing.T) {
+	s, err := Schemas()
+	if err != nil || len(s) != 7 || !strings.Contains(string(s["format.schema.json"]), `"required"`) {
+		t.Fatalf("schemas: %d %v", len(s), err)
 	}
 }

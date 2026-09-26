@@ -1,28 +1,28 @@
-// Command genschema writes the JSON Schema of Huginn's configuration and a
-// copy of the example configuration for people browsing the repository.
+// Command genschema writes the JSON Schemas of the config folder files, one
+// per file kind, for editor completion (docs/CONFIG.md).
 package main
 
 import (
 	"flag"
 	"log"
 	"os"
+	"path/filepath"
 
 	"github.com/ghiloufibg/huginn/internal/config"
 )
 
 func main() {
-	out := flag.String("out", "config.schema.json", "schema output file")
-	example := flag.String("example", "", "example config output file (optional)")
+	out := flag.String("out", "schema", "output folder")
 	flag.Parse()
-	b, err := config.Schema()
+	schemas, err := config.Schemas()
 	if err != nil {
 		log.Fatal(err)
 	}
-	if err := os.WriteFile(*out, append(b, '\n'), 0o644); err != nil {
+	if err := os.MkdirAll(*out, 0o755); err != nil {
 		log.Fatal(err)
 	}
-	if *example != "" {
-		if err := os.WriteFile(*example, config.Example, 0o644); err != nil {
+	for name, b := range schemas {
+		if err := os.WriteFile(filepath.Join(*out, name), b, 0o644); err != nil {
 			log.Fatal(err)
 		}
 	}

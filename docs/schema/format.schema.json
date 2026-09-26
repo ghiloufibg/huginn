@@ -1,0 +1,242 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "decoder": {
+      "description": "json: one JSON object per line; regex: text lines read with pattern; plain: no structure.",
+      "enum": [
+        "json",
+        "regex",
+        "plain"
+      ],
+      "type": "string"
+    },
+    "fields": {
+      "additionalProperties": false,
+      "description": "json decoder: where each standard field is, as candidate JSON paths (first present wins; dots walk into objects).",
+      "properties": {
+        "app": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          ],
+          "description": "Application name."
+        },
+        "level": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          ],
+          "description": "Severity."
+        },
+        "logger": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          ],
+          "description": "Logger or class name."
+        },
+        "message": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          ],
+          "description": "Message text; required by the json decoder."
+        },
+        "pid": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          ],
+          "description": "Process id."
+        },
+        "stack": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          ],
+          "description": "Stack trace."
+        },
+        "thread": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          ],
+          "description": "Thread name."
+        },
+        "time": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          ],
+          "description": "Entry time (RFC 3339 string or epoch seconds/milliseconds)."
+        },
+        "trace_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          ],
+          "description": "Correlation or trace identifier."
+        }
+      },
+      "type": "object"
+    },
+    "hidden": {
+      "description": "json decoder: fields (globs on dotted paths) never shown on the stream, only in zoom metadata, e.g. [\"kubernetes.*\"].",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "layout": {
+      "description": "Layout used to draw these lines: a file name of layouts/ without extension.",
+      "type": "string"
+    },
+    "level_from": {
+      "additionalProperties": false,
+      "description": "regex decoder: derive the level from another group, e.g. the HTTP status.",
+      "properties": {
+        "field": {
+          "description": "Group whose value decides the level, e.g. status.",
+          "type": "string"
+        },
+        "map": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Glob on the value to level (error, warn, info, debug), tried longest glob first, e.g. {\"5*\": error, \"4*\": warn, \"*\": info}.",
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "levels": {
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        ]
+      },
+      "description": "Extra spellings of each level in these logs (case ignored), e.g. {error: [\"50\", FATAL]}. Common spellings are known already.",
+      "propertyNames": {
+        "enum": [
+          "error",
+          "warn",
+          "info",
+          "debug"
+        ]
+      },
+      "type": "object"
+    },
+    "match": {
+      "additionalProperties": false,
+      "description": "Containers read with this format. Formats are tried in file name order; the first match wins. No match section: every container.",
+      "properties": {
+        "containers": {
+          "description": "Globs on the container name, e.g. [nginx]. Empty: any container.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "repos": {
+          "description": "Globs on the repository name, e.g. [\"payment-*\"]. Empty: any repository.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "pattern": {
+      "description": "regex decoder: Go regular expression with named groups; time, level, logger, thread, message, trace_id, app and pid are standard fields, other groups become extra fields. message is required.",
+      "type": "string"
+    },
+    "time_format": {
+      "description": "regex decoder: Go reference layout of the time group, e.g. 02/Jan/2006:15:04:05 -0700. Default RFC 3339.",
+      "type": "string"
+    },
+    "version": {
+      "description": "Structure version of this file; must be 1.",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "version",
+    "decoder",
+    "layout"
+  ],
+  "title": "Huginn config folder: formats/\u003cname\u003e.yaml",
+  "type": "object"
+}

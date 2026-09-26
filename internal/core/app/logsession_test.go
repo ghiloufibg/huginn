@@ -29,7 +29,7 @@ type fixture struct {
 
 func podWithSidecar(name string, started time.Time) domain.Pod {
 	return domain.Pod{
-		Env: domain.EnvRec, Namespace: "ns", Name: name, OwnerName: "api", Phase: domain.PodRunning, Started: started,
+		Env: domain.Env("rec"), Namespace: "ns", Name: name, OwnerName: "api", Phase: domain.PodRunning, Started: started,
 		Labels: map[string]string{"app": "api"},
 		Containers: []domain.Container{
 			{Name: "api", State: domain.ContainerRunning, Ready: true},
@@ -58,7 +58,7 @@ func newFixture(t *testing.T) *fixture {
 	}, nil)
 	logs.SetLines("ns", "api-1", "istio-proxy", []domain.RawLine{{Time: t0.Add(-2 * time.Minute), Pod: "api-1", Container: "istio-proxy", Text: "envoy"}}, nil)
 	return &fixture{cluster: fc, logs: logs, clock: clock, s: &LogSessions{
-		Cluster: fc, Logs: logs, Clock: clock, Decoder: passthrough{},
+		Cluster: fc, Logs: logs, Clock: clock, Decoders: ports.OneDecoder{LogDecoder: passthrough{}},
 		Resolver: LabelResolver{Keys: []string{"app.kubernetes.io/part-of"}},
 		Scopes:   scopes("ns"),
 		Filter:   domain.ContainerFilter{Deny: []string{"istio-proxy"}},
@@ -107,7 +107,7 @@ func (r *reader) until(step time.Duration, ok func() bool) {
 func (f *fixture) open(t *testing.T, q ports.LogQuery) (*reader, context.CancelFunc) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
-	q.Env, q.Repo = domain.EnvRec, "shop"
+	q.Env, q.Repo = domain.Env("rec"), "shop"
 	if q.Window == (domain.TimeWindow{}) {
 		q.Window = domain.TimeWindow{Since: 15 * time.Minute}
 	}
@@ -212,7 +212,7 @@ func TestTailWindowAndUnknownRepo(t *testing.T) {
 	if got := strings.Join(r.entries, ","); got != "a3,b4" {
 		t.Fatalf("tail 1 per container: %s", got)
 	}
-	_, err := f.s.Open(context.Background(), ports.LogQuery{Env: domain.EnvRec, Repo: "nope", Window: domain.TimeWindow{Tail: 1}})
+	_, err := f.s.Open(context.Background(), ports.LogQuery{Env: domain.Env("rec"), Repo: "nope", Window: domain.TimeWindow{Tail: 1}})
 	if !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("err %v", err)
 	}
@@ -221,7 +221,7 @@ func TestTailWindowAndUnknownRepo(t *testing.T) {
 func TestSessionClosesOnCancel(t *testing.T) {
 	f := newFixture(t)
 	ctx, cancel := context.WithCancel(context.Background())
-	ch, err := f.s.Open(ctx, ports.LogQuery{Env: domain.EnvRec, Repo: "shop", Window: domain.TimeWindow{Tail: 5}, Follow: true})
+	ch, err := f.s.Open(ctx, ports.LogQuery{Env: domain.Env("rec"), Repo: "shop", Window: domain.TimeWindow{Tail: 5}, Follow: true})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -28,7 +28,8 @@ type LogSessions struct {
 	Resolver ports.RepoResolver
 	Scopes   func(domain.Env) (ports.Scope, bool)
 	Filter   domain.ContainerFilter
-	Decoder  ports.LogDecoder
+	// Decoders picks each container's decoder.
+	Decoders ports.LogDecoders
 	Clock    ports.Clock
 	// Flush is the delay between two batches (default 33ms, about 30/s).
 	Flush time.Duration

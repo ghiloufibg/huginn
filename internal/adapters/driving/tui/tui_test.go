@@ -49,7 +49,7 @@ func newTestModel(t *testing.T, env int, repo string) (*Model, *fakeCatalog) {
 	sessions, events = &fakeSessions{}, &fakeEvents{}
 	m := NewModel(Options{
 		Env: envs[env], Envs: envs, Theme: theme, Keys: keys, Source: "demo", Catalog: fc, Repo: repo,
-		Sessions: sessions, Events: events, Renderer: compactRenderer{}, FullRenderer: compactRenderer{},
+		Sessions: sessions, Events: events, Layout: compactRenderer{}, Columns: testColumns,
 		Now:    func() time.Time { return t0 },
 		Filter: domain.ContainerFilter{Deny: []string{"istio-proxy", "istio-init", "vault-agent"}},
 	})

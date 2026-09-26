@@ -6,24 +6,8 @@ import (
 )
 
 // Env is the name of a deployment environment such as "rec" or "prd".
-// Environment names are defined by configuration; the well-known ones are
-// provided as constants for defaults and documentation.
+// Environment names are defined by the config folder only.
 type Env string
-
-// Well-known environment names.
-const (
-	EnvDev   Env = "dev"
-	EnvRec   Env = "rec"
-	EnvPrprd Env = "prprd"
-	EnvPrd   Env = "prd"
-)
-
-// DefaultEnv is used when neither flags, arguments, environment variables
-// nor configuration select an environment.
-const DefaultEnv = EnvRec
-
-// DefaultEnvs lists the well-known environments in promotion order.
-func DefaultEnvs() []Env { return []Env{EnvDev, EnvRec, EnvPrprd, EnvPrd} }
 
 var envNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,31}$`)
 

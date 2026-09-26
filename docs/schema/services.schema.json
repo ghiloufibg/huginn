@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "explicit": {
+      "description": "Repositories and their workloads, listed by hand (rule explicit).",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "repo": {
+            "description": "Repository name as shown on the services screen.",
+            "type": "string"
+          },
+          "workloads": {
+            "description": "Workloads owned by the repository.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "env": {
+                  "description": "Environment name; a key of environments.yaml.",
+                  "type": "string"
+                },
+                "kind": {
+                  "description": "Workload kind. Default Deployment.",
+                  "enum": [
+                    "Deployment",
+                    "StatefulSet",
+                    "DaemonSet",
+                    "CronJob"
+                  ],
+                  "type": "string"
+                },
+                "name": {
+                  "description": "Workload name.",
+                  "type": "string"
+                },
+                "namespace": {
+                  "description": "Namespace; default: the environment's first namespace.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "env",
+                "name"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "repo",
+          "workloads"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "label_keys": {
+      "description": "Workload labels or annotations whose value is the repository name (rule labels).",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "manifests": {
+      "additionalProperties": false,
+      "description": "Where to find an environment's Kubernetes manifests in a repository (rule manifests).",
+      "properties": {
+        "files": {
+          "description": "Entry files read in an overlay folder, e.g. [kustomization.yaml].",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "overlay_glob": {
+          "description": "Glob, relative to a repository, of an environment's overlay folder; {env} is replaced by the environment name.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "resolve": {
+      "description": "Rules tried in order for each workload; the first that names a repository wins.",
+      "items": {
+        "enum": [
+          "explicit",
+          "labels",
+          "manifests"
+        ],
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "version": {
+      "description": "Structure version of this file; must be 1.",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "version",
+    "resolve"
+  ],
+  "title": "Huginn config folder: services.yaml",
+  "type": "object"
+}

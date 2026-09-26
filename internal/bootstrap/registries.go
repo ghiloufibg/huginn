@@ -18,19 +18,20 @@ type Cluster interface {
 type ClusterFactory func(c *config.Config, clock ports.Clock) (Cluster, error)
 
 // clusterRegistry lists the cluster adapters selectable with
-// cluster.client. Adding one is a new package plus a line here.
+// the --demo flag (kubernetes otherwise). Adding one is a new package plus a line here.
 func clusterRegistry() *ports.Registry[ClusterFactory] {
 	r := ports.NewRegistry[ClusterFactory]("cluster client")
 	r.Register("demo", func(c *config.Config, clock ports.Clock) (Cluster, error) {
 		ns := map[domain.Env]string{}
-		for name, e := range c.Environments {
+		for name, e := range c.Environments.ByName {
 			if len(e.Namespaces) > 0 {
 				ns[domain.Env(name)] = e.Namespaces[0]
 			} else {
-				ns[domain.Env(name)] = "app-" + name
+				ns[domain.Env(name)] = "demo-" + name
 			}
 		}
-		return demo.New(demo.Options{Seed: c.Demo.Seed, Rate: c.Demo.Rate, Namespaces: ns, Clock: clock}), nil
+		h := c.Huginn
+		return demo.New(demo.Options{Seed: h.Demo.Seed, Rate: h.Demo.Rate, Namespaces: ns, Clock: clock, RolloutEnv: domain.Env(h.DefaultEnv)}), nil
 	})
 	r.Register("kubernetes", func(*config.Config, ports.Clock) (Cluster, error) {
 		return kubernetes.New(), nil

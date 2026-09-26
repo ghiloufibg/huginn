@@ -2,174 +2,332 @@ package config
 
 import (
 	"fmt"
+	"path"
 	"reflect"
+	"regexp"
 	"slices"
-	"sort"
 	"strings"
 
 	"github.com/ghiloufibg/huginn/internal/core/domain"
 )
 
-// Validate checks semantic rules and returns an *Error listing every
-// problem, or nil. name is the file name used in messages.
-func Validate(c *Config, name string) error {
-	v := &validator{}
-	v.enums(reflect.ValueOf(c).Elem(), "")
-	v.environments(c)
-	v.repos(c)
-	v.logs(c)
-	if len(v.probs) == 0 {
-		return nil
+// validate checks the rules of docs/CONFIG.md on a loaded folder and
+// returns every problem, located at the offending key.
+func validate(c *Config) []Problem {
+	v := &validator{c: c}
+	// Files that could not be read are already reported; only the files
+	// read are checked.
+	for file, val := range map[string]any{FileHuginn: c.Huginn, FileServices: c.Services, FileContainers: c.Containers, FileUI: c.UI} {
+		if _, ok := c.pos[file]; ok {
+			v.tags(file, reflect.ValueOf(val), "")
+		}
 	}
-	return &Error{File: name, Problems: v.probs}
+	for _, f := range c.Formats {
+		v.tags(f.File, reflect.ValueOf(f), "")
+	}
+	for _, name := range sortedKeys(c.Layouts) {
+		v.tags(c.Layouts[name].File, reflect.ValueOf(c.Layouts[name]), "")
+	}
+	v.huginn()
+	v.environments()
+	v.services()
+	v.ui()
+	for _, f := range c.Formats {
+		v.format(f)
+	}
+	for _, name := range sortedKeys(c.Layouts) {
+		v.layout(c.Layouts[name])
+	}
+	return v.probs
 }
 
-type validator struct{ probs []Problem }
-
-func (v *validator) add(path, format string, args ...any) {
-	v.probs = append(v.probs, Problem{Path: path, Msg: fmt.Sprintf(format, args...)})
+type validator struct {
+	c     *Config
+	probs []Problem
 }
 
-// enums checks every field carrying an `enum` tag (strings and string
-// slices), so allowed values are declared once, next to the field.
-func (v *validator) enums(rv reflect.Value, path string) {
+func (v *validator) add(file, path, format string, args ...any) {
+	v.probs = append(v.probs, v.c.Problem(file, path, format, args...))
+}
+
+func (v *validator) has(file, path string) bool {
+	_, ok := v.c.pos[file][path]
+	return ok
+}
+
+// tags checks the `required`, `enum` and `keys` struct tags, so these rules
+// are declared once, next to the field they describe.
+func (v *validator) tags(file string, rv reflect.Value, p string) {
 	t := rv.Type()
 	for i := range t.NumField() {
 		f, fv := t.Field(i), rv.Field(i)
 		name, _, _ := strings.Cut(f.Tag.Get("yaml"), ",")
-		p := join(path, name)
+		if name == "" || name == "-" {
+			continue
+		}
+		fp := join(p, name)
+		if f.Tag.Get("required") == "true" && !v.has(file, fp) {
+			v.add(file, p, "missing required key %q", name)
+			continue
+		}
 		if allowed := f.Tag.Get("enum"); allowed != "" {
-			v.enumValue(fv, p, strings.Split(allowed, ","))
+			v.enum(file, fp, fv, strings.Split(allowed, ","))
+		}
+		if allowed := f.Tag.Get("keys"); allowed != "" && fv.Kind() == reflect.Map {
+			for _, k := range fv.MapKeys() {
+				if !slices.Contains(strings.Split(allowed, ","), k.String()) {
+					v.add(file, join(fp, k.String()), "%q is not one of: %s", k.String(), strings.ReplaceAll(allowed, ",", ", "))
+				}
+			}
 		}
 		switch fv.Kind() {
 		case reflect.Struct:
-			v.enums(fv, p)
+			if v.has(file, fp) {
+				v.tags(file, fv, fp)
+			}
 		case reflect.Map:
 			if fv.Type().Elem().Kind() == reflect.Struct {
-				ks := fv.MapKeys()
-				sort.Slice(ks, func(a, b int) bool { return ks[a].String() < ks[b].String() })
-				for _, k := range ks {
-					v.enums(fv.MapIndex(k), join(p, k.String()))
+				for _, k := range fv.MapKeys() {
+					v.tags(file, fv.MapIndex(k), join(fp, k.String()))
 				}
 			}
 		case reflect.Slice:
 			if fv.Type().Elem().Kind() == reflect.Struct {
 				for j := range fv.Len() {
-					v.enums(fv.Index(j), fmt.Sprintf("%s[%d]", p, j))
+					v.tags(file, fv.Index(j), fmt.Sprintf("%s[%d]", fp, j))
 				}
 			}
 		}
 	}
 }
 
-func (v *validator) enumValue(fv reflect.Value, path string, allowed []string) {
-	check := func(s string) {
+func (v *validator) enum(file, p string, fv reflect.Value, allowed []string) {
+	check := func(s, at string) {
 		if s != "" && !slices.Contains(allowed, s) {
-			v.add(path, "%q is not one of: %s", s, strings.Join(allowed, ", "))
+			msg := fmt.Sprintf("%q is not one of: %s", s, strings.Join(allowed, ", "))
+			if c := closest(s, allowed); c != "" {
+				msg += fmt.Sprintf(" (did you mean %q?)", c)
+			}
+			v.add(file, at, "%s", msg)
 		}
 	}
 	switch fv.Kind() {
 	case reflect.String:
-		check(fv.String())
+		check(fv.String(), p)
 	case reflect.Slice:
 		for j := range fv.Len() {
-			check(fv.Index(j).String())
+			check(fv.Index(j).String(), fmt.Sprintf("%s[%d]", p, j))
 		}
 	}
 }
 
-func (v *validator) environments(c *Config) {
-	if _, ok := c.Environments[c.DefaultEnv]; !ok {
-		v.add("default_env", "%q is not a configured environment (have: %s)", c.DefaultEnv, strings.Join(EnvNames(c), ", "))
+func (v *validator) huginn() {
+	h, envs := v.c.Huginn, v.c.Environments
+	if _, ok := envs.ByName[h.DefaultEnv]; h.DefaultEnv != "" && !ok && len(envs.Names) > 0 {
+		v.add(FileHuginn, "default_env", "%q is not in %s (have: %s)", h.DefaultEnv, FileEnvironments, strings.Join(envs.Names, ", "))
 	}
-	for _, name := range EnvNames(c) {
-		e := c.Environments[name]
-		p := "environments." + name
+	w := h.Windows
+	if w.TailLines < 1 {
+		v.add(FileHuginn, "windows.tail_lines", "must be at least 1")
+	}
+	if len(w.Presets) > 7 {
+		v.add(FileHuginn, "windows.presets", "at most 7 presets (keys 1…7), got %d", len(w.Presets))
+	}
+	for i, s := range w.Presets {
+		if tw, err := domain.ParseTimeWindow(s, w.TailLines); err != nil || tw.Tail > 0 {
+			v.add(FileHuginn, fmt.Sprintf("windows.presets[%d]", i), "%q is not a duration such as 15m, 1h or 2d", s)
+		}
+	}
+	if _, err := domain.ParseTimeWindow(w.Default, w.TailLines); err != nil {
+		v.add(FileHuginn, "windows.default", "%v", err)
+	}
+	if h.Logs.BufferLines < 1000 {
+		v.add(FileHuginn, "logs.buffer_lines", "must be at least 1000")
+	}
+	if h.Demo.Rate < 0 {
+		v.add(FileHuginn, "demo.rate", "must not be negative")
+	}
+}
+
+func (v *validator) environments() {
+	envs := v.c.Environments
+	if _, ok := v.c.pos[FileEnvironments]; ok && len(envs.Names) == 0 {
+		v.add(FileEnvironments, "environments", "define at least one environment")
+	}
+	for _, name := range envs.Names {
+		e, p := envs.ByName[name], "environments."+name
 		if _, err := domain.ParseEnv(name); err != nil {
-			v.add(p, "%v", err)
+			v.add(FileEnvironments, p, "%v", err)
 		}
-		if len(e.Namespaces) == 0 && e.NamespaceFrom == "" {
-			v.add(p, "set namespaces or namespace_from")
+		switch {
+		case len(e.Namespaces) == 0 && e.NamespaceFrom == "":
+			v.add(FileEnvironments, p, "set namespaces or namespace_from")
+		case len(e.Namespaces) > 0 && e.NamespaceFrom != "":
+			v.add(FileEnvironments, p, "set namespaces or namespace_from, not both")
 		}
-		if e.NamespaceFrom != "" && !strings.HasPrefix(e.NamespaceFrom, "sops:") {
-			v.add(p+".namespace_from", "must look like sops:<file>#<key>")
+		if nf := e.NamespaceFrom; nf != "" && (!strings.HasPrefix(nf, "sops:") || !strings.Contains(nf, "#")) {
+			v.add(FileEnvironments, p+".namespace_from", "must look like sops:<file>#<key>")
 		}
 	}
 }
 
-func (v *validator) repos(c *Config) {
-	for i, r := range c.Repos {
-		p := fmt.Sprintf("repos[%d]", i)
-		if r.Name == "" {
-			v.add(p+".name", "must not be empty")
-		}
+func (v *validator) services() {
+	s := v.c.Services
+	uses := func(rule string) bool { return slices.Contains(s.Resolve, rule) }
+	if uses("labels") && len(s.LabelKeys) == 0 {
+		v.add(FileServices, "resolve", "the labels rule needs label_keys")
+	}
+	if uses("explicit") && len(s.Explicit) == 0 {
+		v.add(FileServices, "resolve", "the explicit rule needs an explicit list")
+	}
+	if uses("manifests") && s.Manifests.OverlayGlob == "" {
+		v.add(FileServices, "resolve", "the manifests rule needs manifests.overlay_glob")
+	}
+	if uses("manifests") && v.c.Huginn.ReposRoot == "" {
+		v.add(FileServices, "resolve", "the manifests rule needs repos_root in %s", FileHuginn)
+	}
+	for i, r := range s.Explicit {
 		for j, w := range r.Workloads {
-			wp := fmt.Sprintf("%s.workloads[%d]", p, j)
-			if _, ok := c.Environments[w.Env]; !ok {
-				v.add(wp+".env", "%q is not a configured environment", w.Env)
-			}
-			if w.Name == "" {
-				v.add(wp+".name", "must not be empty")
+			if _, ok := v.c.Environments.ByName[w.Env]; w.Env != "" && !ok {
+				v.add(FileServices, fmt.Sprintf("explicit[%d].workloads[%d].env", i, j), "%q is not in %s", w.Env, FileEnvironments)
 			}
 		}
 	}
 }
 
-func (v *validator) logs(c *Config) {
-	if _, err := domain.ParseTimeWindow(c.Logs.DefaultWindow, c.Logs.TailLines); err != nil {
-		v.add("logs.default_window", "%v", err)
-	}
-	if c.Logs.TailLines < 1 {
-		v.add("logs.tail_lines", "must be at least 1")
-	}
-	if c.Logs.BufferLines < 1000 {
-		v.add("logs.buffer_lines", "must be at least 1000")
-	}
-	if _, ok := c.LogFormats[c.Logs.Format]; !ok {
-		v.add("logs.format", "%q is not a defined log format (have: %s)", c.Logs.Format, strings.Join(sortedKeys(c.LogFormats), ", "))
-	}
-	for _, name := range sortedKeys(c.LogFormats) {
-		f := c.LogFormats[name]
-		if f.Decoder == "" {
-			v.add("log_formats."+name+".decoder", "must be set")
-		}
-		for alias, lvl := range f.LevelAliases {
-			if _, ok := domain.ParseLevel(lvl); !ok {
-				v.add("log_formats."+name+".level_aliases."+alias, "%q is not a level (debug, info, warn, error)", lvl)
-			}
+func (v *validator) ui() {
+	known := map[string]bool{"pod": true}
+	for _, l := range v.c.Layouts {
+		for _, col := range l.Stream.Columns {
+			known[col.Name] = true
 		}
 	}
-	if c.Demo.Rate < 0 {
-		v.add("demo.rate", "must not be negative")
+	for i, name := range v.c.UI.LogColumns {
+		if !known[name] {
+			v.add(FileUI, fmt.Sprintf("log_columns[%d]", i), "%q is neither pod nor a stream column of layouts/ (have: %s)", name, strings.Join(sortedKeys(known), ", "))
+		}
 	}
 }
 
-// EnvNames returns the configured environment names, well-known ones first
-// in promotion order, then others alphabetically.
-func EnvNames(c *Config) []string {
-	order := map[string]int{}
-	for i, e := range domain.DefaultEnvs() {
-		order[e.String()] = i + 1
+func (v *validator) format(f Format) {
+	if _, ok := v.c.Layouts[f.Layout]; f.Layout != "" && !ok && len(v.c.Layouts) > 0 {
+		v.add(f.File, "layout", "%q is not a file of layouts/ (have: %s)", f.Layout, strings.Join(sortedKeys(v.c.Layouts), ", "))
 	}
-	names := sortedKeys(c.Environments)
-	sort.SliceStable(names, func(a, b int) bool {
-		oa, ob := order[names[a]], order[names[b]]
-		if oa == 0 {
-			oa = 1 << 30
+	for i, g := range f.Match.Repos {
+		v.glob(f.File, fmt.Sprintf("match.repos[%d]", i), g)
+	}
+	for i, g := range f.Match.Containers {
+		v.glob(f.File, fmt.Sprintf("match.containers[%d]", i), g)
+	}
+	for lvl, spellings := range f.Levels {
+		if len(spellings) == 0 {
+			v.add(f.File, "levels."+lvl, "list at least one spelling")
 		}
-		if ob == 0 {
-			ob = 1 << 30
+	}
+	switch f.Decoder {
+	case "json":
+		if len(f.Fields.Message) == 0 {
+			v.add(f.File, "fields", "the json decoder needs fields.message")
 		}
-		return oa < ob
-	})
-	return names
+		for i, g := range f.Hidden {
+			v.glob(f.File, fmt.Sprintf("hidden[%d]", i), g)
+		}
+		if f.Pattern != "" || f.LevelFrom.Field != "" {
+			v.add(f.File, "decoder", "pattern and level_from are for the regex decoder")
+		}
+	case "regex":
+		v.regex(f)
+	case "plain":
+		if len(f.Fields.Message) > 0 || f.Pattern != "" {
+			v.add(f.File, "decoder", "the plain decoder reads no fields or pattern")
+		}
+	}
+}
+
+func (v *validator) regex(f Format) {
+	if f.Pattern == "" {
+		v.add(f.File, "decoder", "the regex decoder needs a pattern")
+		return
+	}
+	re, err := regexp.Compile(f.Pattern)
+	if err != nil {
+		v.add(f.File, "pattern", "invalid regular expression: %v", err)
+		return
+	}
+	groups := re.SubexpNames()
+	if !slices.Contains(groups, "message") {
+		v.add(f.File, "pattern", "missing group (?P<message>…)")
+	}
+	if lf := f.LevelFrom; lf.Field != "" {
+		if !slices.Contains(groups, lf.Field) {
+			v.add(f.File, "level_from.field", "%q is not a group of pattern", lf.Field)
+		}
+		for glob, lvl := range lf.Map {
+			v.glob(f.File, "level_from.map."+glob, glob)
+			if !slices.Contains([]string{"error", "warn", "info", "debug"}, lvl) {
+				v.add(f.File, "level_from.map."+glob, "%q is not one of: error, warn, info, debug", lvl)
+			}
+		}
+	}
+	if len(f.Fields.Message) > 0 || len(f.Hidden) > 0 {
+		v.add(f.File, "fields", "fields and hidden are for the json decoder; name regex groups instead")
+	}
+}
+
+func (v *validator) glob(file, p, g string) {
+	if _, err := path.Match(g, ""); err != nil {
+		v.add(file, p, "invalid glob %q", g)
+	}
+}
+
+// reservedKeys are letters of the columns picker that are not columns.
+var reservedKeys = []string{"p", "z", "r", "f"}
+
+func (v *validator) layout(l Layout) {
+	v.line(l, "stream", l.Stream, true)
+	if v.has(l.File, "zoom") {
+		v.line(l, "zoom", l.Zoom, false)
+	}
+}
+
+func (v *validator) line(l Layout, p string, line Line, stream bool) {
+	if v.has(l.File, p+".columns") && len(line.Columns) == 0 {
+		v.add(l.File, p+".columns", "list at least one column")
+	}
+	names, keys := map[string]string{}, map[string]string{}
+	for i, col := range line.Columns {
+		cp := fmt.Sprintf("%s.columns[%d]", p, i)
+		if prev, dup := names[col.Name]; dup && col.Name != "" {
+			v.add(l.File, cp+".name", "%q is already the name of %s", col.Name, prev)
+		}
+		names[col.Name] = cp
+		if !stream && (col.Key != "" || col.HideBelow != 0 || col.Visible != nil) {
+			v.add(l.File, cp, "key, hide_below and visible only apply to stream columns")
+		}
+		if col.Key != "" {
+			switch {
+			case len([]rune(col.Key)) != 1:
+				v.add(l.File, cp+".key", "must be one character")
+			case slices.Contains(reservedKeys, col.Key):
+				v.add(l.File, cp+".key", "%q is used by the columns picker (p pod, z message only, r reset, f time format)", col.Key)
+			case keys[col.Key] != "":
+				v.add(l.File, cp+".key", "%q is already the key of column %s", col.Key, keys[col.Key])
+			}
+			keys[col.Key] = col.Name
+		}
+		if col.HideBelow < 0 {
+			v.add(l.File, cp+".hide_below", "must not be negative")
+		}
+	}
+	for i, name := range line.Separator.After {
+		if _, ok := names[name]; !ok {
+			v.add(l.File, fmt.Sprintf("%s.separator.after[%d]", p, i), "%q is not a column of %s", name, p)
+		}
+	}
 }
 
 func sortedKeys[V any](m map[string]V) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
+	out := keys(m)
+	slices.Sort(out)
 	return out
 }

@@ -1,0 +1,10 @@
+# yaml-language-server: $schema=../../docs/schema/environments.schema.json
+version: 1
+environments:
+  staging:
+    context: gke_shop_europe-west4_staging
+    namespaces: [shop]
+  production:
+    context: gke_shop_europe-west4_prod
+    namespaces: [shop, shop-jobs]      # several namespaces in one environment
+    production: true

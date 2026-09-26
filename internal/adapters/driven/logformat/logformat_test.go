@@ -1,6 +1,7 @@
 package logformat
 
 import (
+	"regexp"
 	"testing"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 
 // logstash mirrors the built-in "logstash" profile of the configuration.
 var logstash = Profile{
+	Name:         "spring-json",
 	Timestamp:    []string{"@timestamp", "timestamp", "time"},
 	Level:        []string{"level", "severity", "log.level", "levelname"},
 	Logger:       []string{"logger_name", "logger", "log.logger"},
@@ -85,19 +87,6 @@ func TestNonJSONFallsBackToPlain(t *testing.T) {
 	}
 }
 
-func TestPlainSpringConsoleLine(t *testing.T) {
-	d := NewPlain()
-	e := d.Decode(raw("2026-09-26T19:12:40.104+02:00  WARN 18472 --- [payment-service] [nio-8080-exec-7] i.g.p.gateway.GatewayClient   : latency high p95=842ms"))
-	if e.Level != domain.LevelWarn || e.PID != "18472" || e.App != "payment-service" || e.Thread != "nio-8080-exec-7" ||
-		e.Logger != "i.g.p.gateway.GatewayClient" || e.Message != "latency high p95=842ms" || e.Time.Hour() != 19 {
-		t.Fatalf("got %+v", e)
-	}
-	old := d.Decode(raw("2026-09-26 19:12:40.104  INFO 1 --- [           main] o.s.b.SpringApplication : Started"))
-	if old.Level != domain.LevelInfo || old.App != "" || old.Thread != "main" || old.Message != "Started" {
-		t.Fatalf("pre-3.2 layout: %+v", old)
-	}
-}
-
 func TestPlainLevelDetection(t *testing.T) {
 	tests := map[string]domain.Level{
 		"E0926 19:12:40.104123 1 reflector.go:1] failed":  domain.LevelError,
@@ -106,7 +95,7 @@ func TestPlainLevelDetection(t *testing.T) {
 		"just a sentence mentioning an error much later…": domain.LevelUnknown,
 	}
 	for text, want := range tests {
-		if got := NewPlain().Decode(raw(text)).Level; got != want {
+		if got := NewPlain("text").Decode(raw(text)).Level; got != want {
 			t.Errorf("%q: %v, want %v", text, got, want)
 		}
 	}
@@ -118,5 +107,62 @@ func BenchmarkJSONDecode(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		d.Decode(line)
+	}
+}
+
+func TestFormatNameOnEntries(t *testing.T) {
+	d := NewJSON(logstash)
+	if d.Decode(raw(`{"message":"m"}`)).Format != "spring-json" || d.Decode(raw("banner")).Format != "spring-json" {
+		t.Fatal("entries carry the name of the format that decoded them")
+	}
+}
+
+var nginx = regexp.MustCompile(`^(?P<remote>\S+) \S+ \S+ \[(?P<time>[^\]]+)\] "(?P<message>[^"]*)" (?P<status>\d{3}) (?P<bytes>\d+)`)
+
+func TestRegexDecoder(t *testing.T) {
+	d := NewRegex(RegexProfile{
+		Name: "nginx", Pattern: nginx, TimeFormat: "02/Jan/2006:15:04:05 -0700", LevelField: "status",
+		LevelRules: []LevelRule{{"*", domain.LevelInfo}, {"5*", domain.LevelError}, {"4*", domain.LevelWarn}},
+	})
+	e := d.Decode(raw(`10.0.0.7 - - [26/Sep/2026:19:12:40 +0200] "GET /v1/payments HTTP/1.1" 503 512`))
+	if !e.Structured || e.Format != "nginx" || e.Message != "GET /v1/payments HTTP/1.1" || e.Level != domain.LevelError {
+		t.Fatalf("got %+v", e)
+	}
+	if e.Time.UTC().Hour() != 17 || e.Fields["status"] != "503" || e.Fields["remote"] != "10.0.0.7" || e.Fields["bytes"] != "512" {
+		t.Fatalf("time %v fields %v", e.Time, e.Fields)
+	}
+	if e := d.Decode(raw(`10.0.0.7 - - [26/Sep/2026:19:12:40 +0200] "GET /" 404 0`)); e.Level != domain.LevelWarn {
+		t.Errorf("4xx: %v", e.Level)
+	}
+	if e := d.Decode(raw("nginx: worker started")); e.Structured || e.Message != "nginx: worker started" || e.Format != "nginx" {
+		t.Errorf("unmatched lines are plain: %+v", e)
+	}
+}
+
+func TestRegexLevelGroup(t *testing.T) {
+	d := NewRegex(RegexProfile{
+		Name: "py", Pattern: regexp.MustCompile(`^(?P<level>\w+):(?P<logger>[\w.]+):(?P<message>.*)$`),
+		LevelAliases: map[string]domain.Level{"critical": domain.LevelError},
+	})
+	e := d.Decode(raw("CRITICAL:app.db:connection lost"))
+	if e.Level != domain.LevelError || e.Logger != "app.db" || e.Message != "connection lost" {
+		t.Fatalf("got %+v", e)
+	}
+}
+
+func TestSelector(t *testing.T) {
+	a, b, fb := NewPlain("a"), NewPlain("b"), NewPlain("fallback")
+	s := Selector{Rules: []Rule{
+		{Containers: []string{"nginx*"}, Decoder: a},
+		{Repos: []string{"payment-*"}, Decoder: b},
+	}, Fallback: fb}
+	for _, tc := range []struct{ repo, container, want string }{
+		{"payment-service", "nginx-sidecar", "a"},
+		{"payment-service", "app", "b"},
+		{"user-api", "app", "fallback"},
+	} {
+		if got := s.For(tc.repo, tc.container).Decode(raw("x")).Format; got != tc.want {
+			t.Errorf("%s/%s: %s, want %s", tc.repo, tc.container, got, tc.want)
+		}
 	}
 }

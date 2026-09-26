@@ -1,0 +1,22 @@
+# yaml-language-server: $schema=../../docs/schema/environments.schema.json
+# Where each environment lives. Reference: docs/CONFIG.md#environmentsyaml
+# One cluster, one namespace per environment. The contexts must exist in
+# your kubeconfig (gcloud container clusters get-credentials …).
+version: 1
+
+environments:                  # shown in this order by the environment picker (ctrl+e)
+  dev:
+    context: gke_acme_europe-west1_main
+    namespaces: [app-dev]
+  rec:
+    context: gke_acme_europe-west1_main
+    namespaces: [app-rec]
+  prprd:
+    context: gke_acme_europe-west1_main
+    namespaces: [app-prprd]
+  prd:
+    context: gke_acme_europe-west1_main
+    namespaces: [app-prd]
+    # or read it from the overlay's encrypted dotenv file:
+    # namespace_from: sops:overlays/prd/config.env#K8S_NAMESPACE
+    production: true           # red banner

@@ -8,7 +8,7 @@ import (
 )
 
 // Action is a user intent bound to keys. Names are stable: they are the
-// keys of ui.keymap in the configuration.
+// keys of keymap in ui.yaml.
 type Action string
 
 // Actions. Screens handle the subset that applies to them; the same key
@@ -127,18 +127,18 @@ func NewKeymap(overrides map[string][]string) (Keymap, error) {
 	for name, ks := range overrides {
 		a := Action(name)
 		if _, ok := defaultKeys[a]; !ok {
-			problems = append(problems, fmt.Sprintf("unknown action %q in ui.keymap", name))
+			problems = append(problems, fmt.Sprintf("unknown action %q", name))
 			continue
 		}
 		if len(ks) == 0 {
-			problems = append(problems, fmt.Sprintf("ui.keymap.%s: at least one key is required", name))
+			problems = append(problems, fmt.Sprintf("%s: at least one key is required", name))
 			continue
 		}
 		keys[a] = slices.Clone(ks)
 	}
 	if len(problems) > 0 {
 		sort.Strings(problems)
-		return Keymap{}, fmt.Errorf("%s (actions: see huginn config example)", strings.Join(problems, "; "))
+		return Keymap{}, fmt.Errorf("%s (actions: see docs/CONFIG.md, ui.yaml)", strings.Join(problems, "; "))
 	}
 	km := Keymap{keys: keys, byKey: map[string][]Action{}}
 	for a, ks := range keys {

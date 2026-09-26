@@ -49,7 +49,7 @@ jobs:
         with:
           go-version: "1.26.x"
       - run: go generate ./...
-      - run: git diff --exit-code -- docs/config.schema.json examples/config.yaml
+      - run: git diff --exit-code -- docs/schema
       - run: go mod tidy && git diff --exit-code -- go.mod go.sum
 
   cross-build:

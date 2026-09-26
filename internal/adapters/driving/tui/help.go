@@ -174,7 +174,7 @@ func (h *helpScreen) view(m *Model, w, height int) string {
 }
 
 func (h *helpScreen) statusLeft(m *Model) string {
-	return m.opts.Theme.Chip.Render("HELP") + m.opts.Theme.Status.Render("  keys follow ui.keymap in the configuration")
+	return m.opts.Theme.Chip.Render("HELP") + m.opts.Theme.Status.Render("  keys follow keymap in ui.yaml")
 }
 
 func (h *helpScreen) hints(m *Model) []hint {

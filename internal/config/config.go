@@ -1,151 +1,221 @@
-// Package config loads, defaults and validates Huginn's YAML configuration.
+// Package config loads and validates Huginn's config folder.
 //
-// Configuration is plain data: adapters receive only their own section from
-// the composition root, and the core never reads it. Everything specific to
-// a company (contexts, namespaces, JSON field names, manifest layout, label
-// keys, secret locations) is expressed here rather than in code.
+// The folder is the only way application knowledge enters Huginn:
+// environments, repository mapping, sidecars, log formats and line layouts
+// (docs/CONFIG.md, docs/DECISIONS.md D-030). Configuration is plain data:
+// adapters receive only their own part from the composition root, and the
+// core never reads it.
 package config
 
-import "go.yaml.in/yaml/v3"
+import (
+	"fmt"
 
-// Config is the root of config.yaml.
+	"go.yaml.in/yaml/v3"
+)
+
+// Version is the only folder structure version this build reads.
+const Version = 1
+
+// Config is a loaded config folder.
 type Config struct {
-	DefaultEnv   string                 `yaml:"default_env" doc:"Environment used when none is given on the command line."`
-	ReposRoot    string                 `yaml:"repos_root" doc:"Directory containing the repositories to scan for manifests (optional)."`
-	Cluster      Cluster                `yaml:"cluster" doc:"Which cluster client adapter to use."`
-	Environments map[string]Environment `yaml:"environments" doc:"Environments by name. Several may share one kube context."`
-	Repos        []RepoMapping          `yaml:"repos" doc:"Explicit repository to workload mapping; checked first by the resolver chain."`
-	Resolver     Resolver               `yaml:"resolver" doc:"How workloads are mapped to repositories."`
-	Manifests    Manifests              `yaml:"manifests" doc:"How repository manifests are scanned."`
-	Logs         Logs                   `yaml:"logs" doc:"Log loading, buffering and display."`
-	LogFormats   map[string]LogFormat   `yaml:"log_formats" doc:"Log format profiles by name; logs.format selects one."`
-	Containers   Containers             `yaml:"containers" doc:"Which containers are considered application containers."`
-	Secrets      Secrets                `yaml:"secrets" doc:"Secret provider used for values referenced as sops:<file>#<key>."`
-	Proxy        Proxy                  `yaml:"proxy" doc:"Corporate proxy and TLS settings."`
-	UI           UI                     `yaml:"ui" doc:"Theme and key bindings."`
-	Demo         Demo                   `yaml:"demo" doc:"Synthetic cluster used by --demo."`
+	// Dir is the folder it was read from (for messages).
+	Dir          string
+	Huginn       Huginn
+	Environments Environments
+	Services     Services
+	Containers   Containers
+	UI           UI
+	// Formats are in file name order: the first matching one wins.
+	Formats []Format
+	// Layouts by name (file name without extension).
+	Layouts map[string]Layout
+
+	pos map[string]positions // key positions by file
 }
 
-// Cluster selects the cluster adapter.
-type Cluster struct {
-	Client string `yaml:"client" doc:"Cluster client adapter: kubernetes or demo." enum:"kubernetes,demo"`
+// Problem returns a problem located at path in file (or at its closest
+// parent key), for checks done after loading, such as compiling layout
+// templates or the keymap.
+func (c *Config) Problem(file, path, format string, args ...any) Problem {
+	line, col := c.pos[file].at(path)
+	return Problem{File: file, Line: line, Col: col, Path: path, Msg: fmt.Sprintf(format, args...)}
 }
 
-// Environment describes where one environment lives.
-type Environment struct {
-	Context       string   `yaml:"context" doc:"kubeconfig context name (empty: current context)."`
-	Project       string   `yaml:"project" doc:"GCP project, used for Cloud Logging links."`
-	Location      string   `yaml:"location" doc:"GKE location (region or zone), used for fix-it commands."`
-	ClusterName   string   `yaml:"cluster" doc:"GKE cluster name, used for fix-it commands."`
-	Namespaces    []string `yaml:"namespaces" doc:"Namespaces holding the environment's workloads."`
-	NamespaceFrom string   `yaml:"namespace_from" doc:"Read the namespace from a secret instead, e.g. sops:overlays/rec/config.env#NAMESPACE."`
-	Production    bool     `yaml:"production" doc:"Show the production banner and warnings."`
+// Huginn is huginn.yaml: general settings.
+type Huginn struct {
+	Version    int     `yaml:"version" doc:"Structure version of this file; must be 1." required:"true"`
+	DefaultEnv string  `yaml:"default_env" doc:"Environment opened when none is given on the command line; a key of environments.yaml." required:"true"`
+	ReposRoot  string  `yaml:"repos_root" doc:"Folder containing your repositories, used by the manifests rule of services.yaml. ~ is expanded."`
+	Windows    Windows `yaml:"windows" doc:"Time-window presets of the logs screen."`
+	Logs       Logs    `yaml:"logs" doc:"Log loading limits."`
+	Demo       Demo    `yaml:"demo" doc:"Synthetic cluster used by --demo."`
 }
 
-// RepoMapping maps a repository to its workloads explicitly.
-type RepoMapping struct {
-	Name      string        `yaml:"name" doc:"Repository name as shown on the services screen."`
-	Workloads []WorkloadRef `yaml:"workloads" doc:"Workloads owned by the repository."`
+// Windows configures the time-window presets.
+type Windows struct {
+	Presets   []string `yaml:"presets" doc:"Windows bound to keys 1…7, e.g. [15m, 30m, 1h, 1d]; at most 7. Default: 15m 30m 40m 45m 1h 1d 2d."`
+	TailLines int      `yaml:"tail_lines" doc:"Lines loaded by the tail window (key 0). Default 500."`
+	Default   string   `yaml:"default" doc:"Window used when a logs screen opens: a duration such as 15m, or tail. Default 15m."`
 }
 
-// WorkloadRef identifies one workload.
-type WorkloadRef struct {
-	Env       string `yaml:"env" doc:"Environment name."`
-	Namespace string `yaml:"namespace" doc:"Namespace (default: the environment's first namespace)."`
-	Kind      string `yaml:"kind" doc:"Workload kind (default Deployment)." enum:"Deployment,StatefulSet,DaemonSet,CronJob"`
-	Name      string `yaml:"name" doc:"Workload name."`
-}
-
-// Resolver configures the repo resolver chain.
-type Resolver struct {
-	Order     []string `yaml:"order" doc:"Resolver chain, first match wins." enum:"config,labels,manifests"`
-	LabelKeys []string `yaml:"label_keys" doc:"Workload labels or annotations whose value is the repository name."`
-}
-
-// Manifests configures manifest scanning.
-type Manifests struct {
-	Scanner     string   `yaml:"scanner" doc:"Manifest scanner adapter." enum:"kustomize,none"`
-	OverlayGlob string   `yaml:"overlay_glob" doc:"Glob, relative to a repository, of an environment's overlay; {env} is replaced."`
-	Files       []string `yaml:"files" doc:"Entry files read in an overlay."`
-}
-
-// Logs configures log loading and display.
+// Logs configures log loading.
 type Logs struct {
-	DefaultWindow string `yaml:"default_window" doc:"Initial time window: 15m, 1h, 2d, tail…"`
-	TailLines     int    `yaml:"tail_lines" doc:"Lines loaded by the tail window."`
-	BufferLines   int    `yaml:"buffer_lines" doc:"Maximum lines kept in memory per view; older lines are dropped."`
-	Format        string `yaml:"format" doc:"Name of the log format profile used to decode lines."`
-	Renderer      string `yaml:"renderer" doc:"Line layout." enum:"spring-compact,spring-full"`
-	Redact        *bool  `yaml:"redact" doc:"Mask tokens, passwords, emails and card numbers in display and exports (default true)."`
-}
-
-// LogFormat is a log format profile: how to read one kind of structured log
-// line. Each field lists candidate JSON paths; the first present wins.
-type LogFormat struct {
-	Decoder      string            `yaml:"decoder" doc:"Decoder adapter." enum:"json-fields,plain"`
-	Fields       FieldMap          `yaml:"fields" doc:"Canonical field to JSON paths."`
-	LevelAliases map[string]string `yaml:"level_aliases" doc:"Extra level spellings, e.g. {\"30\": info}."`
-	Hidden       []string          `yaml:"hidden" doc:"JSON paths (glob) hidden from the stream and shown only in zoom metadata."`
-}
-
-// FieldMap maps canonical fields to candidate JSON paths.
-type FieldMap struct {
-	Timestamp Paths `yaml:"timestamp" doc:"Entry time."`
-	Level     Paths `yaml:"level" doc:"Severity."`
-	Logger    Paths `yaml:"logger" doc:"Logger name."`
-	Thread    Paths `yaml:"thread" doc:"Thread name."`
-	Message   Paths `yaml:"message" doc:"Message text."`
-	Stack     Paths `yaml:"stack" doc:"Stack trace."`
-	TraceID   Paths `yaml:"trace_id" doc:"Correlation / trace identifier."`
-	App       Paths `yaml:"app" doc:"Application name."`
-	PID       Paths `yaml:"pid" doc:"Process id."`
-}
-
-// Containers selects application containers.
-type Containers struct {
-	Denylist    []string `yaml:"denylist" doc:"Container names or image substrings to hide, added to the built-in list."`
-	Allowlist   []string `yaml:"allowlist" doc:"Container names always shown, even if denylisted."`
-	IncludeInit bool     `yaml:"include_init" doc:"Show init containers."`
-}
-
-// Secrets configures the secret provider.
-type Secrets struct {
-	Provider string `yaml:"provider" doc:"Secret provider adapter." enum:"sops,none"`
-	Sops     Sops   `yaml:"sops" doc:"sops settings."`
-}
-
-// Sops configures the sops CLI.
-type Sops struct {
-	Binary string `yaml:"binary" doc:"sops executable name or path."`
-}
-
-// Proxy configures outbound connectivity.
-type Proxy struct {
-	CABundle string `yaml:"ca_bundle" doc:"Extra PEM CA bundle for proxies that intercept TLS (SSL_CERT_FILE also works)."`
-}
-
-// UI configures the terminal UI.
-type UI struct {
-	Theme           string              `yaml:"theme" doc:"Color theme." enum:"light,accessible,classic,none"`
-	PaintBackground bool                `yaml:"paint_background" doc:"Paint the theme background instead of using the terminal's."`
-	Keymap          map[string][]string `yaml:"keymap" doc:"Action name to keys, overriding defaults, e.g. {follow: [f, ctrl+l]}."`
-	KeyBar          string              `yaml:"key_bar" doc:"Key bar at the bottom: compact (one line), full (two lines) or hidden (f2 cycles)." enum:"compact,full,hidden"`
-	Logs            UILogs              `yaml:"logs" doc:"Logs screen display."`
-}
-
-// UILogs configures the logs screen display.
-type UILogs struct {
-	Columns []string `yaml:"columns" doc:"Columns shown before the message; empty means automatic (thread hidden below 140 cells, class below 110)." enum:"time,pod,level,thread,class"`
+	BufferLines int `yaml:"buffer_lines" doc:"Maximum lines kept in memory per logs screen; older lines are dropped. At least 1000. Default 50000."`
 }
 
 // Demo configures the synthetic cluster.
 type Demo struct {
-	Seed int64   `yaml:"seed" doc:"Random seed; the same seed gives the same cluster and logs."`
-	Rate float64 `yaml:"rate" doc:"Average live log lines per second per pod."`
+	Seed int64   `yaml:"seed" doc:"Random seed; the same seed gives the same cluster and logs. Default 42."`
+	Rate float64 `yaml:"rate" doc:"Average live log lines per second per pod. Default 1."`
 }
 
-// RedactEnabled reports whether redaction is on (the default).
-func (l Logs) RedactEnabled() bool { return l.Redact == nil || *l.Redact }
+// EnvironmentsFile is environments.yaml.
+type EnvironmentsFile struct {
+	Version      int                    `yaml:"version" doc:"Structure version of this file; must be 1." required:"true"`
+	Environments map[string]Environment `yaml:"environments" doc:"Environments by name (lower-case letters, digits, '-'), in the order the environment picker shows them." required:"true"`
+}
+
+// Environments are the configured environments in file order.
+type Environments struct {
+	Names  []string
+	ByName map[string]Environment
+}
+
+// Environment describes where one environment lives.
+type Environment struct {
+	Context       string   `yaml:"context" doc:"kubeconfig context name; empty means the current context."`
+	Namespaces    []string `yaml:"namespaces" doc:"Namespaces holding the environment's workloads. Set this or namespace_from."`
+	NamespaceFrom string   `yaml:"namespace_from" doc:"Read the namespace from a sops-encrypted dotenv file instead: sops:<file>#<key>."`
+	Production    bool     `yaml:"production" doc:"Show the production banner."`
+}
+
+// Services is services.yaml: how workloads map to repositories.
+type Services struct {
+	Version   int           `yaml:"version" doc:"Structure version of this file; must be 1." required:"true"`
+	Resolve   []string      `yaml:"resolve" doc:"Rules tried in order for each workload; the first that names a repository wins." enum:"explicit,labels,manifests" required:"true"`
+	LabelKeys []string      `yaml:"label_keys" doc:"Workload labels or annotations whose value is the repository name (rule labels)."`
+	Manifests Manifests     `yaml:"manifests" doc:"Where to find an environment's Kubernetes manifests in a repository (rule manifests)."`
+	Explicit  []RepoMapping `yaml:"explicit" doc:"Repositories and their workloads, listed by hand (rule explicit)."`
+}
+
+// Manifests configures manifest scanning.
+type Manifests struct {
+	OverlayGlob string   `yaml:"overlay_glob" doc:"Glob, relative to a repository, of an environment's overlay folder; {env} is replaced by the environment name."`
+	Files       []string `yaml:"files" doc:"Entry files read in an overlay folder, e.g. [kustomization.yaml]."`
+}
+
+// RepoMapping maps a repository to its workloads explicitly.
+type RepoMapping struct {
+	Repo      string        `yaml:"repo" doc:"Repository name as shown on the services screen." required:"true"`
+	Workloads []WorkloadRef `yaml:"workloads" doc:"Workloads owned by the repository." required:"true"`
+}
+
+// WorkloadRef identifies one workload.
+type WorkloadRef struct {
+	Env       string `yaml:"env" doc:"Environment name; a key of environments.yaml." required:"true"`
+	Namespace string `yaml:"namespace" doc:"Namespace; default: the environment's first namespace."`
+	Kind      string `yaml:"kind" doc:"Workload kind. Default Deployment." enum:"Deployment,StatefulSet,DaemonSet,CronJob"`
+	Name      string `yaml:"name" doc:"Workload name." required:"true"`
+}
+
+// Containers is containers.yaml: which containers are sidecars.
+type Containers struct {
+	Version    int      `yaml:"version" doc:"Structure version of this file; must be 1." required:"true"`
+	Hide       []string `yaml:"hide" doc:"Container names, or substrings of their image, hidden from the logs screen (sidecars)."`
+	AlwaysShow []string `yaml:"always_show" doc:"Container names always shown, even if matched by hide."`
+	ShowInit   bool     `yaml:"show_init" doc:"Show init containers too."`
+}
+
+// UI is ui.yaml: personal display choices.
+type UI struct {
+	Version         int                 `yaml:"version" doc:"Structure version of this file; must be 1." required:"true"`
+	Theme           string              `yaml:"theme" doc:"Color theme. Default light." enum:"light,accessible,classic,none"`
+	PaintBackground bool                `yaml:"paint_background" doc:"Paint the theme background instead of using the terminal's."`
+	KeyBar          string              `yaml:"key_bar" doc:"Key bar at the bottom. Default compact." enum:"compact,full,hidden"`
+	Keymap          map[string][]string `yaml:"keymap" doc:"Action name to keys, replacing the default keys of that action, e.g. {follow: [f, ctrl+l]}."`
+	LogColumns      []string            `yaml:"log_columns" doc:"Columns shown when a logs screen opens: pod and names of layout columns. Empty: every visible column, narrowed automatically."`
+}
+
+// Format is one file of formats/: how to read a log line.
+type Format struct {
+	// Name is the file name without extension; File the path in the folder.
+	Name, File string           `yaml:"-"`
+	Version    int              `yaml:"version" doc:"Structure version of this file; must be 1." required:"true"`
+	Decoder    string           `yaml:"decoder" doc:"json: one JSON object per line; regex: text lines read with pattern; plain: no structure." enum:"json,regex,plain" required:"true"`
+	Match      Match            `yaml:"match" doc:"Containers read with this format. Formats are tried in file name order; the first match wins. No match section: every container."`
+	Fields     FieldMap         `yaml:"fields" doc:"json decoder: where each standard field is, as candidate JSON paths (first present wins; dots walk into objects)."`
+	Levels     map[string]Paths `yaml:"levels" doc:"Extra spellings of each level in these logs (case ignored), e.g. {error: [\"50\", FATAL]}. Common spellings are known already." keys:"error,warn,info,debug"`
+	Hidden     []string         `yaml:"hidden" doc:"json decoder: fields (globs on dotted paths) never shown on the stream, only in zoom metadata, e.g. [\"kubernetes.*\"]."`
+	Pattern    string           `yaml:"pattern" doc:"regex decoder: Go regular expression with named groups; time, level, logger, thread, message, trace_id, app and pid are standard fields, other groups become extra fields. message is required."`
+	TimeFormat string           `yaml:"time_format" doc:"regex decoder: Go reference layout of the time group, e.g. 02/Jan/2006:15:04:05 -0700. Default RFC 3339."`
+	LevelFrom  LevelFrom        `yaml:"level_from" doc:"regex decoder: derive the level from another group, e.g. the HTTP status."`
+	Layout     string           `yaml:"layout" doc:"Layout used to draw these lines: a file name of layouts/ without extension." required:"true"`
+}
+
+// Match selects the containers of a format.
+type Match struct {
+	Repos      []string `yaml:"repos" doc:"Globs on the repository name, e.g. [\"payment-*\"]. Empty: any repository."`
+	Containers []string `yaml:"containers" doc:"Globs on the container name, e.g. [nginx]. Empty: any container."`
+}
+
+// FieldMap maps standard fields to candidate JSON paths.
+type FieldMap struct {
+	Time    Paths `yaml:"time" doc:"Entry time (RFC 3339 string or epoch seconds/milliseconds)."`
+	Level   Paths `yaml:"level" doc:"Severity."`
+	Logger  Paths `yaml:"logger" doc:"Logger or class name."`
+	Thread  Paths `yaml:"thread" doc:"Thread name."`
+	Message Paths `yaml:"message" doc:"Message text; required by the json decoder."`
+	Stack   Paths `yaml:"stack" doc:"Stack trace."`
+	TraceID Paths `yaml:"trace_id" doc:"Correlation or trace identifier."`
+	App     Paths `yaml:"app" doc:"Application name."`
+	PID     Paths `yaml:"pid" doc:"Process id."`
+}
+
+// LevelFrom derives the level of a regex format from a group.
+type LevelFrom struct {
+	Field string            `yaml:"field" doc:"Group whose value decides the level, e.g. status."`
+	Map   map[string]string `yaml:"map" doc:"Glob on the value to level (error, warn, info, debug), tried longest glob first, e.g. {\"5*\": error, \"4*\": warn, \"*\": info}."`
+}
+
+// Layout is one file of layouts/: how to draw a log line.
+type Layout struct {
+	Name, File string `yaml:"-"`
+	Version    int    `yaml:"version" doc:"Structure version of this file; must be 1." required:"true"`
+	Stream     Line   `yaml:"stream" doc:"The line on the logs screen. Its columns are the ones c hides one by one and C toggles." required:"true"`
+	// ZoomIsStream is set when the file has no zoom line: Zoom is then a
+	// copy of Stream.
+	ZoomIsStream bool  `yaml:"-"`
+	Zoom         Line  `yaml:"zoom" doc:"The first line of the zoom view (enter). Default: the stream line."`
+	Stack        Stack `yaml:"stack" doc:"Stack traces."`
+}
+
+// Line is a sequence of columns followed by the message.
+type Line struct {
+	TimeFormat string    `yaml:"time_format" doc:"Go reference layout of {time}. Default 15:04:05.000."`
+	Columns    []Column  `yaml:"columns" doc:"Columns drawn before the message, in this order, separated by one space." required:"true"`
+	Separator  Separator `yaml:"separator" doc:"Text between the columns and the message."`
+}
+
+// Column is one column of a line.
+type Column struct {
+	Name      string `yaml:"name" doc:"Column name, unique in the line; shown in the columns picker and the status bar." required:"true"`
+	Key       string `yaml:"key" doc:"stream only: one letter toggling the column in the columns picker (C). p, z, r and f are taken."`
+	Show      string `yaml:"show" doc:"Template of the column, e.g. \"[{thread|last:15|right:15}]\". A column whose text is empty is left out." required:"true"`
+	Role      string `yaml:"role" doc:"Color role from the theme. time columns follow ctrl+t; level columns hidden make WARN messages colored. Default plain." enum:"time,level,thread,logger,pid,dim,plain"`
+	HideBelow int    `yaml:"hide_below" doc:"stream only: hidden automatically when the terminal is narrower than this many cells, until you choose columns."`
+	Visible   *bool  `yaml:"visible" doc:"stream only: shown when a logs screen opens. Default true."`
+}
+
+// Separator is the text between the columns and the message.
+type Separator struct {
+	Text  string   `yaml:"text" doc:"Separator text, e.g. \": \"."`
+	After []string `yaml:"after" doc:"Shown only when one of these columns is shown. Empty: whenever any column is shown."`
+}
+
+// Stack configures stack traces.
+type Stack struct {
+	FrameworkPrefixes []string `yaml:"framework_prefixes" doc:"Frames starting with one of these prefixes are framework frames; the others are highlighted as your code in zoom, e.g. [java., org.springframework.]."`
+}
 
 // Paths is a list of candidate JSON paths. In YAML it may be written as a
 // single string or a list.

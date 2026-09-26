@@ -19,7 +19,7 @@ type JSONDecoder struct {
 }
 
 // NewJSON returns a decoder for profile p.
-func NewJSON(p Profile) *JSONDecoder { return &JSONDecoder{p: p, plain: NewPlain()} }
+func NewJSON(p Profile) *JSONDecoder { return &JSONDecoder{p: p, plain: NewPlain(p.Name)} }
 
 // Decode implements ports.LogDecoder.
 func (d *JSONDecoder) Decode(raw domain.RawLine) domain.LogEntry {
@@ -31,7 +31,7 @@ func (d *JSONDecoder) Decode(raw domain.RawLine) domain.LogEntry {
 	if err := json.Unmarshal([]byte(text), &obj); err != nil {
 		return d.plain.Decode(raw)
 	}
-	e := domain.LogEntry{Pod: raw.Pod, Container: raw.Container, Raw: raw.Text, Structured: true, Time: raw.Time}
+	e := domain.LogEntry{Pod: raw.Pod, Container: raw.Container, Raw: raw.Text, Structured: true, Time: raw.Time, Format: d.p.Name}
 	used := map[string]bool{}
 	take := func(paths []string) (any, bool) {
 		for _, p := range paths {

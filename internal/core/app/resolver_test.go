@@ -9,7 +9,7 @@ import (
 )
 
 func w(name string, labels map[string]string) domain.Workload {
-	return domain.Workload{Ref: domain.WorkloadRef{Env: domain.EnvRec, Namespace: "app-rec", Kind: domain.KindDeployment, Name: name}, Labels: labels, Annotations: map[string]string{}}
+	return domain.Workload{Ref: domain.WorkloadRef{Env: domain.Env("rec"), Namespace: "app-rec", Kind: domain.KindDeployment, Name: name}, Labels: labels, Annotations: map[string]string{}}
 }
 
 func TestChainResolver(t *testing.T) {
@@ -22,10 +22,10 @@ func TestChainResolver(t *testing.T) {
 	}
 	ws[2].Annotations["source-repo"] = "batch-jobs"
 	chain := ChainResolver{Resolvers: []ports.RepoResolver{
-		MappingResolver{Repos: []domain.Repo{{Name: "billing", Workloads: []domain.WorkloadRef{{Env: domain.EnvRec, Name: "billing-api"}}}}},
+		MappingResolver{Repos: []domain.Repo{{Name: "billing", Workloads: []domain.WorkloadRef{{Env: domain.Env("rec"), Name: "billing-api"}}}}},
 		LabelResolver{Keys: []string{"app.kubernetes.io/part-of", "source-repo"}},
 	}}
-	repos, rest, err := chain.Resolve(context.Background(), domain.EnvRec, ws)
+	repos, rest, err := chain.Resolve(context.Background(), domain.Env("rec"), ws)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,11 +48,11 @@ func TestChainResolver(t *testing.T) {
 
 func TestMappingResolverMatchesEnvNamespaceKind(t *testing.T) {
 	r := MappingResolver{Repos: []domain.Repo{{Name: "x", Workloads: []domain.WorkloadRef{
-		{Env: domain.EnvPrd, Name: "api"},
-		{Env: domain.EnvRec, Name: "api", Namespace: "other"},
-		{Env: domain.EnvRec, Name: "api", Kind: domain.KindStatefulSet},
+		{Env: domain.Env("prd"), Name: "api"},
+		{Env: domain.Env("rec"), Name: "api", Namespace: "other"},
+		{Env: domain.Env("rec"), Name: "api", Kind: domain.KindStatefulSet},
 	}}}}
-	repos, rest, _ := r.Resolve(context.Background(), domain.EnvRec, []domain.Workload{w("api", nil)})
+	repos, rest, _ := r.Resolve(context.Background(), domain.Env("rec"), []domain.Workload{w("api", nil)})
 	if len(repos) != 0 || len(rest) != 1 {
 		t.Fatalf("nothing should match: %v %v", repos, rest)
 	}

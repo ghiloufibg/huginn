@@ -7,6 +7,8 @@ import "github.com/ghiloufibg/huginn/internal/core/domain"
 // as a literal top-level key first ("log.level" as one key), then as a
 // dotted walk into nested objects.
 type Profile struct {
+	// Name is the format name reported on decoded entries.
+	Name                                                                string
 	Timestamp, Level, Logger, Thread, Message, Stack, TraceID, App, PID []string
 	// LevelAliases maps extra lower-case level spellings, including
 	// numeric ones such as "40000" or "50", to levels.

@@ -14,14 +14,6 @@ import (
 	"github.com/ghiloufibg/huginn/internal/core/ports"
 )
 
-// frameworkPrefixes mark stack frames that are not the application's own
-// code; own frames are shown bold, these dimmed.
-var frameworkPrefixes = []string{
-	"java.", "javax.", "jdk.", "sun.", "com.sun.", "jakarta.", "kotlin.", "scala.",
-	"org.springframework.", "org.apache.", "org.hibernate.", "io.netty.", "io.lettuce.",
-	"reactor.", "io.micrometer.", "com.zaxxer.", "org.eclipse.", "io.undertow.", "feign.",
-}
-
 // zoomScreen shows one entry in full (mockup board 6).
 type zoomScreen struct {
 	logs     *logsScreen
@@ -130,7 +122,7 @@ func (z *zoomScreen) structured(m *Model, e *domain.LogEntry) []string {
 		t.podStyle(l.podColor[e.Pod]).Render(e.Pod) + t.Dim.Render("   container ") + t.Bold.Render(e.Container)
 	var line strings.Builder
 	line.WriteString(" ")
-	for _, s := range m.opts.FullRenderer.Render(*e, ports.RenderOptions{Now: m.opts.Now()}) {
+	for _, s := range m.layout(e).Render(*e, ports.RenderOptions{Now: m.opts.Now(), Full: true}) {
 		line.WriteString(l.segmentStyle(t, e, s.Role).Render(s.Text))
 	}
 	out := []string{head, "", line.String(), ""}
@@ -146,7 +138,7 @@ func (z *zoomScreen) structured(m *Model, e *domain.LogEntry) []string {
 	}
 	if e.Stack != "" {
 		out = append(out, sec("STACK TRACE", "   own frames in bold, framework frames dimmed"))
-		out = append(out, z.stack(t, e.Stack)...)
+		out = append(out, z.stack(t, m.layout(e), e.Stack)...)
 		out = append(out, "")
 	}
 	out = append(out, sec("CONTEXT", "   same pod, 3 entries before and after"))
@@ -165,14 +157,14 @@ func (z *zoomScreen) structured(m *Model, e *domain.LogEntry) []string {
 	return out
 }
 
-func (z *zoomScreen) stack(t Theme, stack string) []string {
+func (z *zoomScreen) stack(t Theme, layout ports.LogLayout, stack string) []string {
 	var out []string
 	for _, line := range strings.Split(strings.TrimRight(stack, "\n"), "\n") {
 		trimmed := strings.TrimSpace(line)
 		frame, isFrame := strings.CutPrefix(trimmed, "at ")
 		style := t.Stack.Bold(true)
 		switch {
-		case isFrame && isFramework(frame):
+		case isFrame && layout.FrameworkFrame(frame):
 			style = t.Dim
 		case isFrame:
 			style = t.Bold
@@ -182,16 +174,6 @@ func (z *zoomScreen) stack(t Theme, stack string) []string {
 		out = append(out, "   "+style.Render(strings.ReplaceAll(line, "\t", "    ")))
 	}
 	return out
-}
-
-func isFramework(frame string) bool {
-	frame = strings.TrimPrefix(frame, "java.base/")
-	for _, p := range frameworkPrefixes {
-		if strings.HasPrefix(frame, p) {
-			return true
-		}
-	}
-	return false
 }
 
 // context renders the entries of the same pod around e.
@@ -212,7 +194,7 @@ func (z *zoomScreen) context(m *Model, e *domain.LogEntry) []string {
 	}
 	render := func(c *domain.LogEntry, style func(...string) string) string {
 		var b strings.Builder
-		for _, s := range m.opts.Renderer.Render(*c, ports.RenderOptions{Now: m.opts.Now()}) {
+		for _, s := range m.layout(c).Render(*c, ports.RenderOptions{Now: m.opts.Now()}) {
 			b.WriteString(s.Text)
 		}
 		return "   " + style(b.String())

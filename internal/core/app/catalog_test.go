@@ -15,7 +15,7 @@ var t0 = time.Date(2026, 9, 26, 19, 0, 0, 0, time.UTC)
 
 func scopes(namespaces ...string) func(domain.Env) (ports.Scope, bool) {
 	return func(e domain.Env) (ports.Scope, bool) {
-		return ports.Scope{Env: e, Namespaces: namespaces}, e == domain.EnvRec
+		return ports.Scope{Env: e, Namespaces: namespaces}, e == domain.Env("rec")
 	}
 }
 
@@ -50,7 +50,7 @@ func next(t *testing.T, ch <-chan ports.CatalogSnapshot, clock *portstest.FakeCl
 
 func deployment(ns, name, repo string, desired, ready int) domain.Workload {
 	return domain.Workload{
-		Ref:    domain.WorkloadRef{Env: domain.EnvRec, Namespace: ns, Kind: domain.KindDeployment, Name: name},
+		Ref:    domain.WorkloadRef{Env: domain.Env("rec"), Namespace: ns, Kind: domain.KindDeployment, Name: name},
 		Labels: map[string]string{"app.kubernetes.io/part-of": repo}, DesiredReplicas: desired, ReadyReplicas: ready, UpdatedReplicas: desired,
 		Selector: map[string]string{"app": name}, Created: t0.Add(-time.Hour),
 	}
@@ -58,7 +58,7 @@ func deployment(ns, name, repo string, desired, ready int) domain.Workload {
 
 func appPod(ns, name, owner string, ready bool) domain.Pod {
 	return domain.Pod{
-		Env: domain.EnvRec, Namespace: ns, Name: name, OwnerName: owner, Phase: domain.PodRunning,
+		Env: domain.Env("rec"), Namespace: ns, Name: name, OwnerName: owner, Phase: domain.PodRunning,
 		Labels:     map[string]string{"app": owner},
 		Containers: []domain.Container{{Name: owner, Image: "r/" + owner + ":v1", State: domain.ContainerRunning, Ready: ready}},
 	}
@@ -75,7 +75,7 @@ func TestCatalogSnapshotsAndUpdates(t *testing.T) {
 	fc.PutPod(appPod("ns", "stray-1", "stray", true))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ch, err := newCatalog(fc, clock, "ns").Watch(ctx, domain.EnvRec)
+	ch, err := newCatalog(fc, clock, "ns").Watch(ctx, domain.Env("rec"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +110,7 @@ func TestCatalogForbiddenNamespaceDoesNotHideOthers(t *testing.T) {
 	fc.AddWorkload(deployment("ok-ns", "api", "shop", 1, 1))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ch, _ := newCatalog(fc, clock, "ok-ns", "secret-ns").Watch(ctx, domain.EnvRec)
+	ch, _ := newCatalog(fc, clock, "ok-ns", "secret-ns").Watch(ctx, domain.Env("rec"))
 	s := next(t, ch, clock, func(s ports.CatalogSnapshot) bool { return len(s.Services) == 1 && s.NamespaceErrs["secret-ns"] != nil })
 	if s.Err != nil || s.Synced || !errors.Is(s.NamespaceErrs["secret-ns"], domain.ErrForbidden) {
 		t.Fatalf("snapshot: %+v", s)
@@ -124,7 +124,7 @@ func TestCatalogReportsErrorAndRecovers(t *testing.T) {
 	fc.SetErr(domain.ErrUnauthorized)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ch, _ := newCatalog(fc, clock, "ns").Watch(ctx, domain.EnvRec)
+	ch, _ := newCatalog(fc, clock, "ns").Watch(ctx, domain.Env("rec"))
 	s := next(t, ch, clock, func(s ports.CatalogSnapshot) bool { return s.Err != nil })
 	if !errors.Is(s.Err, domain.ErrUnauthorized) {
 		t.Fatalf("err = %v", s.Err)
@@ -135,7 +135,7 @@ func TestCatalogReportsErrorAndRecovers(t *testing.T) {
 
 func TestCatalogUnknownEnv(t *testing.T) {
 	c := newCatalog(portstest.NewFakeCluster(), portstest.NewFakeClock(t0), "ns")
-	if _, err := c.Watch(context.Background(), domain.EnvPrd); err == nil {
+	if _, err := c.Watch(context.Background(), domain.Env("prd")); err == nil {
 		t.Fatal("expected error")
 	}
 }
@@ -153,6 +153,6 @@ func BenchmarkSnapshot500Repos(b *testing.B) {
 	c := newCatalog(nil, portstest.NewFakeClock(t0), "ns")
 	b.ResetTimer()
 	for b.Loop() {
-		c.snapshot(context.Background(), domain.EnvRec, []string{"ns"}, st)
+		c.snapshot(context.Background(), domain.Env("rec"), []string{"ns"}, st)
 	}
 }

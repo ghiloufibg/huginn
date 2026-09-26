@@ -1,0 +1,9 @@
+# yaml-language-server: $schema=../../docs/schema/services.schema.json
+version: 1
+resolve: [explicit, labels]
+label_keys: [app]
+explicit:
+  - repo: storefront
+    workloads:
+      - { env: prod, name: storefront-web }
+      - { env: prod, name: storefront-api }
