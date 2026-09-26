@@ -1,0 +1,40 @@
+ huginn  REC  gke_acme_europe-west1_main / app-rec   services / payment-service / logs / entry 4          demo · watching · synced 19:14:02 
+ entry 4 of 9   pod payment-service-7b9c8d4f6c-m8q7v   container payment-service                                                            
+                                                                                                                                            
+ 19:13:12.000 ERROR [exec-1] i.g.p.PaymentService : Payment authorization failed orderId=ord_8f91a2 traceId=7fd28c90                        
+                                                                                                                                            
+ FIELDS                                                                                                                                     
+   traceId         7fd28c90                                                                                                                 
+   extra.orderId   ord_8f91a2                                                                                                               
+   spanId          91ac07                                                                                                                   
+                                                                                                                                            
+ STACK TRACE   own frames in bold, framework frames dimmed                                                                                  
+   io.gimle.payment.PaymentGatewayException: upstream request timed out                                                                     
+       at io.gimle.payment.gateway.GatewayClient.charge(GatewayClient.java:184)                                                             
+       at org.springframework.web.servlet.FrameworkServlet.service(FrameworkServlet.java:885)                                               
+   Caused by: java.net.SocketTimeoutException: Read timed out                                                                               
+                                                                                                                                            
+ CONTEXT   same pod, 3 entries before and after                                                                                             
+   19:13:04.000 DEBUG [exec-1] c.z.hikari.pool.HikariPool : HikariPool-1 - Pool stats (total=40, active=12, idle=28, waiting=0)             
+   19:13:12.000 ERROR [exec-1] i.g.p.PaymentService : Payment authorization failed orderId=ord_8f91a2 traceId=7fd28c90   <- this entry      
+   19:13:32.000 ERROR [exec-1] i.g.p.card.CardController : Card declined by issuer orderId=ord_72bf10 retryable=false                       
+                                                                                                                                            
+ KUBERNETES METADATA   2 fields · enter to collapse                                                                                         
+   kubernetes.namespace_name       app-rec                                                                                                  
+   kubernetes.pod_name             payment-service-7b9c8d4f6c-m8q7v                                                                         
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+ ZOOM   structured view  ·  wrap on                                                        J/K next/prev  p json  enter metadata  esc back  

@@ -1,0 +1,20 @@
+ huginn  REC  gke_acme_europe-west1_main / app…   services / payment-service / logs   demo · watching · synced 19:14:02 
+ pods  all 3    m8q7v Healthy 1 restart v2.14.3   x4k2p Healthy v2.14.3   p3w1n Healthy v2.14.4 new                     
+ x4k2p 19:13:02.000  INFO [exec-1] i.g.p.Paymen┌────────────────────────┐leted POST /v1/payments status=201 duration=96…
+ m8q7v 19:13:04.000 DEBUG [exec-1] c.z.hikari.p│ Time window            │l-1 - Pool stats (total=40, active=12, idle=28…
+ x4k2p 19:13:07.000  WARN [exec-1] i.g.p.gatewa│                        │latency above threshold provider=adyen p95=842…
+ m8q7v 19:13:12.000 ERROR [exec-1] i.g.p.Paymen│  1  15m                │zation failed orderId=ord_8f91a2 traceId=7fd28…
+    io.gimle.payment.PaymentGatewayException: u│  2  30m                │  [+3 lines, enter to open]                    
+ x4k2p 19:13:17.000  INFO [exec-1] i.g.p.Paymen│  3  40m                │leted GET /v1/payments/pay_802ae status=200 du…
+ p3w1n 19:13:18.000  :: Spring Boot ::         │  4  45m                │                                               
+ p3w1n 19:13:22.000  INFO [exec-1] i.g.p.Paymen│  5  1h                 │mentApplication in 7.412 seconds               
+ m8q7v 19:13:32.000 ERROR [exec-1] i.g.p.card.C│  6  1d                 │ned by issuer orderId=ord_72bf10 retryable=fal…
+ x4k2p 19:13:42.000  INFO [exec-1] i.g.p.Health│  7  2d                 │cceeded components=db,redis,gateway            
+                                               │  0  tail 500 lines     │                                               
+                                               │                        │                                               
+                                               │ enter load  esc cancel │                                               
+                                               └────────────────────────┘                                               
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+ LIVE   15m  ·  all pods  ·  levels all  ·  oldest first  ·  9/9 lines  ·  buffer 0%  ·  dropped 0            f follow  

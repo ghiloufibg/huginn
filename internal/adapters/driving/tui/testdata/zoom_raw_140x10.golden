@@ -1,0 +1,10 @@
+ huginn  REC  gke_acme_europe-west1_main / app-rec   services / payment-service / logs / entry 4          demo · watching · synced 19:14:02 
+ {                                                                                                                                          
+   "message": "Payment authorization failed orderId=ord_8f91a2 traceId=7fd28c90"                                                            
+ }                                                                                                                                          
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+ ZOOM   raw JSON  ·  wrap on                                                               J/K next/prev  p json  enter metadata  esc back  

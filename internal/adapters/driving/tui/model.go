@@ -32,6 +32,17 @@ type Options struct {
 	Keys    Keymap
 	Source  string // "demo" or "kubernetes", shown in the header
 	Catalog ports.ServiceCatalog
+	// Sessions opens log sessions; Renderer lays out stream lines and
+	// FullRenderer the zoomed entry.
+	Sessions     ports.LogSession
+	Renderer     ports.LogRenderer
+	FullRenderer ports.LogRenderer
+	// Windows are the time-window presets (keys 1…7, then 0 for tail);
+	// Window is the initial one.
+	Windows []domain.TimeWindow
+	Window  domain.TimeWindow
+	// BufferLines bounds the entries kept per logs view.
+	BufferLines int
 	// Filter tells application containers from sidecars.
 	Filter domain.ContainerFilter
 	// Repo, when set, is the repository to open directly (--repo).
@@ -58,6 +69,9 @@ type screen interface {
 	// prompt is an input line shown above the status bar ("" for none).
 	prompt(m *Model) string
 }
+
+// closer is implemented by screens holding resources (log sessions).
+type closer interface{ close() }
 
 // overlay is a popup drawn over the current screen that takes all keys.
 type overlay interface {
@@ -109,6 +123,15 @@ func NewModel(o Options) *Model {
 	if len(o.Envs) == 0 {
 		o.Envs = []EnvInfo{o.Env}
 	}
+	if len(o.Windows) == 0 {
+		o.Windows = domain.DefaultWindowPresets(domain.DefaultTailLines)
+	}
+	if o.Window == (domain.TimeWindow{}) {
+		o.Window = o.Windows[0]
+	}
+	if o.BufferLines <= 0 {
+		o.BufferLines = 50000
+	}
 	return &Model{opts: o, width: 80, height: 24, env: o.Env, stack: []screen{newServicesScreen(o.Repo)}}
 }
 
@@ -141,7 +164,33 @@ func waitSnapshot(gen int, ch <-chan ports.CatalogSnapshot) tea.Cmd {
 
 func (m *Model) top() screen { return m.stack[len(m.stack)-1] }
 
-func (m *Model) push(s screen) { m.stack = append(m.stack, s) }
+// push opens a screen; its init command, if any, is returned.
+func (m *Model) push(s screen) tea.Cmd {
+	m.stack = append(m.stack, s)
+	if i, ok := s.(interface{ init(*Model) tea.Cmd }); ok {
+		return i.init(m)
+	}
+	return nil
+}
+
+// pop closes the top screen.
+func (m *Model) pop() {
+	if c, ok := m.top().(closer); ok {
+		c.close()
+	}
+	m.stack = m.stack[:len(m.stack)-1]
+}
+
+// reset closes every screen but the services screen.
+func (m *Model) reset(s screen) {
+	for len(m.stack) > 0 {
+		if c, ok := m.top().(closer); ok {
+			c.close()
+		}
+		m.stack = m.stack[:len(m.stack)-1]
+	}
+	m.stack = []screen{s}
+}
 
 // Update implements tea.Model.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -163,13 +212,25 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.snap, m.resyncing = &msg.snap, false
-		_, cmd := m.top().update(m, msg)
-		return m, tea.Batch(cmd, waitSnapshot(msg.gen, msg.ch))
+		return m, tea.Batch(m.broadcast(msg), waitSnapshot(msg.gen, msg.ch))
 	case tea.KeyPressMsg:
 		return m, m.handleKey(msg)
+	case tea.MouseWheelMsg:
+		_, cmd := m.top().update(m, msg)
+		return m, cmd
 	}
-	_, cmd := m.top().update(m, msg)
-	return m, cmd
+	return m, m.broadcast(msg)
+}
+
+// broadcast delivers a non-input message to every screen of the stack, so
+// a screen below the top (the logs under a zoom) keeps receiving its data.
+func (m *Model) broadcast(msg tea.Msg) tea.Cmd {
+	var cmds []tea.Cmd
+	for _, s := range slices.Clone(m.stack) {
+		_, cmd := s.update(m, msg)
+		cmds = append(cmds, cmd)
+	}
+	return tea.Batch(cmds...)
 }
 
 func (m *Model) handleKey(k tea.KeyPressMsg) tea.Cmd {
@@ -190,7 +251,7 @@ func (m *Model) handleKey(k tea.KeyPressMsg) tea.Cmd {
 		m.resyncing = true
 		return m.startWatch()
 	case keys.Is(key, ActBack) && len(m.stack) > 1:
-		m.stack = m.stack[:len(m.stack)-1]
+		m.pop()
 	}
 	return nil
 }
@@ -198,6 +259,11 @@ func (m *Model) handleKey(k tea.KeyPressMsg) tea.Cmd {
 func (m *Model) stop() {
 	if m.cancel != nil {
 		m.cancel()
+	}
+	for _, s := range m.stack {
+		if c, ok := s.(closer); ok {
+			c.close()
+		}
 	}
 }
 
@@ -208,7 +274,7 @@ func (m *Model) switchEnv(e EnvInfo) tea.Cmd {
 	}
 	m.note = fmt.Sprintf("switched %s -> %s at %s", m.env.Name, e.Name, m.opts.Now().Format("15:04:05"))
 	m.env, m.snap, m.watchErr = e, nil, nil
-	m.stack = []screen{newServicesScreen("")}
+	m.reset(newServicesScreen(""))
 	return m.startWatch()
 }
 
@@ -304,11 +370,11 @@ func (m *Model) connection(bar lipgloss.Style) string {
 
 func (m *Model) statusBar() string {
 	t := m.opts.Theme
-	bar, chip, label := t.Status, t.Chip, strings.ToUpper(m.top().crumbs()[0])
+	bar, left := t.Status, ""
 	if m.env.Production {
-		bar, chip, label = t.StatusProd, t.ChipProd, "PRODUCTION"
+		bar, left = t.StatusProd, t.ChipProd.Render("PRODUCTION")+bar.Render(" ")
 	}
-	left := chip.Render(label) + bar.Render("  ") + m.top().statusLeft(m)
+	left += m.top().statusLeft(m)
 	if m.note != "" {
 		left += bar.Render("  ·  ") + t.Dim.Inherit(bar).Render(m.note)
 	}

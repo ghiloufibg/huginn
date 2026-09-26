@@ -90,7 +90,7 @@ func (s *servicesScreen) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 	s.sync(rows)
 	switch msg := msg.(type) {
 	case snapshotMsg:
-		s.openRequested(m)
+		return false, s.openRequested(m)
 	case tea.MouseWheelMsg:
 		switch msg.Button {
 		case tea.MouseWheelDown:
@@ -108,18 +108,18 @@ func (s *servicesScreen) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 }
 
 // openRequested opens the --repo screen once the repo shows up.
-func (s *servicesScreen) openRequested(m *Model) {
+func (s *servicesScreen) openRequested(m *Model) tea.Cmd {
 	if s.openRepo == "" || m.snap == nil || !m.snap.Synced {
-		return
+		return nil
 	}
 	repo := s.openRepo
 	s.openRepo = ""
 	if _, ok := m.findService(repo); !ok {
 		s.missing = repo
-		return
+		return nil
 	}
 	s.selected = repo
-	m.push(newRepoScreen(repo))
+	return m.push(newLogsScreen(m, repo))
 }
 
 func (s *servicesScreen) edit(k tea.KeyPressMsg) tea.Cmd {
@@ -153,7 +153,7 @@ func (s *servicesScreen) key(m *Model, k tea.KeyPressMsg, rows []domain.ServiceS
 		s.move(rows, len(rows))
 	case keys.Is(key, ActOpen):
 		if len(rows) > 0 {
-			m.push(newRepoScreen(rows[s.tbl.cursor].Repo))
+			return true, m.push(newLogsScreen(m, rows[s.tbl.cursor].Repo))
 		}
 	case keys.Is(key, ActFilter):
 		s.editing = true
@@ -232,8 +232,12 @@ func (s *servicesScreen) statusLeft(m *Model) string {
 	if m.env.Production {
 		bar = t.StatusProd
 	}
+	chip := t.Chip.Render("SERVICES") + bar.Render("  ")
+	if m.env.Production {
+		chip = ""
+	}
 	if m.snap == nil {
-		return bar.Render("loading")
+		return chip + bar.Render("loading")
 	}
 	var parts []string
 	if s.missing != "" {
@@ -251,7 +255,7 @@ func (s *servicesScreen) statusLeft(m *Model) string {
 		slices.Sort(nss)
 		parts = append(parts, "namespace "+strings.Join(nss, ", "))
 	}
-	return bar.Render(strings.Join(parts, "  ·  "))
+	return chip + bar.Render(strings.Join(parts, "  ·  "))
 }
 
 func (s *servicesScreen) hints(m *Model) []hint {

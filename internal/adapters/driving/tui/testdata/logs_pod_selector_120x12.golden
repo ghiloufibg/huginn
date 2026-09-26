@@ -1,0 +1,12 @@
+ huginn  REC  gke_acme_europe-west1_mai…   services / payment-service / logs / pods   demo · watching · synced 19:14:02 
+ Select pods of payment-service   3 pods                                                                                
+                                                                                                                        
+ [x] payment-service-5d6f4c9b8d-p3w1n  Healthy                                                                          
+ [x] payment-service-7b9c8d4f6c-m8q7v  Healthy                                                                          
+ [x] payment-service-7b9c8d4f6c-x4k2p  Healthy                                                                          
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+ PODS   3 of 3 selected                                        space toggle  a all  / by name  enter apply  esc cancel  

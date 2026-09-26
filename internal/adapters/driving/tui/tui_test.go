@@ -30,6 +30,8 @@ var envs = []EnvInfo{
 	{Name: "prd", Context: "gke_acme_europe-west1_main", Namespaces: []string{"app-prd"}, Production: true},
 }
 
+var sessions *fakeSessions
+
 func newTestModel(t *testing.T, env int, repo string) (*Model, *fakeCatalog) {
 	t.Helper()
 	theme, err := NewTheme("light", false)
@@ -41,8 +43,10 @@ func newTestModel(t *testing.T, env int, repo string) (*Model, *fakeCatalog) {
 		t.Fatal(err)
 	}
 	fc := &fakeCatalog{}
+	sessions = &fakeSessions{}
 	m := NewModel(Options{
 		Env: envs[env], Envs: envs, Theme: theme, Keys: keys, Source: "demo", Catalog: fc, Repo: repo,
+		Sessions: sessions, Renderer: compactRenderer{}, FullRenderer: compactRenderer{},
 		Now:    func() time.Time { return t0 },
 		Filter: domain.ContainerFilter{Deny: []string{"istio-proxy", "istio-init", "vault-agent"}},
 	})
@@ -59,6 +63,10 @@ func run(m *Model, cmd tea.Cmd) {
 	switch msg := cmd().(type) {
 	case watchStartedMsg:
 		m.Update(watchStartedMsg{gen: msg.gen, err: msg.err})
+	case logStartedMsg:
+		if msg.err != nil {
+			m.Update(msg)
+		}
 	case tea.BatchMsg:
 		for _, c := range msg {
 			run(m, c)
@@ -136,7 +144,9 @@ func TestProductionAndEnvPickerGolden(t *testing.T) {
 	golden(t, "services_prd_env_picker_160x30", render(m, 160, 30))
 }
 
-func TestRepoScreenGolden(t *testing.T) {
+// openLogs opens payment-service's logs and feeds the mockup batch.
+func openLogs(t *testing.T) (*Model, *logsScreen) {
+	t.Helper()
 	m, _ := newTestModel(t, 1, "")
 	snapshot(m, mockupSnapshot("rec"))
 	press(m, "s", "g") // sort by name, go to top: payment-service is row 10
@@ -147,10 +157,60 @@ func TestRepoScreenGolden(t *testing.T) {
 		t.Fatalf("selected %q", got)
 	}
 	press(m, "enter")
-	golden(t, "repo_payment_140x20", render(m, 140, 20))
+	l, ok := m.top().(*logsScreen)
+	if !ok {
+		t.Fatal("enter must open the logs")
+	}
+	feed(m, l, paymentBatch())
+	return m, l
+}
+
+func feed(m *Model, l *logsScreen, b ports.LogBatch) {
+	m.Update(logBatchMsg{screen: l, gen: l.gen, batch: b, ch: make(chan ports.LogBatch)})
+}
+
+func TestLogsGolden(t *testing.T) {
+	m, _ := openLogs(t)
+	golden(t, "logs_160x24", render(m, 160, 24))
+	golden(t, "logs_80x16", render(m, 80, 16))
+	press(m, "F")
+	golden(t, "logs_fullscreen_120x12", render(m, 120, 12))
 	press(m, "esc")
-	if len(m.stack) != 1 {
-		t.Fatal("esc must go back")
+	press(m, "T")
+	golden(t, "logs_window_picker_120x20", render(m, 120, 20))
+	press(m, "esc", "S")
+	golden(t, "logs_pod_selector_120x12", render(m, 120, 12))
+	press(m, "esc")
+	if len(m.stack) != 2 {
+		t.Fatal("esc must close the pod selector")
+	}
+	press(m, "esc")
+	if len(m.stack) != 1 || sessions.ctxs[0].Err() == nil {
+		t.Fatal("leaving the logs must close the session")
+	}
+}
+
+func TestZoomGolden(t *testing.T) {
+	m, l := openLogs(t)
+	for range 5 {
+		press(m, "k")
+	}
+	if e, _ := l.entryAt(l.displayCursor()); e.Level != domain.LevelError || e.Stack == "" {
+		t.Fatalf("cursor on %+v", e)
+	}
+	press(m, "enter")
+	golden(t, "zoom_140x40", render(m, 140, 40))
+	press(m, "enter")
+	golden(t, "zoom_metadata_140x40", render(m, 140, 40))
+	press(m, "p")
+	golden(t, "zoom_raw_140x10", render(m, 140, 10))
+	press(m, "p", "J")
+	if z := m.top().(*zoomScreen); z.seq != l.seqs[4] {
+		t.Fatalf("J must go to the next entry, got seq %d", z.seq)
+	}
+	press(m, "esc")
+	if m.top() != l {
+		t.Fatal("esc must return to the stream")
 	}
 }
 
@@ -164,9 +224,10 @@ func TestFitsTerminal(t *testing.T) {
 	for _, size := range [][2]int{{160, 45}, {120, 30}, {80, 24}, {60, 12}, {40, 10}} {
 		m, _ := newTestModel(t, 1, "")
 		snapshot(m, mockupSnapshot("rec"))
-		for _, screen := range []string{"services", "repo"} {
-			if screen == "repo" {
+		for _, screen := range []string{"services", "logs"} {
+			if screen == "logs" {
 				press(m, "enter")
+				feed(m, m.top().(*logsScreen), paymentBatch())
 			}
 			lines := strings.Split(render(m, size[0], size[1]), "\n")
 			if len(lines) != size[1] {
@@ -266,6 +327,79 @@ func TestRefreshRestartsWatch(t *testing.T) {
 	press(m, "r")
 	if len(fc.calls) != 2 || !m.resyncing {
 		t.Fatalf("calls %v resyncing %v", fc.calls, m.resyncing)
+	}
+}
+
+func TestLogsFollowPauseAndTail(t *testing.T) {
+	m, l := openLogs(t)
+	render(m, 120, 20)
+	press(m, "space")
+	feed(m, l, ports.LogBatch{Entries: []domain.LogEntry{logEntry(1, podA, domain.LevelInfo, "a.B", "new 1"), logEntry(2, podA, domain.LevelInfo, "a.B", "new 2")}})
+	if out := render(m, 160, 20); !strings.Contains(out, "PAUSED +2") || strings.Contains(out, "new 1") {
+		t.Fatalf("paused view must not move:\n%s", out)
+	}
+	press(m, "space")
+	if out := render(m, 160, 20); !strings.Contains(out, "new 2") || !strings.Contains(out, " LIVE ") {
+		t.Fatalf("resume must jump to live:\n%s", out)
+	}
+	press(m, "k", "k")
+	feed(m, l, ports.LogBatch{Entries: []domain.LogEntry{logEntry(3, podB, domain.LevelInfo, "a.B", "new 3")}})
+	if out := render(m, 160, 20); !strings.Contains(out, "LIVE +3 below") {
+		t.Fatalf("scrolling up must stop auto-scroll:\n%s", out)
+	}
+	press(m, "G")
+	if !l.tail {
+		t.Fatal("G must return to the tail")
+	}
+	press(m, "f")
+	if n := len(sessions.queries); n != 2 || sessions.queries[1].Follow || sessions.ctxs[0].Err() == nil {
+		t.Fatalf("f must reopen without follow: %+v", sessions.queries)
+	}
+	if out := render(m, 160, 20); !strings.Contains(out, "STOPPED") {
+		t.Fatal("follow off must show STOPPED")
+	}
+}
+
+func TestLogsWindowKeys(t *testing.T) {
+	m, l := openLogs(t)
+	press(m, "é") // AZERTY "2": 30m
+	press(m, "0") // tail
+	press(m, "t") // next after tail wraps to 15m
+	want := []string{"15m", "30m", "tail", "15m"}
+	for i, q := range sessions.queries {
+		if q.Window.Label() != want[i] || q.Repo != "payment-service" || q.Env != "rec" {
+			t.Fatalf("query %d: %+v", i, q)
+		}
+	}
+	if l.buf.Len() != 0 {
+		t.Fatal("changing the window must reload")
+	}
+}
+
+func TestLogsScopeOrderAndErrors(t *testing.T) {
+	m, l := openLogs(t)
+	press(m, "tab")
+	if len(l.scope) != 1 || !l.scope[podA] || l.shown() != 3 {
+		t.Fatalf("tab: scope %v shown %d", l.scope, l.shown())
+	}
+	press(m, "tab", "tab", "tab")
+	if l.scope != nil || l.shown() != 9 {
+		t.Fatalf("tab cycle must return to all pods: %v", l.scope)
+	}
+	press(m, "<")
+	if e, _ := l.entryAt(l.displayCursor()); e.Message != "Card declined by issuer orderId=ord_72bf10 retryable=false" {
+		t.Fatalf("< : %q", e.Message)
+	}
+	press(m, "<")
+	if e, _ := l.entryAt(l.displayCursor()); !strings.HasPrefix(e.Message, "Payment authorization failed") {
+		t.Fatalf("< < : %q", e.Message)
+	}
+	press(m, "o")
+	if out := render(m, 160, 20); !strings.Contains(out, "newest first") {
+		t.Fatal("order must show in the status bar")
+	}
+	if e, _ := l.entryAt(0); e.Message != "health probe succeeded components=db,redis,gateway" {
+		t.Fatalf("newest first: %q", e.Message)
 	}
 }
 

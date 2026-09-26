@@ -29,6 +29,12 @@ type Theme struct {
 	TableHeader          lipgloss.Style
 	Prompt               lipgloss.Style
 	Popup, PopupTitle    lipgloss.Style
+	// Log line roles.
+	Timestamp, Thread, Logger, PID lipgloss.Style
+	ErrorText, Stack               lipgloss.Style
+	// Pods are the per-pod identity colors, used with the pod's short id
+	// (the id itself, not the color, identifies the pod).
+	Pods []lipgloss.Style
 }
 
 // ThemeNames lists the available themes.
@@ -93,6 +99,20 @@ func ansiTheme(fg, bar, warn color.Color) Theme {
 		Prompt:       lipgloss.NewStyle().Bold(true).Background(fg).Foreground(bar).Padding(0, 1),
 		Popup:        lipgloss.NewStyle().Border(lipgloss.NormalBorder()).BorderForeground(fg).Padding(0, 1),
 		PopupTitle:   lipgloss.NewStyle().Bold(true),
+		Timestamp:    lipgloss.NewStyle().Foreground(lipgloss.BrightBlack),
+		Thread:       lipgloss.NewStyle().Foreground(lipgloss.BrightBlack),
+		Logger:       lipgloss.NewStyle().Foreground(lipgloss.Cyan),
+		PID:          lipgloss.NewStyle().Foreground(lipgloss.Magenta),
+		ErrorText:    lipgloss.NewStyle().Foreground(lipgloss.Red),
+		Stack:        lipgloss.NewStyle().Foreground(lipgloss.Red),
+		Pods: []lipgloss.Style{
+			lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Cyan),
+			lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Magenta),
+			lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Blue),
+			lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Green),
+			lipgloss.NewStyle().Bold(true).Foreground(lipgloss.BrightMagenta),
+			lipgloss.NewStyle().Bold(true).Foreground(lipgloss.BrightBlue),
+		},
 	}
 }
 
@@ -121,6 +141,8 @@ func monoTheme() Theme {
 		Ok: plain, Warn: bold, Bad: bold.Underline(true), Info: plain, Body: plain,
 		Selected: rev, TableHeader: bold, Prompt: rev.Padding(0, 1),
 		Popup: plain.Border(lipgloss.NormalBorder()).Padding(0, 1), PopupTitle: bold,
+		Timestamp: plain, Thread: plain, Logger: plain, PID: plain, ErrorText: bold, Stack: plain,
+		Pods: []lipgloss.Style{bold},
 	}
 }
 
@@ -141,3 +163,22 @@ func (t Theme) statusStyle(s domain.ServiceStatus) lipgloss.Style {
 		return t.Ok
 	}
 }
+
+// levelStyle returns the style of a level word.
+func (t Theme) levelStyle(l domain.Level) lipgloss.Style {
+	switch l {
+	case domain.LevelError:
+		return t.Bad
+	case domain.LevelWarn:
+		return t.Warn
+	case domain.LevelInfo:
+		return t.Ok
+	case domain.LevelDebug:
+		return t.Dim
+	default:
+		return lipgloss.NewStyle()
+	}
+}
+
+// podStyle returns the identity style of the i-th pod.
+func (t Theme) podStyle(i int) lipgloss.Style { return t.Pods[i%len(t.Pods)] }

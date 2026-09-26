@@ -2,6 +2,8 @@ package tui
 
 import (
 	"context"
+	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -89,5 +91,83 @@ func paymentPods() []domain.Pod {
 	return []domain.Pod{
 		mk("payment-service-7b9c8d4f6c-m8q7v", 1, 12*24*time.Hour),
 		mk("payment-service-7b9c8d4f6c-x4k2p", 0, 12*24*time.Hour),
+	}
+}
+
+// fakeSessions records opened log queries; tests feed batches directly.
+type fakeSessions struct {
+	mu      sync.Mutex
+	queries []ports.LogQuery
+	ctxs    []context.Context
+}
+
+func (f *fakeSessions) Open(ctx context.Context, q ports.LogQuery) (<-chan ports.LogBatch, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.queries = append(f.queries, q)
+	f.ctxs = append(f.ctxs, ctx)
+	return make(chan ports.LogBatch), nil
+}
+
+// compactRenderer mimics the Spring compact layout without importing the
+// adapter: time, level, logger, message.
+type compactRenderer struct{}
+
+func (compactRenderer) Render(e domain.LogEntry, o ports.RenderOptions) []ports.Segment {
+	var out []ports.Segment
+	if o.Timestamps != ports.TimestampNone {
+		out = append(out, ports.Segment{Text: e.Time.UTC().Format("15:04:05.000") + " ", Role: ports.RoleTimestamp})
+	}
+	if !e.Structured {
+		return append(out, ports.Segment{Text: e.Message, Role: ports.RoleMessage})
+	}
+	return append(out,
+		ports.Segment{Text: fmt.Sprintf("%5s ", e.Level), Role: ports.RoleLevel},
+		ports.Segment{Text: "[" + e.Thread + "] ", Role: ports.RoleThread},
+		ports.Segment{Text: e.Logger, Role: ports.RoleLogger},
+		ports.Segment{Text: " : ", Role: ports.RoleDim},
+		ports.Segment{Text: e.Message, Role: ports.RoleMessage},
+	)
+}
+
+const (
+	podA = "payment-service-7b9c8d4f6c-m8q7v"
+	podB = "payment-service-7b9c8d4f6c-x4k2p"
+	podC = "payment-service-5d6f4c9b8d-p3w1n"
+)
+
+func logEntry(sec int, pod string, lvl domain.Level, logger, msg string) domain.LogEntry {
+	return domain.LogEntry{
+		Time: t0.Add(time.Duration(sec) * time.Second), Pod: pod, Container: "payment-service", Level: lvl, Structured: true,
+		Thread: "exec-1", Logger: logger, Message: msg, Raw: `{"message":"` + msg + `"}`,
+	}
+}
+
+// paymentBatch is a history batch resembling mockup board 3.
+func paymentBatch() ports.LogBatch {
+	errEntry := logEntry(-50, podA, domain.LevelError, "i.g.p.PaymentService", "Payment authorization failed orderId=ord_8f91a2 traceId=7fd28c90")
+	errEntry.Stack = "io.gimle.payment.PaymentGatewayException: upstream request timed out\n\tat io.gimle.payment.gateway.GatewayClient.charge(GatewayClient.java:184)\n\tat org.springframework.web.servlet.FrameworkServlet.service(FrameworkServlet.java:885)\nCaused by: java.net.SocketTimeoutException: Read timed out"
+	errEntry.TraceID = "7fd28c90"
+	errEntry.Fields = map[string]string{"extra.orderId": "ord_8f91a2", "spanId": "91ac07"}
+	errEntry.Hidden = map[string]string{"kubernetes.namespace_name": "app-rec", "kubernetes.pod_name": podA}
+	entries := []domain.LogEntry{
+		logEntry(-60, podB, domain.LevelInfo, "i.g.p.PaymentController", "request completed POST /v1/payments status=201 duration=96ms"),
+		logEntry(-58, podA, domain.LevelDebug, "c.z.hikari.pool.HikariPool", "HikariPool-1 - Pool stats (total=40, active=12, idle=28, waiting=0)"),
+		logEntry(-55, podB, domain.LevelWarn, "i.g.p.gateway.GatewayClient", "gateway latency above threshold provider=adyen p95=842ms"),
+		errEntry,
+		logEntry(-45, podB, domain.LevelInfo, "i.g.p.PaymentController", "request completed GET /v1/payments/pay_802ae status=200 duration=14ms"),
+		{Time: t0.Add(-44 * time.Second), Pod: podC, Container: "payment-service", Message: " :: Spring Boot ::                (v3.4.1)", Raw: " :: Spring Boot ::                (v3.4.1)"},
+		logEntry(-40, podC, domain.LevelInfo, "i.g.p.PaymentApplication", "Started PaymentApplication in 7.412 seconds"),
+		logEntry(-30, podA, domain.LevelError, "i.g.p.card.CardController", "Card declined by issuer orderId=ord_72bf10 retryable=false"),
+		logEntry(-20, podB, domain.LevelInfo, "i.g.p.HealthReporter", "health probe succeeded components=db,redis,gateway"),
+	}
+	pods := paymentPods()
+	newPod := pods[0]
+	newPod.Name = podC
+	newPod.Containers = slices.Clone(newPod.Containers)
+	newPod.Containers[1].Image, newPod.Containers[1].Restarts = "eu.gcr.io/acme/payment-service:v2.14.4", 0
+	return ports.LogBatch{
+		Entries: entries, HistoryDone: true,
+		Pods: []ports.PodState{{Pod: pods[0], Containers: []string{"payment-service"}}, {Pod: pods[1], Containers: []string{"payment-service"}}, {Pod: newPod, Containers: []string{"payment-service"}, New: true}},
 	}
 }
