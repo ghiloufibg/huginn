@@ -33,12 +33,14 @@ type Segment struct {
 // TimestampMode selects how times are displayed.
 type TimestampMode int
 
-// Timestamp modes, cycled with the timestamp key.
+// Timestamp modes. The timestamp key cycles local, UTC, relative and none;
+// delta is used by the trace view.
 const (
 	TimestampLocal TimestampMode = iota
 	TimestampUTC
-	TimestampDelta
+	TimestampRelative
 	TimestampNone
+	TimestampDelta
 )
 
 // RenderOptions are the display toggles that affect a rendered line.
@@ -47,6 +49,8 @@ type RenderOptions struct {
 	Location   *time.Location
 	// DeltaFrom is the reference time for TimestampDelta.
 	DeltaFrom time.Time
+	// Now is the reference time for TimestampRelative.
+	Now time.Time
 	// Full renders every field of the layout (PID, app name) instead of the
 	// compact stream layout.
 	Full bool
