@@ -73,7 +73,8 @@ func Build(o cli.Options, loc config.Locator, getenv func(string) string, log *s
 	if err != nil {
 		return nil, err
 	}
-	cluster, err := factory(c, clock.New())
+	clk := clock.New()
+	cluster, err := factory(c, clk)
 	if err != nil {
 		return nil, err
 	}
@@ -85,12 +86,22 @@ func Build(o cli.Options, loc config.Locator, getenv func(string) string, log *s
 	if err != nil {
 		return nil, err
 	}
-	e := c.Environments[env.String()]
+	filter := containerFilter(c)
+	envs := make([]tui.EnvInfo, 0, len(c.Environments))
+	var current tui.EnvInfo
+	for _, name := range config.EnvNames(c) {
+		e := c.Environments[name]
+		info := tui.EnvInfo{Name: name, Context: e.Context, Namespaces: e.Namespaces, Production: e.Production}
+		envs = append(envs, info)
+		if name == env.String() {
+			current = info
+		}
+	}
 	return &App{
 		Config: c, Env: env, Cluster: cluster, Log: log,
 		UI: tui.Options{
-			Env:   tui.EnvInfo{Name: env.String(), Context: e.Context, Namespaces: e.Namespaces, Production: e.Production},
-			Theme: theme, Keys: keys, Source: clientName, Repo: o.Repo,
+			Env: current, Envs: envs, Theme: theme, Keys: keys, Source: clientName, Repo: o.Repo,
+			Catalog: newCatalog(c, cluster, clk, filter, log), Filter: filter,
 		},
 	}, nil
 }

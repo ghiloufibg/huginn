@@ -74,8 +74,18 @@ func newWorld(seed int64, start time.Time, namespaces map[domain.Env]string) *wo
 				w.addWorkload(env, namespaces[env], r, wl, cond)
 			}
 		}
+		w.addUnlabelled(env, namespaces[env])
 	}
 	return w
+}
+
+// addUnlabelled adds a legacy workload that carries none of the usual
+// repository labels, so it shows up as "without repo".
+func (w *world) addUnlabelled(env domain.Env, ns string) {
+	r := repoSpec{name: "", workloads: []string{"nightly-report"}, replicas: 1, version: "1.0.3", age: 400 * day, pkg: "com.acme.reports"}
+	w.addWorkload(env, ns, r, "nightly-report", healthy)
+	last := len(w.workloads[env]) - 1
+	w.workloads[env][last].Labels = map[string]string{"k8s-app": "nightly-report"}
 }
 
 func (w *world) addWorkload(env domain.Env, ns string, r repoSpec, name string, cond condition) {

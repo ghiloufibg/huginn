@@ -80,7 +80,9 @@ func TestScenarioCoversPrototypeStatuses(t *testing.T) {
 	ws, _ := c.ListWorkloads(context.Background(), recScope)
 	repos := map[string]bool{}
 	for _, w := range ws {
-		repos[w.Labels["app.kubernetes.io/part-of"]] = true
+		if r := w.Labels["app.kubernetes.io/part-of"]; r != "" {
+			repos[r] = true
+		}
 	}
 	if len(repos) != 14 {
 		t.Fatalf("got %d repos, want 14", len(repos))
