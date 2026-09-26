@@ -35,6 +35,10 @@ type LogSessions struct {
 	// Reorder is how long live lines wait before being committed
 	// (default 250ms).
 	Reorder time.Duration
+	// MaxHistory caps the history read per container (default 50 000,
+	// usually the view's buffer size): older lines of the window are not
+	// fetched.
+	MaxHistory int
 	// Backoff lists the waits between reconnections (default 1s, 2s, 5s,
 	// 10s, 30s; the last repeats).
 	Backoff []time.Duration
@@ -123,6 +127,7 @@ type tailMsg struct {
 	history        []domain.LogEntry // with historyDone
 	historyDone    bool
 	historyErr     error
+	capped         bool // the history reached the line limit
 	live           *domain.LogEntry
 	notice         string
 	podEvent       *domain.PodEvent
@@ -313,6 +318,9 @@ func (r *session) handleHistory(m tailMsg) {
 // 5 minutes and 10% of the window): usually the node rotated or dropped
 // those logs. It only states what was received.
 func (r *session) retentionNotice(m tailMsg) string {
+	if m.capped && !r.q.Window.IsTail() {
+		return fmt.Sprintf("%s: older lines of the window not loaded (limit %d lines per container)", m.pod, len(m.history))
+	}
 	if r.q.Window.IsTail() || r.q.Window.Since <= 0 || len(m.history) == 0 {
 		return ""
 	}

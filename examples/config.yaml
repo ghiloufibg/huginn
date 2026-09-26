@@ -114,4 +114,4 @@ ui:
 
 demo:
   seed: 42
-  rate: 0.5                   # live lines per second per pod
+  rate: 1                     # live lines per second per pod

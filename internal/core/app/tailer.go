@@ -32,17 +32,23 @@ func (t *tailer) send(ctx context.Context, m tailMsg) bool {
 }
 
 func (t *tailer) request() ports.LogRequest {
-	return ports.LogRequest{Scope: t.scope, Namespace: t.pod.Namespace, Pod: t.pod.Name, Container: t.container, Window: t.q.Window}
+	limit := t.s.MaxHistory
+	if limit <= 0 {
+		limit = 50000
+	}
+	return ports.LogRequest{Scope: t.scope, Namespace: t.pod.Namespace, Pod: t.pod.Name, Container: t.container, Window: t.q.Window, Limit: limit}
 }
 
 func (t *tailer) run(ctx context.Context) {
+	req := t.request()
 	hist, last, seen, err := t.history(ctx)
-	if !t.send(ctx, tailMsg{history: hist, historyDone: true, historyErr: err}) || !t.q.Follow {
+	capped := req.Limit > 0 && len(hist) >= req.Limit
+	if !t.send(ctx, tailMsg{history: hist, historyDone: true, historyErr: err, capped: capped}) || !t.q.Follow {
 		return
 	}
 	for attempt := 0; ctx.Err() == nil; attempt++ {
 		req := t.request()
-		req.Follow = true
+		req.Follow, req.Limit = true, 0
 		if !last.IsZero() {
 			req.SinceTime = last
 		}

@@ -238,3 +238,17 @@ func TestSessionClosesOnCancel(t *testing.T) {
 		}
 	}
 }
+
+func TestHistoryIsCappedPerContainer(t *testing.T) {
+	f := newFixture(t)
+	f.s.MaxHistory = 1
+	r, cancel := f.open(t, ports.LogQuery{})
+	defer cancel()
+	r.until(10*time.Millisecond, func() bool { return r.history })
+	if got := strings.Join(r.entries, ","); got != "a3,b4" {
+		t.Fatalf("capped history %s", got)
+	}
+	if len(r.notices) != 2 || !strings.Contains(r.notices[0], "not loaded (limit 1 lines per container)") {
+		t.Fatalf("a capped history must say so, not report retention: %v", r.notices)
+	}
+}

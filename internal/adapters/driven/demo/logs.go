@@ -133,14 +133,20 @@ func (c *Cluster) history(g generator, pc podContext, ctr domain.Container, inst
 	if !req.SinceTime.IsZero() {
 		return c.lines(g, pc, ctr, inst, latest(lower, req.SinceTime), to, true)
 	}
-	if w.IsTail() {
-		from = latest(lower, to.Add(-time.Duration(float64(w.Tail)*2/c.opts.Rate*float64(time.Second))))
-	} else if w.Since > 0 {
+	limit := req.Limit
+	if w.IsTail() && (limit <= 0 || w.Tail < limit) {
+		limit = w.Tail
+	}
+	if w.Since > 0 {
 		from = latest(lower, now.Add(-w.Since))
 	}
+	if limit > 0 {
+		// Only generate what the limit keeps (twice the expected span).
+		from = latest(from, to.Add(-time.Duration(float64(limit)*2/c.opts.Rate*float64(time.Second))))
+	}
 	lines := c.lines(g, pc, ctr, inst, from, to, true)
-	if w.IsTail() && len(lines) > w.Tail {
-		lines = lines[len(lines)-w.Tail:]
+	if limit > 0 && len(lines) > limit {
+		lines = lines[len(lines)-limit:]
 	}
 	return lines
 }

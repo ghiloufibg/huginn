@@ -150,6 +150,18 @@ func RunLogSourceContract(t *testing.T, newFixture func(t *testing.T) LogFixture
 		}
 	})
 
+	t.Run("limit keeps the most recent lines", func(t *testing.T) {
+		f := newFixture(t)
+		req := f.Request
+		req.Window = domain.TimeWindow{Since: 48 * time.Hour}
+		all := collect(t, ctx, f.Source, req)
+		req.Limit = 2
+		got := collect(t, ctx, f.Source, req)
+		if len(got) != min(2, len(all)) || got[len(got)-1].Text != all[len(all)-1].Text {
+			t.Fatalf("limit 2: %d lines, last %q", len(got), got[len(got)-1].Text)
+		}
+	})
+
 	t.Run("unknown pod is not found", func(t *testing.T) {
 		f := newFixture(t)
 		req := f.Request

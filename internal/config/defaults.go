@@ -84,7 +84,7 @@ func applyDefaults(c *Config) {
 		c.Demo.Seed = 42
 	}
 	if c.Demo.Rate == 0 {
-		c.Demo.Rate = 0.5
+		c.Demo.Rate = 1
 	}
 }
 

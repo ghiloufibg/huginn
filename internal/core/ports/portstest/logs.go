@@ -79,6 +79,9 @@ func (s *FakeLogSource) Stream(ctx context.Context, req ports.LogRequest) (ports
 	if !req.SinceTime.IsZero() {
 		hist = sinceTime(src, req.SinceTime)
 	}
+	if req.Limit > 0 && len(hist) > req.Limit {
+		hist = hist[len(hist)-req.Limit:]
+	}
 	st := &stream{ch: make(chan domain.RawLine, len(hist)+256)}
 	for _, l := range hist {
 		st.ch <- l

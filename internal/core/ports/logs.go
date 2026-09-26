@@ -17,6 +17,10 @@ type LogRequest struct {
 	// SinceTime, when set, replaces Window: lines at or after this time
 	// (used to resume a stream without reloading its history).
 	SinceTime time.Time
+	// Limit, when positive, caps the history to the most recent Limit
+	// lines of the window (Kubernetes tailLines combined with the window),
+	// so a long window over a chatty container stays bounded.
+	Limit int
 	// Follow keeps the stream open and delivers new lines as they arrive.
 	Follow bool
 	// Previous reads the previous (terminated) instance of the container.

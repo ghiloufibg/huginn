@@ -12,6 +12,7 @@ import (
 	"syscall"
 
 	"github.com/ghiloufibg/huginn/internal/adapters/driven/clock"
+	"github.com/ghiloufibg/huginn/internal/adapters/driven/springlayout"
 	"github.com/ghiloufibg/huginn/internal/adapters/driving/cli"
 	"github.com/ghiloufibg/huginn/internal/adapters/driving/tui"
 	"github.com/ghiloufibg/huginn/internal/buildinfo"
@@ -60,8 +61,12 @@ func Build(o cli.Options, loc config.Locator, getenv func(string) string, log *s
 	if err != nil {
 		return nil, err
 	}
+	window, err := domain.ParseTimeWindow(c.Logs.DefaultWindow, c.Logs.TailLines)
+	if err != nil {
+		return nil, err
+	}
 	if o.Since != "" {
-		if _, err := domain.ParseTimeWindow(o.Since, c.Logs.TailLines); err != nil {
+		if window, err = domain.ParseTimeWindow(o.Since, c.Logs.TailLines); err != nil {
 			return nil, fmt.Errorf("--since: %w", err)
 		}
 	}
@@ -87,6 +92,10 @@ func Build(o cli.Options, loc config.Locator, getenv func(string) string, log *s
 		return nil, err
 	}
 	filter := containerFilter(c)
+	dec, renderer, err := logParts(c)
+	if err != nil {
+		return nil, err
+	}
 	envs := make([]tui.EnvInfo, 0, len(c.Environments))
 	var current tui.EnvInfo
 	for _, name := range config.EnvNames(c) {
@@ -102,6 +111,10 @@ func Build(o cli.Options, loc config.Locator, getenv func(string) string, log *s
 		UI: tui.Options{
 			Env: current, Envs: envs, Theme: theme, Keys: keys, Source: clientName, Repo: o.Repo,
 			Catalog: newCatalog(c, cluster, clk, filter, log), Filter: filter,
+			Sessions: newLogSessions(c, cluster, clk, filter, dec, log),
+			Renderer: renderer, FullRenderer: springlayout.NewFull(),
+			Windows: domain.DefaultWindowPresets(c.Logs.TailLines), Window: window,
+			BufferLines: c.Logs.BufferLines,
 		},
 	}, nil
 }
