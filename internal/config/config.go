@@ -129,6 +129,13 @@ type UI struct {
 	Theme           string              `yaml:"theme" doc:"Color theme." enum:"light,accessible,classic,none"`
 	PaintBackground bool                `yaml:"paint_background" doc:"Paint the theme background instead of using the terminal's."`
 	Keymap          map[string][]string `yaml:"keymap" doc:"Action name to keys, overriding defaults, e.g. {follow: [f, ctrl+l]}."`
+	KeyBar          string              `yaml:"key_bar" doc:"Key bar at the bottom: compact (one line), full (two lines) or hidden (f2 cycles)." enum:"compact,full,hidden"`
+	Logs            UILogs              `yaml:"logs" doc:"Logs screen display."`
+}
+
+// UILogs configures the logs screen display.
+type UILogs struct {
+	Columns []string `yaml:"columns" doc:"Columns shown before the message; empty means automatic (thread hidden below 140 cells, class below 110)." enum:"time,pod,level,thread,class"`
 }
 
 // Demo configures the synthetic cluster.

@@ -80,6 +80,9 @@ func applyDefaults(c *Config) {
 	if c.UI.Theme == "" {
 		c.UI.Theme = "light"
 	}
+	if c.UI.KeyBar == "" {
+		c.UI.KeyBar = "compact"
+	}
 	if c.Demo.Seed == 0 {
 		c.Demo.Seed = 42
 	}

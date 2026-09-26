@@ -196,3 +196,25 @@ func (p *columnsPicker) view(m *Model) string {
 func (p *columnsPicker) hints(m *Model) []hint {
 	return []hint{{"t", "time"}, {"p", "pod"}, {"l", "level"}, {"h", "thread"}, {"c", "class"}, {"z", "message only"}, {"r", "reset"}, m.h(ActBack, "close")}
 }
+
+// withColumns applies configured columns; none configured keeps the
+// automatic narrowing.
+func (l *logsScreen) withColumns(cols []string) *logsScreen {
+	if len(cols) == 0 {
+		return l
+	}
+	shown := map[string]bool{}
+	for _, c := range cols {
+		shown[c] = true
+	}
+	for name, col := range map[string]ports.Column{"time": ports.ColTime, "level": ports.ColLevel, "thread": ports.ColThread, "class": ports.ColLogger} {
+		if !shown[name] {
+			l.hide = l.hide.With(col)
+		}
+	}
+	if !shown["pod"] {
+		l.podID = podIDNone
+	}
+	l.manualColumns = true
+	return l
+}

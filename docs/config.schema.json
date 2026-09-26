@@ -445,6 +445,15 @@
       "additionalProperties": false,
       "description": "Theme and key bindings.",
       "properties": {
+        "key_bar": {
+          "description": "Key bar at the bottom: compact (one line), full (two lines) or hidden (f2 cycles).",
+          "enum": [
+            "compact",
+            "full",
+            "hidden"
+          ],
+          "type": "string"
+        },
         "keymap": {
           "additionalProperties": {
             "items": {
@@ -453,6 +462,27 @@
             "type": "array"
           },
           "description": "Action name to keys, overriding defaults, e.g. {follow: [f, ctrl+l]}.",
+          "type": "object"
+        },
+        "logs": {
+          "additionalProperties": false,
+          "description": "Logs screen display.",
+          "properties": {
+            "columns": {
+              "description": "Columns shown before the message; empty means automatic (thread hidden below 140 cells, class below 110).",
+              "items": {
+                "enum": [
+                  "time",
+                  "pod",
+                  "level",
+                  "thread",
+                  "class"
+                ],
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
           "type": "object"
         },
         "paint_background": {

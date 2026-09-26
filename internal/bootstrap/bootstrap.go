@@ -114,7 +114,7 @@ func Build(o cli.Options, loc config.Locator, getenv func(string) string, log *s
 			Sessions: newLogSessions(c, cluster, clk, filter, dec, log),
 			Renderer: renderer, FullRenderer: springlayout.NewFull(),
 			Windows: domain.DefaultWindowPresets(c.Logs.TailLines), Window: window,
-			BufferLines: c.Logs.BufferLines,
+			BufferLines: c.Logs.BufferLines, KeyBar: c.UI.KeyBar, LogColumns: c.UI.Logs.Columns,
 		},
 	}, nil
 }

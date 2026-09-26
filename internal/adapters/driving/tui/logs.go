@@ -99,11 +99,11 @@ type viewRow struct {
 }
 
 func newLogsScreen(m *Model, repo string) *logsScreen {
-	return &logsScreen{
+	return (&logsScreen{
 		repo: repo, window: m.opts.Window, follow: true, tail: true,
 		buf: domain.NewLogBuffer(m.opts.BufferLines), podColor: map[string]int{},
 		filter: domain.NewLogFilter(),
-	}
+	}).withColumns(m.opts.LogColumns)
 }
 
 func (l *logsScreen) crumbs() []string { return []string{"services", l.repo, "logs"} }

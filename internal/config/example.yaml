@@ -111,6 +111,9 @@ ui:
   theme: light                # light | accessible | classic | none (NO_COLOR forces none)
   paint_background: false
   keymap: {}                  # e.g. {follow: [f, ctrl+l]}
+  key_bar: compact            # compact | full | hidden (f2 cycles)
+  logs:
+    columns: []               # empty: automatic; e.g. [time, level] for message-first lines
 
 demo:
   seed: 42

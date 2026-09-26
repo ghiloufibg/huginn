@@ -53,6 +53,9 @@ type Options struct {
 	Context context.Context
 	// KeyBar is the initial key bar size ("compact", "full", "hidden").
 	KeyBar string
+	// LogColumns are the columns shown before the message (time, pod,
+	// level, thread, class); empty means automatic narrowing.
+	LogColumns []string
 }
 
 // screen is one page of the UI. The root model routes messages to the

@@ -67,3 +67,12 @@ func TestTimestampCycleIncludesHidden(t *testing.T) {
 		t.Fatal("a full cycle shows the time again")
 	}
 }
+
+func TestConfiguredColumns(t *testing.T) {
+	m, _ := newTestModel(t, 1, "")
+	m.opts.LogColumns = []string{"time", "level"}
+	l := newLogsScreen(m, "payment-service")
+	if !l.manualColumns || l.podID != podIDNone || !l.hide.Has(ports.ColThread) || !l.hide.Has(ports.ColLogger) || l.hide.Has(ports.ColTime) {
+		t.Fatalf("configured columns: hide %b pod %v", l.hide, l.podID)
+	}
+}
