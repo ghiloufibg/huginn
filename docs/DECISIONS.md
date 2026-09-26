@@ -43,10 +43,15 @@ Status: accepted.
 The core `pods/log` API merges stdout and stderr and does not report which stream a line came from. Splitting streams (`PodLogOptions.stream`, KEP-3288) is alpha behind a feature gate and not assumed to be enabled on GKE. Therefore the stderr→"probably error" fallback only applies to the Cloud Logging source (V2), where GKE sets severity from the stream. On the Kubernetes source, lines without a detectable level are marked `unknown`. To verify on the target clusters' version.
 Status: accepted, verify.
 
-## D-011 Default theme uses the 16 ANSI colors
-The `accessible` theme uses only the base 16 ANSI colors (so the user's terminal palette, dark or light, decides the exact shades) and every status/level has a symbol and label (`✔ Healthy`, `▲ Progressing`, `✖ CrashLoop`…). ASCII fallbacks are used when the locale is not UTF-8. `NO_COLOR` forces `none`.
-Status: accepted.
+## D-011 Default theme: `light`, built on the 16 ANSI colors
+Owner preference is a light theme (matching the web prototype). The default `light` theme uses only base-16 ANSI colors chosen to stay readable on a light background (no yellow/bright-white/bright-cyan foregrounds; errors in red + bold, warnings in magenta, info in blue, debug in dim black) and is colorblind-safe because every status/level also carries a symbol and label (`✔ Healthy`, `▲ Progressing`, `✖ CrashLoop`…).
+Trade-off: we do not force the terminal background by default (painting every cell breaks transparency and looks wrong in a dark terminal); `ui.paint_background: true` opts into painting a light background explicitly. Other themes: `accessible` (dark-terminal variant), `classic`, `none`. ASCII fallbacks when the locale is not UTF-8. `NO_COLOR` forces `none`.
+Status: accepted (supersedes the original "accessible" default).
 
 ## D-012 Clipboard
 OSC 52 escape sequence first (works over SSH and in most modern terminals, including Windows Terminal), `atotto/clipboard` (pure Go, shells out to OS tools) as fallback.
+Status: accepted.
+
+## D-013 Personal tool: no license, lightweight distribution
+Huginn is a personal tool: no LICENSE file, no Homebrew tap or Scoop bucket. goreleaser still builds static binaries for linux/darwin/windows × amd64/arm64 attached to GitHub releases, plus `go install` instructions.
 Status: accepted.
