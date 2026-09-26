@@ -1,0 +1,59 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: none
+  enable:
+    - depguard
+    - errcheck
+    - govet
+    - ineffassign
+    - misspell
+    - revive
+    - staticcheck
+    - unused
+  settings:
+    revive:
+      rules:
+        - name: exported
+        - name: package-comments
+        - name: var-naming
+        - name: indent-error-flow
+        - name: error-strings
+    depguard:
+      rules:
+        # docs/ARCHITECTURE.md rule 1: the core depends on the standard
+        # library and on itself only. internal/archtest enforces the full
+        # rule set; this gives the same feedback inside editors.
+        core:
+          files:
+            - "**/internal/core/**"
+          deny:
+            - pkg: "github.com/ghiloufibg/huginn/internal/adapters"
+              desc: "the core must not import adapters (hexagonal architecture)"
+            - pkg: "github.com/ghiloufibg/huginn/internal/bootstrap"
+              desc: "the core must not import the composition root"
+            - pkg: "github.com/ghiloufibg/huginn/internal/config"
+              desc: "adapters receive their configuration; the core never reads it"
+            - pkg: "k8s.io"
+              desc: "Kubernetes types stay in the kubernetes adapter"
+            - pkg: "charm.land"
+              desc: "UI libraries stay in the tui adapter"
+            - pkg: "github.com/charmbracelet"
+              desc: "UI libraries stay in the tui adapter"
+            - pkg: "github.com/spf13"
+              desc: "CLI libraries stay in the cli adapter"
+  exclusions:
+    presets:
+      - std-error-handling
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/ghiloufibg/huginn
