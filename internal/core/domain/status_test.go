@@ -16,6 +16,11 @@ func pod(owner string, cs ...Container) Pod {
 }
 
 func TestPodStatusPrecedence(t *testing.T) {
+	pending := pod("api", Container{Name: "api", State: ContainerWaiting, Reason: "ContainerCreating"})
+	pending.Phase = PodPending
+	if s := Summarize("api", []Workload{wl("api", 2, 1, 2, now)}, []Pod{pod("api", running("api")), pending}, filter); s.Status != StatusPending {
+		t.Errorf("a pending pod names the missing replica: %v", s.Status)
+	}
 	crash := Container{Name: "api", State: ContainerWaiting, Reason: "CrashLoopBackOff"}
 	crashOOM := crash
 	crashOOM.LastTermination = &Termination{Reason: "OOMKilled"}
@@ -108,6 +113,11 @@ func TestSummarizeDegradedAndScaledToZero(t *testing.T) {
 	}
 	if s := Summarize("api", []Workload{wl("api", 0, 0, 0, now)}, nil, filter); s.Status != StatusUnknown {
 		t.Errorf("scaled to 0: %v", s.Status)
+	}
+	pending := pod("api", Container{Name: "api", State: ContainerWaiting, Reason: "ContainerCreating"})
+	pending.Phase = PodPending
+	if s := Summarize("api", []Workload{wl("api", 2, 1, 2, now)}, []Pod{pod("api", running("api")), pending}, filter); s.Status != StatusPending {
+		t.Errorf("a pending pod names the missing replica: %v", s.Status)
 	}
 	crash := Container{Name: "api", State: ContainerWaiting, Reason: "CrashLoopBackOff"}
 	if s := Summarize("api", []Workload{wl("api", 2, 1, 1, now)}, []Pod{pod("api", crash)}, filter); s.Status != StatusCrashLoopBackOff {

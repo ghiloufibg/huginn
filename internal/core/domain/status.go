@@ -94,8 +94,10 @@ func Summarize(repo string, workloads []Workload, pods []Pod, f ContainerFilter)
 		s.Status = min(s.Status, StatusProgressing)
 	case s.DesiredPods == 0:
 		s.Status = min(s.Status, StatusUnknown)
-	case s.ReadyPods < s.DesiredPods:
-		s.Status = min(s.Status, StatusDegraded)
+	case s.ReadyPods < s.DesiredPods && s.Status == StatusHealthy:
+		// Missing replicas no pod explains (a pending or crashing pod
+		// already names the problem).
+		s.Status = StatusDegraded
 	}
 	if len(workloads) > 0 {
 		s.Version = versionOf(workloads[0].Ref.Name, pods, f)
