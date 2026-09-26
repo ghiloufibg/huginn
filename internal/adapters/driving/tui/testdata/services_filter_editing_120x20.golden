@@ -1,4 +1,6 @@
- huginn  REC  gke_acme_europe-west1_main / app-rec   services                                                      demo 
+ huginn  REC  gke_acme_europe-west1_main / app-rec   services                         demo · watching · synced 19:14:02 
+ REPO              WORKLOADS   PODS  STATUS              RESTARTS  LAST RESTART  VERSION             AGE                
+ payment-service           2    5/5  Healthy                    1            2h  v2.14.3             12d                
                                                                                                                         
                                                                                                                         
                                                                                                                         
@@ -11,20 +13,8 @@
                                                                                                                         
                                                                                                                         
                                                                                                                         
-                                        Services screen arrives in milestone M1.                                        
-                                                                                                                        
-                             The shell, configuration, ports and demo cluster are in place.                             
-                                                    Press q to quit.                                                    
                                                                                                                         
                                                                                                                         
                                                                                                                         
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
- SERVICES   read-only                                                                                    ? help  q quit 
+ /  pay_                                                                                                                
+ SERVICES   1 repo · 1 healthy  ·  sort status  ·  filter pay                                    enter keep  esc clear  

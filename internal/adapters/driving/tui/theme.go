@@ -5,6 +5,8 @@ import (
 	"image/color"
 
 	"charm.land/lipgloss/v2"
+
+	"github.com/ghiloufibg/huginn/internal/core/domain"
 )
 
 // Theme holds every style the UI uses, by role. Screens never pick colors
@@ -21,7 +23,12 @@ type Theme struct {
 	ChipLive, ChipPaused lipgloss.Style
 	Key, Dim, Bold       lipgloss.Style
 	Ok, Warn, Bad        lipgloss.Style
+	Info                 lipgloss.Style
 	Body                 lipgloss.Style
+	Selected             lipgloss.Style
+	TableHeader          lipgloss.Style
+	Prompt               lipgloss.Style
+	Popup, PopupTitle    lipgloss.Style
 }
 
 // ThemeNames lists the available themes.
@@ -37,6 +44,7 @@ func NewTheme(name string, paintBackground bool) (Theme, error) {
 		t = ansiTheme(lipgloss.Black, lipgloss.White, lipgloss.Magenta)
 	case "accessible":
 		t = ansiTheme(lipgloss.BrightWhite, lipgloss.BrightBlack, lipgloss.Yellow)
+		t.Selected = lipgloss.NewStyle().Background(lipgloss.Blue).Foreground(lipgloss.BrightWhite)
 	case "classic":
 		t = classicTheme()
 	case "none":
@@ -78,7 +86,13 @@ func ansiTheme(fg, bar, warn color.Color) Theme {
 		Ok:           lipgloss.NewStyle().Foreground(lipgloss.Green),
 		Warn:         lipgloss.NewStyle().Bold(true).Foreground(warn),
 		Bad:          lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Red),
+		Info:         lipgloss.NewStyle().Foreground(lipgloss.Blue),
 		Body:         lipgloss.NewStyle(),
+		Selected:     lipgloss.NewStyle().Background(lipgloss.Cyan).Foreground(lipgloss.Black),
+		TableHeader:  lipgloss.NewStyle().Bold(true).Foreground(lipgloss.BrightBlack),
+		Prompt:       lipgloss.NewStyle().Bold(true).Background(fg).Foreground(bar).Padding(0, 1),
+		Popup:        lipgloss.NewStyle().Border(lipgloss.NormalBorder()).BorderForeground(fg).Padding(0, 1),
+		PopupTitle:   lipgloss.NewStyle().Bold(true),
 	}
 }
 
@@ -88,6 +102,7 @@ func classicTheme() Theme {
 	t.Brand = t.Brand.Foreground(lipgloss.ANSIColor(81))
 	t.Key = t.Key.Foreground(lipgloss.ANSIColor(81))
 	t.EnvTag = t.EnvTag.Background(lipgloss.ANSIColor(33))
+	t.Selected = lipgloss.NewStyle().Background(lipgloss.ANSIColor(24)).Foreground(lipgloss.ANSIColor(255))
 	return t
 }
 
@@ -103,6 +118,26 @@ func monoTheme() Theme {
 		Chip: bold.Padding(0, 1), ChipProd: bold.Underline(true).Padding(0, 1),
 		ChipLive: bold.Padding(0, 1), ChipPaused: bold.Padding(0, 1),
 		Key: bold, Dim: plain.Faint(true), Bold: bold,
-		Ok: plain, Warn: bold, Bad: bold.Underline(true), Body: plain,
+		Ok: plain, Warn: bold, Bad: bold.Underline(true), Info: plain, Body: plain,
+		Selected: rev, TableHeader: bold, Prompt: rev.Padding(0, 1),
+		Popup: plain.Border(lipgloss.NormalBorder()).Padding(0, 1), PopupTitle: bold,
+	}
+}
+
+// statusStyle returns the style of a service status word. Failures are red
+// and bold, degraded states use the warning color, rollouts the info
+// color; the word itself always carries the meaning.
+func (t Theme) statusStyle(s domain.ServiceStatus) lipgloss.Style {
+	switch s {
+	case domain.StatusCrashLoopBackOff, domain.StatusOOMKilled, domain.StatusImagePullBackOff:
+		return t.Bad
+	case domain.StatusDegraded:
+		return t.Warn
+	case domain.StatusPending, domain.StatusUnknown:
+		return t.Dim.Bold(true)
+	case domain.StatusProgressing:
+		return t.Info
+	default:
+		return t.Ok
 	}
 }
