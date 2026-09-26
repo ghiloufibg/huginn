@@ -90,3 +90,13 @@ Status: accepted.
 ## D-019 Keys added or changed while drafting the mockups
 `[`/`]` need AltGr on AZERTY, so: next/previous error = `>` / `<`; next/previous entry in zoom = `J` / `K`. Unassigned toggles from the spec get: `c` cycle timestamp format (local/UTC/relative/none), `I` cycle pod identifier (short/full/none), `B` copy as bug report. Mockups: https://claude.ai/artifact/4RuyPRpu8V6BvcaYx8bcqq
 Status: accepted, pending design review.
+
+## D-020 Visual language: no icons, maximum log density
+Supersedes the symbol part of D-011 and the keys of D-019 where they differ.
+- **No icons or pictograms.** Status and level are spelled out (`CrashLoopBackOff`, `ERROR`) and colored; color is never the only signal because the word is always there. Only data glyphs remain: sparklines (`▁▂▃▅█`) and the scrollbar rail.
+- **Chrome is two lines**: one header (app, env tag, context/namespace, breadcrumb, auth/sync) and one status bar (mode chip such as LIVE / PAUSED / TRACE / PRODUCTION, then window, scope, levels, filters, order, counts; key hints on the right). Key hints for everything else live in `?`. The logs screen adds one pod strip (pods, scope, errors-per-minute sparkline). Everything else is log lines.
+- **Compact Spring view by default**: `pod time LEVEL [thread] logger : message`. PID, `---` and app name are hidden in the stream (same service on every line) and shown in zoom; a `spring-full` renderer is available in config.
+- **Scan aids**: ERROR rows get a light red background, WARN rows a light amber one; a right-hand rail shows the viewport and marks error positions in the whole buffer; marked lines get a `*` in the gutter; matches are yellow and underlined.
+- **Debugging views**: zoom shows fields, stack trace with own frames bold and framework frames dimmed/folded, and 3 lines of same-pod context; `v` (view trace) filters every pod of the service on the entry's traceId and shows a time delta column; error groups show a per-group trend sparkline and correlate onset with rollouts; the error state keeps showing the last cached data greyed out.
+- **Keys**: `c` timestamps, `I` pod id, `v` view trace, `ctrl+a` stack another filter, `a` all levels, `ctrl+t` search trace across repos (V2).
+Status: accepted, pending design review.
