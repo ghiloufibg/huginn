@@ -223,7 +223,16 @@ func (s *servicesScreen) view(m *Model, w, h int) string {
 	for i, r := range rows {
 		cells[i] = s.cells(r, now, t, m.opts.Filter)
 	}
+	s.tbl.titles = nil
 	side, bottom := s.preview.place(w, h, len(rows))
+	if titles := s.groupTitles(rows); titles != nil && len(rows)+len(titles)+1 <= h {
+		// Group titles only use lines nothing else needs: they never
+		// hide the preview.
+		gs, gb := s.preview.place(w, h, len(rows)+len(titles))
+		if gs > 0 || gb > 0 || (side == 0 && bottom == 0) {
+			s.tbl.titles, side, bottom = titles, gs, gb
+		}
+	}
 	s.preview.shown = side > 0 || bottom > 0
 	switch {
 	case side > 0:
@@ -238,6 +247,30 @@ func (s *servicesScreen) view(m *Model, w, h int) string {
 		return s.tbl.render(cells, w, h-bottom, t) + "\n" + s.preview.render(m, rows[s.tbl.cursor], w, bottom)
 	}
 	return s.tbl.render(cells, w, h, t)
+}
+
+// groupTitles returns the status group titles by first row index when
+// sorted by status: "FAILING 3", "HEALTHY 8"…; nil otherwise.
+func (s *servicesScreen) groupTitles(rows []domain.ServiceSummary) map[int]string {
+	if s.sort != domain.SortByStatus || len(rows) == 0 {
+		return nil
+	}
+	name := func(r domain.ServiceSummary) string {
+		if r.Unassigned {
+			return "WITHOUT REPO"
+		}
+		return strings.ToUpper(statusGroups[statusGroup(r.Status)])
+	}
+	titles := map[int]string{}
+	for i := 0; i < len(rows); {
+		j := i
+		for j < len(rows) && name(rows[j]) == name(rows[i]) {
+			j++
+		}
+		titles[i] = fmt.Sprintf("%s %d", name(rows[i]), j-i)
+		i = j
+	}
+	return titles
 }
 
 func (s *servicesScreen) cells(r domain.ServiceSummary, now time.Time, t Theme, filter domain.ContainerFilter) []cell {

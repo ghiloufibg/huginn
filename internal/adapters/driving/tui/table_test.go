@@ -2,6 +2,7 @@ package tui
 
 import (
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -44,5 +45,29 @@ func TestTableLayoutFillColumn(t *testing.T) {
 		if !slices.Equal(got, c.want) {
 			t.Errorf("total %d: layout %v, want %v", c.total, got, c.want)
 		}
+	}
+}
+
+func TestStatusGroupsOnlyWhenTheyFit(t *testing.T) {
+	m, _ := newTestModel(t, 1, "")
+	snapshot(m, mockupSnapshot("rec"))
+	has := func(out string) bool {
+		return strings.Contains(out, " FAILING 3") && strings.Contains(out, " HEALTHY 7")
+	}
+	if out := render(m, 80, 24); !has(out) || !strings.Contains(out, "legacy-cron") {
+		t.Fatalf("groups expected when every row fits:\n%s", out)
+	}
+	if out := render(m, 80, 20); has(out) {
+		t.Fatalf("groups must never cost a row:\n%s", out)
+	}
+	if out := render(m, 160, 30); has(out) || !strings.Contains(out, " ─ catalog-indexer ─") {
+		t.Fatalf("groups must not hide the preview:\n%s", out)
+	}
+	if out := render(m, 160, 50); !has(out) || !strings.Contains(out, " ─ catalog-indexer ─") {
+		t.Fatalf("groups and preview expected on a tall terminal:\n%s", out)
+	}
+	press(m, "s") // sort by name
+	if out := render(m, 80, 24); has(out) {
+		t.Fatalf("groups only when sorted by status:\n%s", out)
 	}
 }

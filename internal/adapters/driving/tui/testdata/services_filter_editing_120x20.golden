@@ -1,5 +1,6 @@
  huginn  REC  gke_acme_europe-west1_main / app-rec   services                         demo · watching · synced 19:14:02 
  REPO              WL   PODS  STATUS            RST  LAST  VERSION           AGE  WHY                                   
+ HEALTHY 1                                                                                                              
  payment-service    2    5/5  Healthy             1    2h  v2.14.3           12d  last restart 2h ago                   
  ─ payment-service ─────────────────────────────────────────────────────────────────────────────────────────────────────
  WORKLOADS  Deployment payment-service  2/2 ready  2/2 updated  v2.14.3                                                 
@@ -8,7 +9,6 @@
             x4k2p  Healthy  1/1 ready  0 restarts  gke-main-pool-2-9c1f  12d                                            
  WARNINGS   reading events of m8q7v…                                                                                    
  HIDDEN     istio-init, istio-proxy, vault-agent                                                                        
-                                                                                                                        
                                                                                                                         
                                                                                                                         
                                                                                                                         

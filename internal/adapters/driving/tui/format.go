@@ -41,35 +41,40 @@ func errKind(err error) string {
 }
 
 // statusCounts summarizes rows for the status bar.
+// statusGroups name the status groups, from the most urgent.
+var statusGroups = [...]string{"failing", "degraded/pending", "rolling", "healthy"}
+
+// statusGroup returns the index in statusGroups of a status.
+func statusGroup(st domain.ServiceStatus) int {
+	switch st {
+	case domain.StatusCrashLoopBackOff, domain.StatusOOMKilled, domain.StatusImagePullBackOff:
+		return 0
+	case domain.StatusDegraded, domain.StatusPending, domain.StatusUnknown:
+		return 1
+	case domain.StatusProgressing:
+		return 2
+	}
+	return 3
+}
+
 func statusCounts(rows []domain.ServiceSummary) string {
-	var repos, orphans, failing, degraded, rolling, healthy int
+	var repos, orphans int
+	var groups [len(statusGroups)]int
 	for _, r := range rows {
 		if r.Unassigned {
 			orphans++
 		} else {
 			repos++
 		}
-		switch r.Status {
-		case domain.StatusCrashLoopBackOff, domain.StatusOOMKilled, domain.StatusImagePullBackOff:
-			failing++
-		case domain.StatusDegraded, domain.StatusPending, domain.StatusUnknown:
-			degraded++
-		case domain.StatusProgressing:
-			rolling++
-		default:
-			healthy++
-		}
+		groups[statusGroup(r.Status)]++
 	}
 	parts := []string{plural(repos, "repo")}
 	if orphans > 0 {
 		parts[0] += fmt.Sprintf(" + %d without repo", orphans)
 	}
-	for _, p := range []struct {
-		n    int
-		what string
-	}{{failing, "failing"}, {degraded, "degraded/pending"}, {rolling, "rolling"}, {healthy, "healthy"}} {
-		if p.n > 0 {
-			parts = append(parts, fmt.Sprintf("%d %s", p.n, p.what))
+	for i, n := range groups {
+		if n > 0 {
+			parts = append(parts, fmt.Sprintf("%d %s", n, statusGroups[i]))
 		}
 	}
 	return strings.Join(parts, " · ")

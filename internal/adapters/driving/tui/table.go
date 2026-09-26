@@ -31,6 +31,9 @@ type table struct {
 	cols   []column
 	cursor int
 	offset int
+	// titles are group titles drawn above the rows they index, only when
+	// all rows and titles fit (a title never costs a row).
+	titles map[int]string
 }
 
 const colGap = 2
@@ -109,7 +112,15 @@ func (t *table) render(rows [][]cell, w, h int, th Theme) string {
 	}
 	lines = append(lines, t.line(head, widths, w, nil))
 	t.scroll(len(rows), h-1)
+	titles := t.titles
+	if len(rows)+len(titles) > h-1 {
+		titles = nil
+	}
 	for i := t.offset; i < len(rows) && len(lines) < h; i++ {
+		if title, ok := titles[i]; ok {
+			title = ansi.Truncate(title, w-1, "…")
+			lines = append(lines, " "+th.Dim.Render(title)+strings.Repeat(" ", w-1-lipgloss.Width(title)))
+		}
 		var sel *lipgloss.Style
 		if i == t.cursor {
 			sel = &th.Selected
