@@ -43,6 +43,13 @@ type ServiceSummary struct {
 	LastRestart time.Time
 	Version     string
 	Created     time.Time
+	// Refs are the workloads of the repository.
+	Refs []WorkloadRef
+	// Pods are the pods of those workloads.
+	Pods []Pod
+	// Unassigned marks a workload that no resolver attributed to a
+	// repository; Repo then holds the workload name.
+	Unassigned bool
 	// Err is set when this service could not be read (for example a
 	// forbidden namespace); other rows are unaffected.
 	Err error
