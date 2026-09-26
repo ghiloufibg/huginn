@@ -46,7 +46,7 @@ func helpActions(s screen) (string, []Action) {
 	return "", nil
 }
 
-var globalActions = []Action{ActHelp, ActBack, ActSwitchEnv, ActQuit}
+var globalActions = []Action{ActHelp, ActKeyBar, ActBack, ActSwitchEnv, ActQuit}
 
 func newHelpScreen(m *Model, from screen) *helpScreen {
 	title, own := helpActions(from)
@@ -178,7 +178,10 @@ func (h *helpScreen) statusLeft(m *Model) string {
 }
 
 func (h *helpScreen) hints(m *Model) []hint {
-	return []hint{{m.label(ActFilter), "search"}, {m.label(ActBack), "close"}}
+	if h.editing {
+		return []hint{{"enter", "keep"}, {"esc", "clear"}}
+	}
+	return []hint{m.pair(ActDown, ActUp, "scroll"), m.h(ActFilter, "search"), m.h(ActBack, "close")}
 }
 
 func (h *helpScreen) prompt(m *Model) string {

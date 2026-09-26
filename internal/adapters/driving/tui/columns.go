@@ -192,3 +192,7 @@ func (p *columnsPicker) view(m *Model) string {
 	help := t.Key.Render("letter") + t.Dim.Render(" toggle  ") + t.Key.Render("esc") + t.Dim.Render(" close")
 	return t.Popup.Render(strings.Join(append(append([]string{t.PopupTitle.Render("Columns"), ""}, lines...), "", help), "\n"))
 }
+
+func (p *columnsPicker) hints(m *Model) []hint {
+	return []hint{{"t", "time"}, {"p", "pod"}, {"l", "level"}, {"h", "thread"}, {"c", "class"}, {"z", "message only"}, {"r", "reset"}, m.h(ActBack, "close")}
+}

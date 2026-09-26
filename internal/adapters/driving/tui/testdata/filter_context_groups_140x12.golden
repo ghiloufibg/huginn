@@ -8,5 +8,5 @@
  p3w1n 19:13:22.000  INFO [exec-1] i.g.p.PaymentApplication : Started PaymentApplication in 7.412 seconds                                   
  m8q7v 19:13:32.000 ERROR [exec-1] i.g.p.card.CardController : Card declined by issuer orderId=ord_72bf10 retryable=false                   
  x4k2p 19:13:42.000  INFO [exec-1] i.g.p.HealthReporter : health probe succeeded components=db,redis,gateway                                
-                                                                                                                                            
  regex on   LIVE   15m  ·  all pods  ·  levels all  ·  filter /gateway latency|declined/ · context 1  ·  oldest first  ·  6/9 lines  ·  bu… 
+ / filter  l levels  x mode  n/N match  f follow  space pause  t window  tab pods  C columns  z focus  enter zoom  ? help                   

@@ -753,10 +753,41 @@ func (l *logsScreen) statusLeft(m *Model) string {
 }
 
 func (l *logsScreen) hints(m *Model) []hint {
-	if l.editing {
-		return nil
+	switch {
+	case l.editing:
+		return []hint{
+			{"enter", "keep"},
+			{"esc", "cancel"},
+			{"ctrl+r", "regex"},
+			{"ctrl+x", "filter/highlight"},
+			{"!", "invert (first char)"},
+			{m.label(ActAddFilter), "add filter (AND)"},
+			{"ctrl+u", "erase"},
+		}
+	case l.paused:
+		return []hint{m.h(ActPause, "resume"), m.pair(ActDown, ActUp, "scroll"), m.h(ActOpen, "zoom"), m.h(ActFilter, "filter"), m.h(ActHelp, "help")}
 	}
-	return m.hintsFor(ActFilter, ActLevels, ActFollow, ActPause, ActWindowNext, ActPodScope, ActHelp)
+	return []hint{
+		m.h(ActFilter, "filter"), m.h(ActLevels, "levels"), m.h(ActFilterMode, "mode"), m.pair(ActNextMatch, ActPrevMatch, "match"),
+		m.h(ActFollow, "follow"), m.h(ActPause, "pause"), m.h(ActWindowNext, "window"), m.h(ActPodScope, "pods"),
+		m.h(ActColumns, "columns"), m.h(ActFocus, "focus"), m.h(ActOpen, "zoom"), m.h(ActHelp, "help"),
+	}
+}
+
+func (l *logsScreen) fullHints(m *Model) []hint {
+	if l.editing || l.paused {
+		return l.hints(m)
+	}
+	return []hint{
+		m.h(ActFilter, "filter"), m.h(ActFilterMode, "filter/highlight"), m.pair(ActNextMatch, ActPrevMatch, "match"),
+		m.h(ActContext, "context"), m.h(ActLevels, "levels"), m.h(ActErrorsOnly, "errors"), m.h(ActWarnAndError, "warn+"),
+		m.h(ActAllLevels, "all"), m.pair(ActNextError, ActPrevError, "error"), m.h(ActOpen, "zoom"),
+		m.h(ActFollow, "follow"), m.h(ActPause, "pause"), m.h(ActWindowNext, "window"), m.h(ActWindowPick, "windows"),
+		{m.label(ActWindow1) + "…" + m.label(ActWindow7) + " " + m.label(ActWindowTail), "15m…2d tail"},
+		m.h(ActPodScope, "pods"), m.h(ActPodSelector, "select pods"), m.h(ActColumns, "columns"), m.h(ActFocus, "focus"),
+		m.h(ActTimestamps, "time"), m.h(ActOrder, "order"), m.h(ActWrap, "wrap"), m.h(ActFullscreen, "fullscreen"),
+		m.h(ActBack, "back"), m.h(ActKeyBar, "keys"), m.h(ActHelp, "help"),
+	}
 }
 
 func (l *logsScreen) prompt(m *Model) string {

@@ -95,3 +95,7 @@ func padRight(s string, n int) string {
 	}
 	return s + strings.Repeat(" ", n-len(s))
 }
+
+func (p *levelPicker) hints(m *Model) []hint {
+	return []hint{m.pair(ActDown, ActUp, "move"), {"space", "toggle"}, m.h(ActErrorsOnly, "errors"), m.h(ActWarnAndError, "warn+"), m.h(ActAllLevels, "all"), m.h(ActOpen, "apply"), m.h(ActBack, "cancel")}
+}

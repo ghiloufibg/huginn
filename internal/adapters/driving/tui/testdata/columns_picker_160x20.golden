@@ -16,5 +16,5 @@
                                                          │  class below 110, until you choose         │                                                         
                                                          │                                            │                                                         
                                                          │ letter toggle  esc close                   │                                                         
-                                                         └────────────────────────────────────────────┘                                                         
- sort name   LIVE   15m  ·  all pods  ·  levels all  ·  oldest first  ·  9/9 lines  ·  buffer 0%  ·  dropped 0       / filter  l levels  f follow  space pause  
+ sort name   LIVE   15m  ·  all pods  ·  levels all  ·  oldest first  ·  9/9 lines  ·  buffer 0%  ·  dropped 0                                                  
+ t time  p pod  l level  h thread  c class  z message only  r reset  esc close                                                                                  

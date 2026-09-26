@@ -75,3 +75,7 @@ func (p *envPicker) view(m *Model) string {
 	help := t.Key.Render(m.label(ActOpen)) + t.Dim.Render(" switch  ") + t.Key.Render(m.label(ActBack)) + t.Dim.Render(" cancel")
 	return t.Popup.Render(strings.Join(append(append([]string{title, ""}, lines...), "", help), "\n"))
 }
+
+func (p *envPicker) hints(m *Model) []hint {
+	return []hint{m.pair(ActDown, ActUp, "move"), m.h(ActOpen, "switch"), m.h(ActBack, "cancel")}
+}

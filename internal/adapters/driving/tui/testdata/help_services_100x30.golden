@@ -17,6 +17,7 @@
                                                                                                     
  GLOBAL                                                                                             
      ?  f1            help for this screen                                                          
+     f2  ctrl+k       key bar: compact, full, hidden                                                
      esc              back, close, exit fullscreen, clear the last filter                           
      ctrl+e           switch environment                                                            
      q  ctrl+c        quit                                                                          
@@ -25,6 +26,5 @@
                                                                                                     
                                                                                                     
                                                                                                     
-                                                                                                    
-                                                                                                    
- HELP   keys follow ui.keymap in the configuration                             / search  esc close  
+ HELP   keys follow ui.keymap in the configuration                                                  
+ j/k scroll  / search  esc close                                                                    

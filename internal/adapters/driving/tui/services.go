@@ -261,9 +261,24 @@ func (s *servicesScreen) statusLeft(m *Model) string {
 
 func (s *servicesScreen) hints(m *Model) []hint {
 	if s.editing {
-		return []hint{{"enter", "keep"}, {"esc", "clear"}}
+		return []hint{{"enter", "keep"}, {"esc", "clear"}, {"ctrl+u", "erase"}}
 	}
-	return append([]hint{{m.label(ActOpen), "logs"}}, m.hintsFor(ActFilter, ActSort, ActSwitchEnv, ActHelp, ActQuit)...)
+	return []hint{
+		m.h(ActOpen, "logs"), m.h(ActFilter, "filter"), m.h(ActSort, "sort"), m.h(ActRefresh, "resync"),
+		m.h(ActSwitchEnv, "env"), m.h(ActKeyBar, "keys"), m.h(ActQuit, "quit"), m.h(ActHelp, "help"),
+	}
+}
+
+func (s *servicesScreen) fullHints(m *Model) []hint {
+	if s.editing {
+		return s.hints(m)
+	}
+	return []hint{
+		m.pair(ActDown, ActUp, "move"), m.pair(ActTop, ActBottom, "top/bottom"), m.pair(ActPageDown, ActPageUp, "page"),
+		m.h(ActOpen, "logs"), m.h(ActFilter, "filter by name"), m.h(ActSort, "sort: status, name, restarts, age"),
+		m.h(ActRefresh, "resync"), m.h(ActSwitchEnv, "switch env"), m.h(ActBack, "clear filter"),
+		m.h(ActKeyBar, "keys"), m.h(ActQuit, "quit"), m.h(ActHelp, "help"),
+	}
 }
 
 func (s *servicesScreen) prompt(m *Model) string {

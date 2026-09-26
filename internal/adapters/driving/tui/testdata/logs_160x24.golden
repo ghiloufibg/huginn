@@ -20,5 +20,5 @@
                                                                                                                                                                 
                                                                                                                                                                 
                                                                                                                                                                 
-                                                                                                                                                                
- sort name   LIVE   15m  ·  all pods  ·  levels all  ·  oldest first  ·  9/9 lines  ·  buffer 0%  ·  dropped 0       / filter  l levels  f follow  space pause  
+ sort name   LIVE   15m  ·  all pods  ·  levels all  ·  oldest first  ·  9/9 lines  ·  buffer 0%  ·  dropped 0                                                  
+ / filter  l levels  x mode  n/N match  f follow  space pause  t window  tab pods  C columns  z focus  enter zoom  ? help                                       

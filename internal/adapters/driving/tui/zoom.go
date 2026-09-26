@@ -251,10 +251,8 @@ func (z *zoomScreen) statusLeft(m *Model) string {
 
 func (z *zoomScreen) hints(m *Model) []hint {
 	return []hint{
-		{m.label(ActNextEntry) + "/" + m.label(ActPrevEntry), "next/prev"},
-		{m.label(ActJSONView), "json"},
-		{m.label(ActOpen), "metadata"},
-		{m.label(ActBack), "back"},
+		m.pair(ActNextEntry, ActPrevEntry, "next/prev entry"), m.pair(ActDown, ActUp, "scroll"), m.h(ActJSONView, "raw json"),
+		m.h(ActOpen, "metadata"), m.h(ActBack, "back"), m.h(ActHelp, "help"),
 	}
 }
 

@@ -75,3 +75,7 @@ func (p *windowPicker) view(m *Model) string {
 	help := t.Key.Render("enter") + t.Dim.Render(" load  ") + t.Key.Render("esc") + t.Dim.Render(" cancel")
 	return t.Popup.Render(strings.Join(append(append([]string{t.PopupTitle.Render("Time window"), ""}, lines...), "", help), "\n"))
 }
+
+func (p *windowPicker) hints(m *Model) []hint {
+	return []hint{m.pair(ActDown, ActUp, "move"), {m.label(ActWindow1) + "…" + m.label(ActWindowTail), "pick"}, m.h(ActOpen, "load"), m.h(ActBack, "cancel")}
+}

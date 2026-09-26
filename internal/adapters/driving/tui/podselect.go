@@ -132,7 +132,12 @@ func (s *podSelector) hints(m *Model) []hint {
 	if s.editing {
 		return []hint{{"enter", "select matching"}, {"esc", "cancel"}}
 	}
-	return []hint{{"space", "toggle"}, {m.label(ActAllLevels), "all"}, {m.label(ActFilter), "by name"}, {m.label(ActOpen), "apply"}, {m.label(ActBack), "cancel"}}
+	return []hint{
+		m.pair(ActDown, ActUp, "move"),
+		{"space", "toggle"},
+		m.h(ActAllLevels, "all"), m.h(ActFilter, "by name"),
+		m.h(ActOpen, "apply"), m.h(ActBack, "cancel"), m.h(ActHelp, "help"),
+	}
 }
 
 func (s *podSelector) prompt(m *Model) string {

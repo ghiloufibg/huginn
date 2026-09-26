@@ -282,7 +282,6 @@ func (l *logsScreen) promptLine(m *Model) string {
 			b.WriteString(bar.Render(fmt.Sprintf("  match %d of %d", pos, total)))
 		}
 	}
-	b.WriteString(t.Dim.Inherit(bar).Render("   ctrl+r regex · ctrl+x filter/highlight · ! invert · ctrl+a add · enter keep · esc cancel"))
 	return b.String()
 }
 

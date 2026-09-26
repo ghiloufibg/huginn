@@ -51,6 +51,8 @@ type Options struct {
 	Now func() time.Time
 	// Context bounds every watch started by the UI.
 	Context context.Context
+	// KeyBar is the initial key bar size ("compact", "full", "hidden").
+	KeyBar string
 }
 
 // screen is one page of the UI. The root model routes messages to the
@@ -95,6 +97,7 @@ type Model struct {
 	flashText     string
 	flashID       int
 	flashPending  bool
+	keyBar        keyBarSize
 	resyncing     bool
 	watchErr      error
 }
@@ -136,7 +139,8 @@ func NewModel(o Options) *Model {
 	if o.BufferLines <= 0 {
 		o.BufferLines = 50000
 	}
-	return &Model{opts: o, width: 80, height: 24, env: o.Env, stack: []screen{newServicesScreen(o.Repo)}}
+	kb, _ := ParseKeyBar(o.KeyBar) // validated by the composition root
+	return &Model{opts: o, width: 80, height: 24, env: o.Env, keyBar: kb, stack: []screen{newServicesScreen(o.Repo)}}
 }
 
 // Init implements tea.Model.
@@ -279,6 +283,8 @@ func (m *Model) dispatchKey(k tea.KeyPressMsg) tea.Cmd {
 	case keys.Is(key, ActQuit):
 		m.stop()
 		return tea.Quit
+	case keys.Is(key, ActKeyBar):
+		m.cycleKeyBar()
 	case keys.Is(key, ActSwitchEnv):
 		m.popup = newEnvPicker(m)
 	case keys.Is(key, ActRefresh):
@@ -327,9 +333,13 @@ func (m *Model) render() string {
 	}
 	s := m.top()
 	prompt := s.prompt(m)
-	bodyH := m.height - 2
+	keyBar := m.keyBarLines()
+	bodyH := m.height - 2 - len(keyBar)
 	if prompt != "" {
 		bodyH--
+	}
+	if bodyH < 1 {
+		keyBar, bodyH = nil, bodyH+len(keyBar)
 	}
 	body := fitBlock(s.view(m, m.width, bodyH), m.width, bodyH)
 	if m.popup != nil {
@@ -339,7 +349,8 @@ func (m *Model) render() string {
 	if prompt != "" {
 		parts = append(parts, fill(m.opts.Theme.Status, prompt, "", m.width))
 	}
-	return strings.Join(append(parts, m.statusBar()), "\n")
+	parts = append(parts, m.statusBar())
+	return strings.Join(append(parts, keyBar...), "\n")
 }
 
 func (m *Model) header() string {
@@ -416,17 +427,11 @@ func (m *Model) statusBar() string {
 	if m.note != "" && m.flashText == "" {
 		left += bar.Render("  ·  ") + t.Dim.Inherit(bar).Render(m.note)
 	}
-	// Hints give way to state on narrow terminals: drop them from the end.
-	hints := m.top().hints(m)
-	var right string
-	for n := len(hints); n >= 0; n-- {
-		right = ""
-		for _, h := range hints[:n] {
-			right += t.Key.Inherit(bar).Render(h.key) + bar.Render(" "+h.what+"  ")
-		}
-		if lipgloss.Width(left)+lipgloss.Width(right)+2 <= m.width {
-			break
-		}
+	// Keys live in the key bar; when it is hidden, say how to get it back.
+	right := ""
+	if m.keyBar == keyBarHidden && lipgloss.Width(left)+24 <= m.width {
+		right = t.Key.Inherit(bar).Render(m.label(ActKeyBar)) + bar.Render(" keys  ") +
+			t.Key.Inherit(bar).Render(m.label(ActHelp)) + bar.Render(" help ")
 	}
 	return fill(bar, left, right, m.width)
 }
