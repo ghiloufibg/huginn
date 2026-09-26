@@ -1,0 +1,478 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "cluster": {
+      "additionalProperties": false,
+      "description": "Which cluster client adapter to use.",
+      "properties": {
+        "client": {
+          "description": "Cluster client adapter: kubernetes or demo.",
+          "enum": [
+            "kubernetes",
+            "demo"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "containers": {
+      "additionalProperties": false,
+      "description": "Which containers are considered application containers.",
+      "properties": {
+        "allowlist": {
+          "description": "Container names always shown, even if denylisted.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "denylist": {
+          "description": "Container names or image substrings to hide, added to the built-in list.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "include_init": {
+          "description": "Show init containers.",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "default_env": {
+      "description": "Environment used when none is given on the command line.",
+      "type": "string"
+    },
+    "demo": {
+      "additionalProperties": false,
+      "description": "Synthetic cluster used by --demo.",
+      "properties": {
+        "rate": {
+          "description": "Average live log lines per second per pod.",
+          "type": "number"
+        },
+        "seed": {
+          "description": "Random seed; the same seed gives the same cluster and logs.",
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "environments": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "properties": {
+          "cluster": {
+            "description": "GKE cluster name, used for fix-it commands.",
+            "type": "string"
+          },
+          "context": {
+            "description": "kubeconfig context name (empty: current context).",
+            "type": "string"
+          },
+          "location": {
+            "description": "GKE location (region or zone), used for fix-it commands.",
+            "type": "string"
+          },
+          "namespace_from": {
+            "description": "Read the namespace from a secret instead, e.g. sops:overlays/rec/config.env#NAMESPACE.",
+            "type": "string"
+          },
+          "namespaces": {
+            "description": "Namespaces holding the environment's workloads.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "production": {
+            "description": "Show the production banner and warnings.",
+            "type": "boolean"
+          },
+          "project": {
+            "description": "GCP project, used for Cloud Logging links.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "description": "Environments by name. Several may share one kube context.",
+      "type": "object"
+    },
+    "log_formats": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "properties": {
+          "decoder": {
+            "description": "Decoder adapter.",
+            "enum": [
+              "json-fields",
+              "plain"
+            ],
+            "type": "string"
+          },
+          "fields": {
+            "additionalProperties": false,
+            "description": "Canonical field to JSON paths.",
+            "properties": {
+              "app": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                ],
+                "description": "Application name."
+              },
+              "level": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                ],
+                "description": "Severity."
+              },
+              "logger": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                ],
+                "description": "Logger name."
+              },
+              "message": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                ],
+                "description": "Message text."
+              },
+              "pid": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                ],
+                "description": "Process id."
+              },
+              "stack": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                ],
+                "description": "Stack trace."
+              },
+              "thread": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                ],
+                "description": "Thread name."
+              },
+              "timestamp": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                ],
+                "description": "Entry time."
+              },
+              "trace_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                ],
+                "description": "Correlation / trace identifier."
+              }
+            },
+            "type": "object"
+          },
+          "hidden": {
+            "description": "JSON paths (glob) hidden from the stream and shown only in zoom metadata.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "level_aliases": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Extra level spellings, e.g. {\"30\": info}.",
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
+      "description": "Log format profiles by name; logs.format selects one.",
+      "type": "object"
+    },
+    "logs": {
+      "additionalProperties": false,
+      "description": "Log loading, buffering and display.",
+      "properties": {
+        "buffer_lines": {
+          "description": "Maximum lines kept in memory per view; older lines are dropped.",
+          "type": "integer"
+        },
+        "default_window": {
+          "description": "Initial time window: 15m, 1h, 2d, tail…",
+          "type": "string"
+        },
+        "format": {
+          "description": "Name of the log format profile used to decode lines.",
+          "type": "string"
+        },
+        "redact": {
+          "description": "Mask tokens, passwords, emails and card numbers in display and exports (default true).",
+          "type": "boolean"
+        },
+        "renderer": {
+          "description": "Line layout.",
+          "enum": [
+            "spring-compact",
+            "spring-full"
+          ],
+          "type": "string"
+        },
+        "tail_lines": {
+          "description": "Lines loaded by the tail window.",
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "manifests": {
+      "additionalProperties": false,
+      "description": "How repository manifests are scanned.",
+      "properties": {
+        "files": {
+          "description": "Entry files read in an overlay.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "overlay_glob": {
+          "description": "Glob, relative to a repository, of an environment's overlay; {env} is replaced.",
+          "type": "string"
+        },
+        "scanner": {
+          "description": "Manifest scanner adapter.",
+          "enum": [
+            "kustomize",
+            "none"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "proxy": {
+      "additionalProperties": false,
+      "description": "Corporate proxy and TLS settings.",
+      "properties": {
+        "ca_bundle": {
+          "description": "Extra PEM CA bundle for proxies that intercept TLS (SSL_CERT_FILE also works).",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "repos": {
+      "description": "Explicit repository to workload mapping; checked first by the resolver chain.",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "description": "Repository name as shown on the services screen.",
+            "type": "string"
+          },
+          "workloads": {
+            "description": "Workloads owned by the repository.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "env": {
+                  "description": "Environment name.",
+                  "type": "string"
+                },
+                "kind": {
+                  "description": "Workload kind (default Deployment).",
+                  "enum": [
+                    "Deployment",
+                    "StatefulSet",
+                    "DaemonSet",
+                    "CronJob"
+                  ],
+                  "type": "string"
+                },
+                "name": {
+                  "description": "Workload name.",
+                  "type": "string"
+                },
+                "namespace": {
+                  "description": "Namespace (default: the environment's first namespace).",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "repos_root": {
+      "description": "Directory containing the repositories to scan for manifests (optional).",
+      "type": "string"
+    },
+    "resolver": {
+      "additionalProperties": false,
+      "description": "How workloads are mapped to repositories.",
+      "properties": {
+        "label_keys": {
+          "description": "Workload labels or annotations whose value is the repository name.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "order": {
+          "description": "Resolver chain, first match wins.",
+          "items": {
+            "enum": [
+              "config",
+              "labels",
+              "manifests"
+            ],
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "secrets": {
+      "additionalProperties": false,
+      "description": "Secret provider used for values referenced as sops:\u003cfile\u003e#\u003ckey\u003e.",
+      "properties": {
+        "provider": {
+          "description": "Secret provider adapter.",
+          "enum": [
+            "sops",
+            "none"
+          ],
+          "type": "string"
+        },
+        "sops": {
+          "additionalProperties": false,
+          "description": "sops settings.",
+          "properties": {
+            "binary": {
+              "description": "sops executable name or path.",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "ui": {
+      "additionalProperties": false,
+      "description": "Theme and key bindings.",
+      "properties": {
+        "keymap": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "description": "Action name to keys, overriding defaults, e.g. {follow: [f, ctrl+l]}.",
+          "type": "object"
+        },
+        "paint_background": {
+          "description": "Paint the theme background instead of using the terminal's.",
+          "type": "boolean"
+        },
+        "theme": {
+          "description": "Color theme.",
+          "enum": [
+            "light",
+            "accessible",
+            "classic",
+            "none"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "title": "Huginn configuration",
+  "type": "object"
+}

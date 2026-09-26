@@ -104,3 +104,7 @@ Status: accepted, pending design review.
 ## D-021 Toolchain: Go 1.26, Bubble Tea v2, client-go v0.37
 Current client-go (v0.37.x) and Bubble Tea v2 (`charm.land/bubbletea/v2`) both require Go ≥ 1.26, so the module targets Go 1.26. Bubble Tea v2 over v1: current major line and richer key events (can tell `ctrl+i` from `tab` on terminals supporting keyboard enhancements; D-007 fallback stays for others). client-go is only imported from M4, keeping M0–M3 builds light.
 Status: accepted.
+
+## D-022 Config: strict YAML decoding instead of koanf
+Supersedes D-002. The configuration is one YAML file plus a handful of flags and `HUGINN_*` variables handled by the CLI, so a layered config library adds little. `go.yaml.in/yaml/v3` (the maintained yaml.v3) decodes into typed structs; a small walker compares the YAML tree with the struct tags to report every unknown key with its line and a "did you mean" suggestion. Defaults fill only zero values (lists and maps in the file replace defaults wholesale). Allowed values are declared once in `enum` struct tags and used by both validation and the generated JSON Schema (`docs/config.schema.json`), which a test keeps in sync, as it does `examples/config.yaml`.
+Status: accepted.

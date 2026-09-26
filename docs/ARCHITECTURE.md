@@ -25,13 +25,13 @@ Huginn is built first as a **prototype** and will then be adapted to an enterpri
 | Driven adapters | `internal/adapters/driven/<name>` | One technology each: client-go, sops CLI, Kustomize scanner, JSON log decoder, Spring Boot renderer, demo cluster, file system, OS clipboard | domain, ports, third-party libs |
 | Driving adapters | `internal/adapters/driving/tui`, `…/cli` | Bubble Tea UI, Cobra CLI. Talk to the core **only through driving ports** | domain, ports |
 | Bootstrap | `internal/bootstrap` | Composition root: reads config, picks adapters by name from registries, wires everything | everything |
-| Config | `internal/config` | Load/validate YAML into plain structs | stdlib, yaml/koanf |
+| Config | `internal/config` | Load/validate YAML into plain structs | stdlib, domain, yaml |
 
 ## 2. Hard rules
 
 1. **Dependencies point inward.** `core/*` never imports `adapters/*`, `bootstrap`, `config`, client-go, Bubble Tea, Lip Gloss, Cobra or any I/O library.
 2. **Adapters never import each other.** The TUI does not know client-go exists; the k8s adapter does not know the TUI exists.
-3. **Only `internal/bootstrap` wires concrete types.** No `New…Adapter()` calls anywhere else, no package-level singletons, no `init()` side effects except adapter self-registration.
+3. **Only `internal/bootstrap` wires concrete types.** No `New…Adapter()` calls anywhere else, no package-level singletons, no `init()` side effects; registries are built explicitly by bootstrap.
 4. **Everything enterprise-specific is an adapter or config, never an `if` in the core.** No customer/team names, field names, namespace names, label keys or path conventions in `core/`.
 5. **Ports are small and owned by the core.** An interface lives in `core/ports` and is shaped by what the core needs, not by what a library exposes. Adapters translate library types into domain types at the boundary; no `corev1.Pod` leaks past an adapter.
 6. **Adapters are selected by name from config** through a registry (`ports.Registry[T]`): e.g. `log_format.decoder: json-fields`, `manifests.scanner: kustomize`, `secrets.provider: sops`, `cluster.client: kubernetes | demo`. Adding an implementation = new package + `Register("name", factory)` + config entry.

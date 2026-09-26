@@ -1,0 +1,117 @@
+# Huginn configuration — ~/.config/huginn/config.yaml
+# (or the path given by --config / HUGINN_CONFIG).
+# Every key is optional; the values below are the defaults unless marked
+# "example". Validate with: huginn config validate <file>
+
+# Environment used when none is given (huginn prd, -e prd, HUGINN_ENV).
+default_env: rec
+
+# Directory holding your repositories; used to read Kubernetes manifests
+# when workloads carry no repository label. (example)
+repos_root: ~/work/repos
+
+cluster:
+  client: kubernetes          # kubernetes | demo  (--demo forces demo)
+
+# One entry per environment. Several environments may share a cluster and
+# kube context and differ only by namespace (the common case), or live on
+# different clusters. Contexts must already exist in your kubeconfig
+# (gcloud container clusters get-credentials ...). Values here are examples.
+environments:
+  dev:
+    context: gke_my-project_europe-west1_main
+    project: my-project
+    location: europe-west1
+    cluster: main
+    namespaces: [app-dev]
+  rec:
+    context: gke_my-project_europe-west1_main
+    project: my-project
+    location: europe-west1
+    cluster: main
+    namespaces: [app-rec]
+  prprd:
+    context: gke_my-project_europe-west1_main
+    project: my-project
+    location: europe-west1
+    cluster: main
+    namespaces: [app-prprd]
+  prd:
+    context: gke_my-project_europe-west1_main
+    project: my-project
+    location: europe-west1
+    cluster: main
+    namespaces: [app-prd]
+    production: true          # red banner and warnings
+    # The namespace can come from a sops-encrypted dotenv file instead:
+    # namespace_from: sops:overlays/prd/config.env#K8S_NAMESPACE
+
+# Explicit repository -> workload mapping, checked before labels and
+# manifests. (example)
+repos:
+  - name: payment-service
+    workloads:
+      - { env: rec, name: payment-service }
+      - { env: rec, name: payment-worker, kind: Deployment }
+
+resolver:
+  order: [config, labels, manifests]
+  # Workload labels/annotations whose value names the repository.
+  label_keys: [app.kubernetes.io/part-of, app.kubernetes.io/name, app]
+
+manifests:
+  scanner: kustomize          # kustomize | none
+  overlay_glob: "**/overlays/{env}"
+  files: [kustomization.yaml, kustomization.yml]
+
+logs:
+  default_window: 15m         # 15m 30m 40m 45m 1h 1d 2d tail
+  tail_lines: 500
+  buffer_lines: 50000
+  format: logstash            # a key of log_formats below
+  renderer: spring-compact    # spring-compact | spring-full
+  redact: true
+
+# Log format profiles: how to read your JSON log lines. Each canonical field
+# lists candidate JSON paths (dots walk into objects); the first present
+# wins. Adapt this to your company's encoder; "logstash" is built in with
+# these values, so you only need this section to change them.
+log_formats:
+  logstash:
+    decoder: json-fields      # json-fields | plain
+    fields:
+      timestamp: ["@timestamp", timestamp, time]
+      level: [level, severity, log.level, levelname]
+      logger: [logger_name, logger, log.logger]
+      thread: [thread_name, thread, process.thread.name]
+      message: [message, msg]
+      stack: [stack_trace, error.stack_trace, exception]
+      trace_id: [traceId, trace_id, trace.id, X-B3-TraceId, correlationId, requestId]
+      app: [app, application, service.name, springAppName]
+      pid: [pid, process.pid]
+    level_aliases: {}          # e.g. {"30": info, "50": error}
+    # Kubernetes enrichment and other noise: hidden in the stream, shown
+    # in zoom under "kubernetes metadata".
+    hidden: ["kubernetes.*", "k8s.*", "docker.*", "host*", "@version", level_value, stream, logtag]
+
+containers:
+  denylist: []                # added to the built-in sidecar list (istio-proxy, vault-agent, ...)
+  allowlist: []               # always shown, even if denylisted
+  include_init: false
+
+secrets:
+  provider: sops              # sops | none
+  sops:
+    binary: sops
+
+proxy:
+  ca_bundle: ""               # extra PEM bundle for TLS-intercepting proxies
+
+ui:
+  theme: light                # light | accessible | classic | none (NO_COLOR forces none)
+  paint_background: false
+  keymap: {}                  # e.g. {follow: [f, ctrl+l]}
+
+demo:
+  seed: 42
+  rate: 0.5                   # live lines per second per pod
