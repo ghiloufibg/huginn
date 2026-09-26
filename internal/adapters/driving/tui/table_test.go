@@ -4,6 +4,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 func TestTableLayoutFillColumn(t *testing.T) {
@@ -69,5 +71,13 @@ func TestStatusGroupsOnlyWhenTheyFit(t *testing.T) {
 	press(m, "s") // sort by name
 	if out := render(m, 80, 24); has(out) {
 		t.Fatalf("groups only when sorted by status:\n%s", out)
+	}
+}
+
+func TestTextWidthMatchesANSI(t *testing.T) {
+	for _, s := range []string{"", "plain", "\x1b[1;31mred\x1b[0m text", "\x1b]8;;http://x\x1b\\link\x1b]8;;\x1b\\", "héllo wörld", "日本語", "tab\tstop", "\x1b[38;2;10;20;30mrgb\x1b[m"} {
+		if got, want := textWidth(s), ansi.StringWidth(s); got != want {
+			t.Errorf("%q: %d, want %d", s, got, want)
+		}
 	}
 }

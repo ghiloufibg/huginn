@@ -77,7 +77,9 @@ type logsScreen struct {
 	manualColumns bool            // the user chose columns: no automatic narrowing
 	focus         bool
 	beforeFocus   columnState
-	cycling       bool // c is hiding columns one by one
+	idxBuf        []int        // rebuild scratch buffers, reused
+	selBuf        []domain.Row // across the ~30 rebuilds a second
+	cycling       bool         // c is hiding columns one by one
 	beforeCycle   columnState
 
 	// filters (logfilter.go)
@@ -258,13 +260,15 @@ func (l *logsScreen) rebuild() {
 			keep = e.Seq
 		}
 	}
-	var idx []int
+	idx := l.idxBuf[:0]
 	for i := range l.buf.Len() {
 		if l.inScope(l.buf.At(i).Pod) {
 			idx = append(idx, i)
 		}
 	}
-	sel := l.filter.Select(len(idx), func(i int) *domain.LogEntry { return l.buf.At(idx[i]) })
+	l.idxBuf = idx
+	sel := l.filter.SelectAppend(l.selBuf, len(idx), func(i int) *domain.LogEntry { return l.buf.At(idx[i]) })
+	l.selBuf = sel
 	l.rows = l.rows[:0]
 	for _, r := range sel {
 		l.rows = append(l.rows, viewRow{seq: l.buf.At(idx[r.Index]).Seq, match: r.Match, context: r.Context, gap: r.Gap})
@@ -532,20 +536,23 @@ func (l *logsScreen) view(m *Model, w, h int) string {
 }
 
 // lines renders the viewport: the cursor is kept visible, the tail pins the
-// newest line to the bottom (or top when newest first).
+// newest line to the bottom (or top when newest first). Each entry is
+// rendered at most once per frame.
 func (l *logsScreen) lines(m *Model, w, h int) string {
 	cur := l.displayCursor()
-	type row struct {
-		text string
-		sel  bool
-	}
+	f := l.frame(m, w)
+	cache := map[int][]string{}
 	render := func(i int) []string {
-		e, ok := l.entryAt(i)
-		if !ok {
-			return nil
+		if rows, ok := cache[i]; ok {
+			return rows
 		}
-		r, _ := l.rowAt(i)
-		return l.renderEntry(m, e, r, w)
+		var rows []string
+		if e, ok := l.entryAt(i); ok {
+			r, _ := l.rowAt(i)
+			rows = l.renderRows(m, e, r, w, f)
+		}
+		cache[i] = rows
+		return rows
 	}
 	heightOf := func(i int) int { return len(render(i)) }
 	switch {
@@ -560,19 +567,28 @@ func (l *logsScreen) lines(m *Model, w, h int) string {
 	case l.tail:
 		l.offset = 0
 	default:
+		// Keep the offset if the cursor is visible from it; otherwise
+		// scroll just enough to show the cursor at the bottom. Walking
+		// back from the cursor costs at most h entries, however far it
+		// jumped.
 		l.offset = min(l.offset, cur)
-		for l.offset < cur {
-			used := 0
-			for i := l.offset; i <= cur; i++ {
-				used += heightOf(i)
-			}
-			if used <= h {
+		used, first := 0, cur
+		for first >= l.offset {
+			used += heightOf(first)
+			if used > h {
 				break
 			}
-			l.offset++
+			first--
+		}
+		if used > h {
+			l.offset = min(first+1, cur)
 		}
 	}
 	start := l.offset
+	type row struct {
+		text string
+		sel  bool
+	}
 	var rows []row
 	for i := start; i < l.shown() && len(rows) < h; i++ {
 		for _, r := range render(i) {
@@ -585,42 +601,59 @@ func (l *logsScreen) lines(m *Model, w, h int) string {
 		line := r.text
 		if r.sel {
 			plain := ansi.Strip(line)
-			line = sel.Render(plain + strings.Repeat(" ", max(w-lipgloss.Width(plain), 0)))
+			line = sel.Render(plain + strings.Repeat(" ", max(w-textWidth(plain), 0)))
 		}
 		out = append(out, line)
 	}
 	return strings.Join(out, "\n")
 }
 
+// frameState is what every line of a frame shares.
+type frameState struct {
+	opts      ports.RenderOptions
+	warnColor bool // no level column: WARN messages carry the color
+}
+
+func (l *logsScreen) frame(m *Model, w int) frameState {
+	hide := l.effectiveHide(m, w)
+	return frameState{
+		opts:      ports.RenderOptions{Timestamps: l.timestamps, Now: m.opts.Now(), Hide: hide},
+		warnColor: levelHidden(m.opts.Columns, hide),
+	}
+}
+
 // renderEntry returns the display rows of one entry: the line (wrapped or
 // panned) and, for a stack trace, one folded summary row.
 func (l *logsScreen) renderEntry(m *Model, e *domain.LogEntry, row viewRow, w int) []string {
-	t := m.opts.Theme
+	return l.renderRows(m, e, row, w, l.frame(m, w))
+}
+
+func (l *logsScreen) renderRows(m *Model, e *domain.LogEntry, row viewRow, w int, f frameState) []string {
 	var b strings.Builder
 	b.WriteString(" ")
 	if id := l.podLabel(e.Pod); id != "" {
-		b.WriteString(t.podStyle(l.podColor[e.Pod]).Render(id) + " ")
+		b.WriteString(m.podInk(l.podColor[e.Pod]).paint(id))
+		b.WriteByte(' ')
 	}
-	opts := ports.RenderOptions{Timestamps: l.timestamps, Now: m.opts.Now(), Hide: l.effectiveHide(m, w)}
-	warnColor := e.Level == domain.LevelWarn && levelHidden(m.opts.Columns, opts.Hide)
-	for _, s := range m.layout(e).Render(*e, opts) {
-		style := l.segmentStyle(t, e, s.Role)
-		if s.Role == ports.RoleMessage && warnColor {
-			style = t.Warn // the level column no longer says it
+	filtering := l.filter.Active()
+	for _, s := range m.layout(e).Render(*e, f.opts) {
+		k := m.segmentInk(e, s.Role)
+		if s.Role == ports.RoleMessage && f.warnColor && e.Level == domain.LevelWarn {
+			k = m.ink("warn", func() lipgloss.Style { return m.opts.Theme.Warn }) // the level column no longer says it
 		}
 		if row.context {
-			style = t.Dim
+			k = m.dim()
 		}
-		if l.filter.Active() && (s.Role == ports.RoleMessage || s.Role == ports.RoleLogger || s.Role == ports.RoleThread) {
-			b.WriteString(l.highlight(t, s.Text, style))
+		if filtering && (s.Role == ports.RoleMessage || s.Role == ports.RoleLogger || s.Role == ports.RoleThread) {
+			b.WriteString(l.highlight(m, s.Text, k))
 		} else {
-			b.WriteString(style.Render(s.Text))
+			b.WriteString(k.paint(s.Text))
 		}
 	}
 	line := b.String()
 	var rows []string
 	if row.gap {
-		rows = append(rows, t.Dim.Render(" --"))
+		rows = append(rows, m.dim().paint(" --"))
 	}
 	if l.wrap {
 		rows = append(rows, strings.Split(ansi.Hardwrap(line, w, true), "\n")...)
@@ -633,7 +666,8 @@ func (l *logsScreen) renderEntry(m *Model, e *domain.LogEntry, row viewRow, w in
 	if e.Stack != "" {
 		first, _, _ := strings.Cut(strings.TrimSpace(e.Stack), "\n")
 		more := strings.Count(e.Stack, "\n")
-		fold := "    " + t.Stack.Render(first) + t.Dim.Render(fmt.Sprintf("   [+%d lines, enter to open]", more))
+		stack := m.ink("stack", func() lipgloss.Style { return m.opts.Theme.Stack })
+		fold := "    " + stack.paint(first) + m.dim().paint(fmt.Sprintf("   [+%d lines, enter to open]", more))
 		rows = append(rows, ansi.Truncate(fold, w, "…"))
 	}
 	return rows

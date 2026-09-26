@@ -95,6 +95,7 @@ type hint struct{ key, what string }
 // Model is the root Bubble Tea model.
 type Model struct {
 	opts          Options
+	inks          map[string]ink // see ink.go
 	width, height int
 	env           EnvInfo
 	snap          *ports.CatalogSnapshot
@@ -473,8 +474,15 @@ func fitBlock(s string, w, h int) string {
 		lines = append(lines, "")
 	}
 	for i, l := range lines {
-		l = ansi.Truncate(l, w, "")
-		lines[i] = l + strings.Repeat(" ", w-lipgloss.Width(l))
+		lw := textWidth(l)
+		if lw > w {
+			l = ansi.Truncate(l, w, "")
+			lw = textWidth(l)
+		}
+		if lw < w {
+			l += strings.Repeat(" ", w-lw)
+		}
+		lines[i] = l
 	}
 	return strings.Join(lines, "\n")
 }

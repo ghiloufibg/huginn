@@ -207,3 +207,12 @@ func TestAbbreviate(t *testing.T) {
 		}
 	}
 }
+
+func BenchmarkSpringStreamLine(b *testing.B) {
+	l := spring(&testing.T{})
+	o := ports.RenderOptions{Location: time.UTC}
+	b.ReportAllocs()
+	for b.Loop() {
+		l.Render(entry, o)
+	}
+}

@@ -35,7 +35,7 @@ var (
 	events   *fakeEvents
 )
 
-func newTestModel(t *testing.T, env int, repo string) (*Model, *fakeCatalog) {
+func newTestModel(t testing.TB, env int, repo string) (*Model, *fakeCatalog) {
 	t.Helper()
 	theme, err := NewTheme("light", false)
 	if err != nil {
@@ -165,7 +165,7 @@ func TestProductionAndEnvPickerGolden(t *testing.T) {
 }
 
 // openLogs opens payment-service's logs and feeds the mockup batch.
-func openLogs(t *testing.T) (*Model, *logsScreen) {
+func openLogs(t testing.TB) (*Model, *logsScreen) {
 	t.Helper()
 	m, _ := newTestModel(t, 1, "")
 	snapshot(m, mockupSnapshot("rec"))

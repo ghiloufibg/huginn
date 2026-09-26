@@ -286,11 +286,12 @@ func (l *logsScreen) promptLine(m *Model) string {
 }
 
 // highlight renders s with the filter's matches marked.
-func (l *logsScreen) highlight(t Theme, s string, base lipgloss.Style) string {
+func (l *logsScreen) highlight(m *Model, s string, base ink) string {
 	ranges := l.filter.Ranges(s)
 	if len(ranges) == 0 {
-		return base.Render(s)
+		return base.paint(s)
 	}
+	hl := m.ink("highlight", func() lipgloss.Style { return m.opts.Theme.Highlight })
 	marked := make([]bool, len(s))
 	for _, r := range ranges {
 		for i := r[0]; i < r[1]; i++ {
@@ -301,11 +302,11 @@ func (l *logsScreen) highlight(t Theme, s string, base lipgloss.Style) string {
 	start := 0
 	for i := 1; i <= len(s); i++ {
 		if i == len(s) || marked[i] != marked[start] {
-			style := base
+			k := base
 			if marked[start] {
-				style = t.Highlight
+				k = hl
 			}
-			b.WriteString(style.Render(s[start:i]))
+			b.WriteString(k.paint(s[start:i]))
 			start = i
 		}
 	}

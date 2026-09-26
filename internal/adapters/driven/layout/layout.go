@@ -6,6 +6,7 @@ package layout
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -124,8 +125,9 @@ func (l *Layout) Render(e domain.LogEntry, o ports.RenderOptions) []ports.Segmen
 	if o.Full {
 		ln = l.zoom
 	}
-	var out []ports.Segment
-	shown := map[string]bool{}
+	out := make([]ports.Segment, 0, 2*len(ln.columns)+2)
+	var shownBuf [8]string
+	shown := shownBuf[:0]
 	for _, c := range ln.columns {
 		if (!o.Full && o.Hide.Has(c.name)) || (!e.Structured && !c.timeOnly) {
 			continue
@@ -135,7 +137,7 @@ func (l *Layout) Render(e domain.LogEntry, o ports.RenderOptions) []ports.Segmen
 			continue
 		}
 		out = append(out, ports.Segment{Text: text, Role: c.role}, ports.Segment{Text: " ", Role: ports.RolePlain})
-		shown[c.name] = true
+		shown = append(shown, c.name)
 	}
 	if e.Structured && ln.sep != "" && showSeparator(ln.sepAfter, shown) {
 		out = append(out, ports.Segment{Text: ln.sep, Role: ports.RoleDim})
@@ -143,12 +145,12 @@ func (l *Layout) Render(e domain.LogEntry, o ports.RenderOptions) []ports.Segmen
 	return append(out, ports.Segment{Text: e.Message, Role: ports.RoleMessage})
 }
 
-func showSeparator(after []string, shown map[string]bool) bool {
+func showSeparator(after, shown []string) bool {
 	if len(after) == 0 {
 		return len(shown) > 0
 	}
 	for _, n := range after {
-		if shown[n] {
+		if slices.Contains(shown, n) {
 			return true
 		}
 	}

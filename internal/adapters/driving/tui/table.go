@@ -95,42 +95,62 @@ func (t *table) scroll(n, h int) {
 // render draws the header and the visible rows in exactly h lines of w
 // cells. The selected row is drawn with sel, ignoring cell colors, so it
 // stays readable in every theme.
-func (t *table) render(rows [][]cell, w, h int, th Theme) string {
-	content := 0
-	for _, r := range rows {
-		for i, c := range r {
-			if t.cols[i].flex {
-				content = max(content, lipgloss.Width(c.text))
-			}
-		}
-	}
-	widths := t.layout(w, content)
+// render draws n rows in a w×h viewport. Only the visible rows are asked
+// for (get), so large tables stay cheap; flex is the widest text of the
+// flex column over all rows.
+func (t *table) render(n int, get func(i int) []cell, flex, w, h int, th Theme) string {
+	widths := t.layout(w, flex)
 	lines := make([]string, 0, h)
 	head := make([]cell, len(t.cols))
 	for i, c := range t.cols {
 		head[i] = cell{text: c.title, style: th.TableHeader}
 	}
 	lines = append(lines, t.line(head, widths, w, nil))
-	t.scroll(len(rows), h-1)
+	t.scroll(n, h-1)
 	titles := t.titles
-	if len(rows)+len(titles) > h-1 {
+	if n+len(titles) > h-1 {
 		titles = nil
 	}
-	for i := t.offset; i < len(rows) && len(lines) < h; i++ {
+	for i := t.offset; i < n && len(lines) < h; i++ {
 		if title, ok := titles[i]; ok {
 			title = ansi.Truncate(title, w-1, "…")
-			lines = append(lines, " "+th.Dim.Render(title)+strings.Repeat(" ", w-1-lipgloss.Width(title)))
+			lines = append(lines, " "+th.Dim.Render(title)+strings.Repeat(" ", w-1-textWidth(title)))
 		}
 		var sel *lipgloss.Style
 		if i == t.cursor {
 			sel = &th.Selected
 		}
-		lines = append(lines, t.line(rows[i], widths, w, sel))
+		lines = append(lines, t.line(get(i), widths, w, sel))
 	}
 	for len(lines) < h {
 		lines = append(lines, strings.Repeat(" ", w))
 	}
 	return strings.Join(lines, "\n")
+}
+
+// textWidth is the display width of s, which may hold ANSI escape
+// sequences. ASCII text (the common case for tables and log lines) is
+// measured by skipping escape sequences and counting bytes; anything else
+// uses the full grapheme-aware measure.
+func textWidth(s string) int {
+	n := 0
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c >= 0x80:
+			return ansi.StringWidth(s)
+		case c == 0x1b && i+1 < len(s) && s[i+1] == '[': // CSI: ESC [ params final
+			i += 2
+			for i < len(s) && (s[i] < 0x40 || s[i] > 0x7e) {
+				i++
+			}
+		case c == 0x1b:
+			return ansi.StringWidth(s) // OSC and others: let ansi parse them
+		case c >= 0x20 && c != 0x7f:
+			n++
+		}
+	}
+	return n
 }
 
 func (t *table) line(cells []cell, widths []int, w int, sel *lipgloss.Style) string {
@@ -145,8 +165,11 @@ func (t *table) line(cells []cell, widths []int, w int, sel *lipgloss.Style) str
 			b.WriteString(strings.Repeat(" ", colGap))
 		}
 		first = false
-		text := ansi.Truncate(c.text, widths[i], "…")
-		pad := strings.Repeat(" ", widths[i]-lipgloss.Width(text))
+		text := c.text
+		if textWidth(text) > widths[i] {
+			text = ansi.Truncate(text, widths[i], "…")
+		}
+		pad := strings.Repeat(" ", max(widths[i]-textWidth(text), 0))
 		if t.cols[i].right {
 			text = pad + text
 		} else {
@@ -158,10 +181,12 @@ func (t *table) line(cells []cell, widths []int, w int, sel *lipgloss.Style) str
 		b.WriteString(text)
 	}
 	out := b.String()
-	if sel != nil {
-		plain := ansi.Truncate(out, w, "")
-		return sel.Render(plain + strings.Repeat(" ", w-lipgloss.Width(plain)))
+	if lw := textWidth(out); lw > w {
+		out = ansi.Truncate(out, w, "")
 	}
-	out = ansi.Truncate(out, w, "")
-	return out + strings.Repeat(" ", w-lipgloss.Width(out))
+	out += strings.Repeat(" ", max(w-textWidth(out), 0))
+	if sel != nil {
+		return sel.Render(out)
+	}
+	return out
 }

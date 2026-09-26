@@ -11,6 +11,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/ghiloufibg/huginn/internal/core/domain"
+	"github.com/ghiloufibg/huginn/internal/core/ports"
 )
 
 // servicesScreen is the home screen: one row per repository.
@@ -24,6 +25,8 @@ type servicesScreen struct {
 	missing  string // --repo that did not appear
 	height   int    // last body height, for paging
 	preview  preview
+	cacheKey rowsKey
+	cache    []domain.ServiceSummary
 }
 
 func newServicesScreen(openRepo string) *servicesScreen {
@@ -46,11 +49,27 @@ func newServicesScreen(openRepo string) *servicesScreen {
 func (s *servicesScreen) crumbs() []string { return []string{"services"} }
 
 // rows returns the visible services: filtered by name, sorted, repositories
-// before unassigned workloads.
+// before unassigned workloads. The result is cached until the snapshot,
+// the sort or the filter changes: a frame asks for it several times.
 func (s *servicesScreen) rows(m *Model) []domain.ServiceSummary {
 	if m.snap == nil {
 		return nil
 	}
+	key := rowsKey{snap: m.snap, sort: s.sort, filter: s.filter.String()}
+	if s.cacheKey == key {
+		return s.cache
+	}
+	s.cacheKey, s.cache = key, s.sortedRows(m)
+	return s.cache
+}
+
+type rowsKey struct {
+	snap   *ports.CatalogSnapshot
+	sort   domain.SortKey
+	filter string
+}
+
+func (s *servicesScreen) sortedRows(m *Model) []domain.ServiceSummary {
 	q := strings.ToLower(s.filter.String())
 	var repos, orphans []domain.ServiceSummary
 	for _, r := range m.snap.Services {
@@ -215,13 +234,18 @@ func (s *servicesScreen) view(m *Model, w, h int) string {
 		if s.filter.String() != "" {
 			msg = fmt.Sprintf("no service matches %q", s.filter.String())
 		}
-		return s.tbl.render(nil, w, 1, t) + "\n" + centered(t.Dim.Render(msg), w, h-1)
+		return s.tbl.render(0, nil, 0, w, 1, t) + "\n" + centered(t.Dim.Render(msg), w, h-1)
 	}
 	s.sync(rows)
-	cells := make([][]cell, len(rows))
 	now := m.opts.Now()
-	for i, r := range rows {
-		cells[i] = s.cells(r, now, t, m.opts.Filter)
+	get := func(i int) []cell { return s.cells(rows[i], now, t, m.opts.Filter) }
+	flex := 0
+	for _, r := range rows {
+		n := len(r.Repo)
+		if r.Unassigned {
+			n += len(" (no repo)")
+		}
+		flex = max(flex, n)
 	}
 	s.tbl.titles = nil
 	side, bottom := s.preview.place(w, h, len(rows))
@@ -236,7 +260,7 @@ func (s *servicesScreen) view(m *Model, w, h int) string {
 	s.preview.shown = side > 0 || bottom > 0
 	switch {
 	case side > 0:
-		tbl := strings.Split(s.tbl.render(cells, w-side, h, t), "\n")
+		tbl := strings.Split(s.tbl.render(len(rows), get, flex, w-side, h, t), "\n")
 		pane := strings.Split(s.preview.render(m, rows[s.tbl.cursor], side-1, h), "\n")
 		for i := range tbl {
 			tbl[i] += t.Dim.Render("│") + pane[i]
@@ -244,9 +268,9 @@ func (s *servicesScreen) view(m *Model, w, h int) string {
 		return strings.Join(tbl, "\n")
 	case bottom > 0:
 		s.height = h - bottom
-		return s.tbl.render(cells, w, h-bottom, t) + "\n" + s.preview.render(m, rows[s.tbl.cursor], w, bottom)
+		return s.tbl.render(len(rows), get, flex, w, h-bottom, t) + "\n" + s.preview.render(m, rows[s.tbl.cursor], w, bottom)
 	}
-	return s.tbl.render(cells, w, h, t)
+	return s.tbl.render(len(rows), get, flex, w, h, t)
 }
 
 // groupTitles returns the status group titles by first row index when

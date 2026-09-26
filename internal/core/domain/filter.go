@@ -188,7 +188,13 @@ type Row struct {
 // as context around matches. In highlight mode, level filtering still
 // applies and matching entries are flagged.
 func (f LogFilter) Select(n int, get func(int) *LogEntry) []Row {
-	rows := make([]Row, 0, n)
+	return f.SelectAppend(make([]Row, 0, n), n, get)
+}
+
+// SelectAppend is Select appending to dst, so a caller refreshing a view
+// many times a second can reuse its buffer.
+func (f LogFilter) SelectAppend(dst []Row, n int, get func(int) *LogEntry) []Row {
+	rows := dst[:0]
 	if f.Mode == ModeHighlight || !f.Active() || f.Context <= 0 {
 		for i := range n {
 			e := get(i)
