@@ -26,6 +26,7 @@ Huginn is built first as a **prototype** and will then be adapted to an enterpri
 | Driving adapters | `internal/adapters/driving/tui`, `…/cli` | Bubble Tea UI, Cobra CLI. Talk to the core **only through driving ports** | domain, ports |
 | Bootstrap | `internal/bootstrap` | Composition root: reads config, picks adapters by name from registries, wires everything | everything |
 | Config | `internal/config` | Load/validate YAML into plain structs | stdlib, domain, yaml |
+| Support | `internal/diag`, `internal/buildinfo` | Diagnostic log file, version stamp | stdlib only |
 
 ## 2. Hard rules
 
@@ -40,7 +41,7 @@ Huginn is built first as a **prototype** and will then be adapted to an enterpri
 9. **Config is data, not behavior.** Config structs are plain and validated in one place; adapters receive only their own sub-section.
 10. **Secrets never cross the core as strings meant for display.** `SecretsProvider` returns values for wiring only; the domain `Redactor` runs before anything is rendered or exported.
 
-These rules are enforced mechanically: `golangci-lint` `depguard` rules per layer, plus an architecture test (`internal/archtest`) that fails the build if a package imports outside its allowed set.
+These rules are enforced mechanically: `golangci-lint` `depguard` rules give editor feedback for the core, and the architecture test `internal/archtest` (its `Rules` table is the executable form of this document) fails the build if any package imports outside its allowed set or is not covered by a rule.
 
 ## 3. Extension points (how to adapt Huginn to a new enterprise)
 
@@ -65,3 +66,29 @@ These rules are enforced mechanically: `golangci-lint` `depguard` rules per laye
 - No global state; constructors take their dependencies explicitly.
 - Table-driven tests; golden files for rendering; benchmarks for hot paths (buffer, filter).
 - When two designs compete, record the trade-off in `docs/DECISIONS.md`.
+
+## 5. Package map
+
+```
+cmd/huginn/                     main: calls bootstrap.Main
+internal/
+  core/domain/                  Env, Repo, Workload, Pod, Container, Level, LogEntry,
+                                TimeWindow (+ presets, window selection), Secret, ServiceStatus
+  core/ports/                   ClusterClient, LogSource, LogDecoder, LogRenderer,
+                                ManifestScanner, RepoResolver, SecretsProvider, Clock,
+                                driving ports, Registry[F]
+  core/ports/portstest/         fakes + RunClusterContract / RunLogSourceContract
+  core/app/                     use cases (from M1)
+  adapters/driven/demo/         synthetic cluster + log generator (--demo)
+  adapters/driven/kubernetes/   client-go adapter (M4; placeholder until then)
+  adapters/driven/clock/        system clock
+  adapters/driving/cli/         cobra command tree -> cli.Options
+  adapters/driving/tui/         Bubble Tea app: theme, keymap, screens
+  bootstrap/                    composition root: config -> registries -> adapters -> tui
+  config/                       YAML schema, defaults, validation, example, JSON schema
+  diag/                         file-only diagnostic log with redaction
+  buildinfo/                    version stamping
+  archtest/                     layer rules as a test
+```
+
+**Adding an adapter** (for example a Loki `LogSource`): create `internal/adapters/driven/loki`, implement the port, run the port's contract suite from `portstest` in its tests, register it in the matching registry in `internal/bootstrap`, add its name to the `enum` tag of the config field that selects it, and regenerate the schema (`make schema`).

@@ -108,3 +108,12 @@ Status: accepted.
 ## D-022 Config: strict YAML decoding instead of koanf
 Supersedes D-002. The configuration is one YAML file plus a handful of flags and `HUGINN_*` variables handled by the CLI, so a layered config library adds little. `go.yaml.in/yaml/v3` (the maintained yaml.v3) decodes into typed structs; a small walker compares the YAML tree with the struct tags to report every unknown key with its line and a "did you mean" suggestion. Defaults fill only zero values (lists and maps in the file replace defaults wholesale). Allowed values are declared once in `enum` struct tags and used by both validation and the generated JSON Schema (`docs/config.schema.json`), which a test keeps in sync, as it does `examples/config.yaml`.
 Status: accepted.
+
+## D-023 M0 implementation choices
+- **TUI tests render the model directly** (Update with a WindowSizeMsg, then View, ANSI stripped, compared to golden files under `testdata/`, refreshed with `-update`) instead of `teatest`: deterministic, no timing, no extra dependency. A pty smoke test of the real binary was run manually.
+- **Registries are built explicitly** in `internal/bootstrap` (no `init()` self-registration, no globals), so reading bootstrap shows every adapter that exists.
+- **Environment precedence**: `--env` > positional argument > `HUGINN_ENV` > `default_env` > `rec`; flag and argument disagreeing is an error. **Theme precedence**: `--theme` > `NO_COLOR` (forces `none`) > `HUGINN_THEME` > `ui.theme`.
+- **Warnings are magenta in the light theme**: yellow is unreadable on light backgrounds in most 16-color palettes; the word WARN always accompanies the color.
+- **Demo retention** defaults to 6 hours, so asking for 1d/2d in demo mode reproduces the real "logs available from HH:MM only" situation.
+- **CI uses the latest Go 1.26 patch** while `go.mod` requires 1.26.0, so security fixes in the standard library are picked up without forcing users to upgrade.
+Status: accepted.
