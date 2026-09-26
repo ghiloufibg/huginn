@@ -4,7 +4,7 @@
 
 Huginn is a keyboard-driven, **read-only** terminal UI for reading the logs of application pods on Kubernetes (GKE), from inside your IDE's terminal. It feels like k9s and kl, but does one thing: help a developer debug from logs.
 
-**Status: prototype, milestone M3 done.** Services screen and logs screen (merged live logs of a repository's application containers in the Spring Boot layout, time windows, follow/pause, pod scope, zoom), level and live text filters with highlight, and help on every screen (`?` / `F1`). The real GKE connection arrives in M4. See [`docs/plan/M0.md`](docs/plan/M0.md) and the design mockups linked from [`docs/DECISIONS.md`](docs/DECISIONS.md).
+**Status: prototype, milestone M3.2 done.** Services screen (with a WHY column and a preview of the selected service) and logs screen (merged live logs of a repository's application containers in the Spring Boot layout, time windows, follow/pause, pod scope, zoom), level and live text filters with highlight, and help on every screen (`?` / `F1`). The real GKE connection arrives in M4. See [`docs/plan/M0.md`](docs/plan/M0.md) and the design mockups linked from [`docs/DECISIONS.md`](docs/DECISIONS.md).
 
 ## Try it
 
@@ -45,6 +45,10 @@ Commands
 
 Environment variables: `HUGINN_ENV`, `HUGINN_CONFIG`, `HUGINN_THEME`, `NO_COLOR` (forces the `none` theme), `HUGINN_DEBUG=1` (diagnostic log in the user cache directory, never on screen).
 
+## Services screen
+
+One row per repository; the **WHY** column says why a service is unhealthy (last exit, OOM limit, image that cannot be pulled, scheduler message, rollout progress). The space the rows leave free shows a **preview** of the selected service — workloads, pods, recent warnings of its worst pod (events read only when the cursor rests on a service), hidden sidecars — on the right from 200 columns, below the rows when 8 lines are free. Sorted by status, rows are grouped (FAILING, DEGRADED/PENDING, ROLLING, HEALTHY) when the titles fit.
+
 ## Keys (services screen)
 
 | Key | Action |
@@ -53,6 +57,7 @@ Environment variables: `HUGINN_ENV`, `HUGINN_CONFIG`, `HUGINN_THEME`, `NO_COLOR`
 | `enter` | open the repository |
 | `/` or `ctrl+f` | filter by name (enter keeps, esc clears) |
 | `s` | sort: status, name, restarts, age |
+| `p` | preview of the selected service on/off |
 | `r` | resync the watches |
 | `ctrl+e` | switch environment |
 | `esc` | back |
