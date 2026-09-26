@@ -92,6 +92,9 @@ type Model struct {
 	stack         []screen
 	popup         overlay
 	note          string
+	flashText     string
+	flashID       int
+	flashPending  bool
 	resyncing     bool
 	watchErr      error
 }
@@ -104,7 +107,8 @@ type (
 		ch  <-chan ports.CatalogSnapshot
 		err error
 	}
-	snapshotMsg struct {
+	flashDoneMsg struct{ id int }
+	snapshotMsg  struct {
 		gen    int
 		snap   ports.CatalogSnapshot
 		ch     <-chan ports.CatalogSnapshot
@@ -215,6 +219,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.broadcast(msg), waitSnapshot(msg.gen, msg.ch))
 	case tea.KeyPressMsg:
 		return m, m.handleKey(msg)
+	case flashDoneMsg:
+		if msg.id == m.flashID {
+			m.flashText = ""
+		}
+		return m, nil
 	case tea.MouseWheelMsg:
 		_, cmd := m.top().update(m, msg)
 		return m, cmd
@@ -233,7 +242,28 @@ func (m *Model) broadcast(msg tea.Msg) tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
+// flash shows a short confirmation of a mode change in the status bar
+// (docs/DECISIONS.md: no silent mode change).
+func (m *Model) flash(text string) {
+	m.flashText = text
+	m.flashID++
+	m.flashPending = true
+}
+
+// flashDuration is how long a confirmation stays in the status bar.
+const flashDuration = 2 * time.Second
+
 func (m *Model) handleKey(k tea.KeyPressMsg) tea.Cmd {
+	cmd := m.dispatchKey(k)
+	if m.flashPending {
+		m.flashPending = false
+		id := m.flashID
+		cmd = tea.Batch(cmd, tea.Tick(flashDuration, func(time.Time) tea.Msg { return flashDoneMsg{id: id} }))
+	}
+	return cmd
+}
+
+func (m *Model) dispatchKey(k tea.KeyPressMsg) tea.Cmd {
 	if m.popup != nil {
 		return m.popup.update(m, k)
 	}
@@ -242,6 +272,10 @@ func (m *Model) handleKey(k tea.KeyPressMsg) tea.Cmd {
 	}
 	key, keys := k.String(), m.opts.Keys
 	switch {
+	case keys.Is(key, ActHelp):
+		if _, open := m.top().(*helpScreen); !open {
+			return m.push(newHelpScreen(m, m.top()))
+		}
 	case keys.Is(key, ActQuit):
 		m.stop()
 		return tea.Quit
@@ -374,8 +408,12 @@ func (m *Model) statusBar() string {
 	if m.env.Production {
 		bar, left = t.StatusProd, t.ChipProd.Render("PRODUCTION")+bar.Render(" ")
 	}
+	// A confirmation goes first so a narrow terminal never truncates it.
+	if m.flashText != "" {
+		left += t.Prompt.Render(m.flashText) + bar.Render(" ")
+	}
 	left += m.top().statusLeft(m)
-	if m.note != "" {
+	if m.note != "" && m.flashText == "" {
 		left += bar.Render("  ·  ") + t.Dim.Inherit(bar).Render(m.note)
 	}
 	// Hints give way to state on narrow terminals: drop them from the end.

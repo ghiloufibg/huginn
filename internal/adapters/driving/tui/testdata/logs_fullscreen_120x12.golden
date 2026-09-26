@@ -9,4 +9,4 @@
  p3w1n 19:13:22.000  INFO [exec-1] i.g.p.PaymentApplication : Started PaymentApplication in 7.412 seconds               
  m8q7v 19:13:32.000 ERROR [exec-1] i.g.p.card.CardController : Card declined by issuer orderId=ord_72bf10 retryable=fal…
  x4k2p 19:13:42.000  INFO [exec-1] i.g.p.HealthReporter : health probe succeeded components=db,redis,gateway            
- LIVE   15m  ·  all pods  ·  levels all  ·  oldest first  ·  9/9 lines  ·  buffer 0%  ·  dropped 0            f follow  
+ sort name   LIVE   15m  ·  all pods  ·  levels all  ·  oldest first  ·  9/9 lines  ·  buffer 0%  ·  dropped 0          

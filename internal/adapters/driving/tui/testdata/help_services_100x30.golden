@@ -1,0 +1,30 @@
+ huginn  REC  gke_acme_europe-west1_main / a…   services / help   demo · watching · synced 19:14:02 
+ SERVICES                                                                                           
+   Move                                                                                             
+     k  up            up                                                                            
+     j  down          down                                                                          
+     pgup  ctrl+b     page up                                                                       
+     pgdown  ctrl+d   page down                                                                     
+     g  home          top                                                                           
+     G  end           bottom (on logs: back to the live tail)                                       
+   Filter                                                                                           
+     /  ctrl+f        filter as you type                                                            
+   Inspect                                                                                          
+     enter            open / zoom / apply                                                           
+   Services                                                                                         
+     s                sort: status, name, restarts, age                                             
+     r                resync the watches                                                            
+                                                                                                    
+ GLOBAL                                                                                             
+     ?  f1            help for this screen                                                          
+     esc              back, close, exit fullscreen, clear the last filter                           
+     ctrl+e           switch environment                                                            
+     q  ctrl+c        quit                                                                          
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+ HELP   keys follow ui.keymap in the configuration                             / search  esc close  

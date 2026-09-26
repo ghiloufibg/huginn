@@ -1,0 +1,80 @@
+ huginn  REC  gke_acme_europe-west1_mai…   services / payment-service / logs / help   demo · watching · synced 19:14:02 
+ LOGS                                                                                                                   
+   Move                                                                                                                 
+     k  up            up                                                                                                
+     j  down          down                                                                                              
+     pgup  ctrl+b     page up                                                                                           
+     pgdown  ctrl+d   page down                                                                                         
+     g  home          top                                                                                               
+     G  end           bottom (on logs: back to the live tail)                                                           
+     >                next ERROR line                                                                                   
+     <                previous ERROR line                                                                               
+   Time and stream                                                                                                      
+     ctrl+l           follow on/off                                                                                     
+     space            pause / resume (keeps buffering)                                                                  
+     t                next time window                                                                                  
+     T                pick a time window                                                                                
+     1  &             window 15m                                                                                        
+     2  é             window 30m                                                                                        
+     3  "             window 40m                                                                                        
+     4  '             window 45m                                                                                        
+     5  (             window 1h                                                                                         
+     6  -             window 1d                                                                                         
+     7  è             window 2d                                                                                         
+     0  à             tail (last lines)                                                                                 
+   Filter                                                                                                               
+     /  ctrl+f        filter as you type                                                                                
+     x                filter (hide) or highlight (keep all)                                                             
+     ctrl+r           regex on/off                                                                                      
+     ctrl+a           stack another filter (AND), in the prompt                                                         
+     X                context lines around matches: 0, 1, 3, 5                                                          
+     n                next match                                                                                        
+     N                previous match                                                                                    
+     l                level picker                                                                                      
+     e                errors only                                                                                       
+     w                warnings and errors                                                                               
+     a                all levels                                                                                        
+   Inspect                                                                                                              
+     enter            open / zoom / apply                                                                               
+     tab              pod scope: all, then each pod                                                                     
+     S                select pods (fullscreen)                                                                          
+   Display                                                                                                              
+     o                newest or oldest first                                                                            
+     c                timestamps: local, UTC, relative, hidden                                                          
+     I                pod id: short, full, hidden                                                                       
+     W                wrap lines                                                                                        
+     left             pan left (wrap off)                                                                               
+     right            pan right (wrap off)                                                                              
+     H                pan half a screen left                                                                            
+     L                pan half a screen right                                                                           
+     F                fullscreen                                                                                        
+                                                                                                                        
+ GLOBAL                                                                                                                 
+     ?  f1            help for this screen                                                                              
+     esc              back, close, exit fullscreen, clear the last filter                                               
+     ctrl+e           switch environment                                                                                
+     q  ctrl+c        quit                                                                                              
+                                                                                                                        
+ IN THE FILTER PROMPT                                                                                                   
+     ctrl+r           regex on/off                                                                                      
+     ctrl+x           filter or highlight                                                                               
+     !                invert (as first character; \! for a literal !)                                                   
+     ctrl+a           stack another filter (AND)                                                                        
+     enter / esc      keep / cancel the edit                                                                            
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+ sort name   HELP   keys follow ui.keymap in the configuration                                     / search  esc close  

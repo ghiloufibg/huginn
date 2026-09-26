@@ -54,13 +54,22 @@ func newTestModel(t *testing.T, env int, repo string) (*Model, *fakeCatalog) {
 	return m, fc
 }
 
-// run executes a command synchronously, feeding watch-start messages back
-// (snapshot waits would block and are skipped: tests send snapshots).
+// run executes a command, feeding watch-start messages back. Commands
+// that block (snapshot and batch waits, timers) are abandoned: tests send
+// snapshots, batches and ticks themselves.
 func run(m *Model, cmd tea.Cmd) {
 	if cmd == nil {
 		return
 	}
-	switch msg := cmd().(type) {
+	done := make(chan tea.Msg, 1)
+	go func() { done <- cmd() }()
+	var msg tea.Msg
+	select {
+	case msg = <-done:
+	case <-time.After(20 * time.Millisecond):
+		return
+	}
+	switch msg := msg.(type) {
 	case watchStartedMsg:
 		m.Update(watchStartedMsg{gen: msg.gen, err: msg.err})
 	case logStartedMsg:
@@ -94,8 +103,12 @@ func keyMsg(k string) tea.KeyPressMsg {
 		return tea.KeyPressMsg{Code: tea.KeyBackspace}
 	case "down":
 		return tea.KeyPressMsg{Code: tea.KeyDown}
-	case "ctrl+e":
-		return tea.KeyPressMsg{Code: 'e', Mod: tea.ModCtrl}
+	case "ctrl+e", "ctrl+r", "ctrl+x", "ctrl+a", "ctrl+f", "ctrl+l", "ctrl+u":
+		return tea.KeyPressMsg{Code: rune(k[5]), Mod: tea.ModCtrl}
+	case "tab":
+		return tea.KeyPressMsg{Code: tea.KeyTab}
+	case "space":
+		return tea.KeyPressMsg{Code: tea.KeySpace, Text: " "}
 	case "ctrl+c":
 		return tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}
 	}
@@ -205,7 +218,7 @@ func TestZoomGolden(t *testing.T) {
 	press(m, "p")
 	golden(t, "zoom_raw_140x10", render(m, 140, 10))
 	press(m, "p", "J")
-	if z := m.top().(*zoomScreen); z.seq != l.seqs[4] {
+	if z := m.top().(*zoomScreen); z.seq != l.rows[4].seq {
 		t.Fatalf("J must go to the next entry, got seq %d", z.seq)
 	}
 	press(m, "esc")
@@ -474,3 +487,5 @@ func TestShortAge(t *testing.T) {
 		}
 	}
 }
+
+func keyMsgF1() tea.KeyPressMsg { return tea.KeyPressMsg{Code: tea.KeyF1} }

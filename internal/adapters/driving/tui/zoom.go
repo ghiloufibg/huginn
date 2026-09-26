@@ -79,7 +79,7 @@ func (z *zoomScreen) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 
 // step moves to the next or previous entry of the logs view.
 func (z *zoomScreen) step(dir int) {
-	v := z.logs.seqs
+	v := z.logs.seqList()
 	i := slices.Index(v, z.seq)
 	if i < 0 {
 		return
@@ -125,8 +125,8 @@ func (z *zoomScreen) structured(m *Model, e *domain.LogEntry) []string {
 	t := m.opts.Theme
 	l := z.logs
 	sec := func(title, note string) string { return " " + t.Bold.Render(title) + t.Dim.Render(note) }
-	pos := slices.Index(l.seqs, e.Seq) + 1
-	head := t.Dim.Render(fmt.Sprintf(" entry %d of %d   pod ", pos, len(l.seqs))) +
+	pos := slices.Index(l.seqList(), e.Seq) + 1
+	head := t.Dim.Render(fmt.Sprintf(" entry %d of %d   pod ", pos, len(l.rows))) +
 		t.podStyle(l.podColor[e.Pod]).Render(e.Pod) + t.Dim.Render("   container ") + t.Bold.Render(e.Container)
 	var line strings.Builder
 	line.WriteString(" ")

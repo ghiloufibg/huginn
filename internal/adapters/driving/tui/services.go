@@ -159,6 +159,7 @@ func (s *servicesScreen) key(m *Model, k tea.KeyPressMsg, rows []domain.ServiceS
 		s.editing = true
 	case keys.Is(key, ActSort):
 		s.sort = s.sort.Next()
+		m.flash("sort " + s.sort.String())
 	case keys.Is(key, ActBack) && s.filter.String() != "":
 		s.filter.Clear()
 	default:
@@ -262,13 +263,7 @@ func (s *servicesScreen) hints(m *Model) []hint {
 	if s.editing {
 		return []hint{{"enter", "keep"}, {"esc", "clear"}}
 	}
-	return []hint{
-		{m.label(ActOpen), "logs"},
-		{m.label(ActFilter), "filter"},
-		{m.label(ActSort), "sort"},
-		{m.label(ActSwitchEnv), "env"},
-		{m.label(ActQuit), "quit"},
-	}
+	return append([]hint{{m.label(ActOpen), "logs"}}, m.hintsFor(ActFilter, ActSort, ActSwitchEnv, ActHelp, ActQuit)...)
 }
 
 func (s *servicesScreen) prompt(m *Model) string {

@@ -32,6 +32,9 @@ type Theme struct {
 	// Log line roles.
 	Timestamp, Thread, Logger, PID lipgloss.Style
 	ErrorText, Stack               lipgloss.Style
+	// Highlight marks text-filter matches (with underline, so it is
+	// visible without color).
+	Highlight lipgloss.Style
 	// Pods are the per-pod identity colors, used with the pod's short id
 	// (the id itself, not the color, identifies the pod).
 	Pods []lipgloss.Style
@@ -105,6 +108,7 @@ func ansiTheme(fg, bar, warn color.Color) Theme {
 		PID:          lipgloss.NewStyle().Foreground(lipgloss.Magenta),
 		ErrorText:    lipgloss.NewStyle().Foreground(lipgloss.Red),
 		Stack:        lipgloss.NewStyle().Foreground(lipgloss.Red),
+		Highlight:    lipgloss.NewStyle().Background(lipgloss.Yellow).Foreground(lipgloss.Black).Underline(true),
 		Pods: []lipgloss.Style{
 			lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Cyan),
 			lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Magenta),
@@ -142,7 +146,8 @@ func monoTheme() Theme {
 		Selected: rev, TableHeader: bold, Prompt: rev.Padding(0, 1),
 		Popup: plain.Border(lipgloss.NormalBorder()).Padding(0, 1), PopupTitle: bold,
 		Timestamp: plain, Thread: plain, Logger: plain, PID: plain, ErrorText: bold, Stack: plain,
-		Pods: []lipgloss.Style{bold},
+		Highlight: rev.Underline(true),
+		Pods:      []lipgloss.Style{bold},
 	}
 }
 

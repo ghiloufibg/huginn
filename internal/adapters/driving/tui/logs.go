@@ -52,7 +52,7 @@ type logsScreen struct {
 	loading bool
 
 	buf      *domain.LogBuffer
-	seqs     []uint64 // seqs of entries in scope, oldest first
+	rows     []viewRow // displayed entries (pod scope and filters applied), oldest first
 	pods     []ports.PodState
 	podColor map[string]int
 	notice   string
@@ -71,12 +71,32 @@ type logsScreen struct {
 	podID      podIDMode
 	fullscreen bool
 	height     int
+
+	// filters (logfilter.go)
+	filter    domain.LogFilter
+	committed []domain.TextFilter // stacked filters before the one being edited
+	input     lineEdit
+	regex     bool
+	inputErr  string
+	editing   bool
+	before    string // input before editing, restored by esc
+	dirty     bool   // rows must be recomputed (debounced while typing)
+	pending   bool   // a debounce tick is scheduled
+}
+
+// viewRow is one displayed entry.
+type viewRow struct {
+	seq     uint64
+	match   bool // matches the text filters
+	context bool // shown as context around a match
+	gap     bool // a separator precedes it
 }
 
 func newLogsScreen(m *Model, repo string) *logsScreen {
 	return &logsScreen{
 		repo: repo, window: m.opts.Window, follow: true, tail: true,
 		buf: domain.NewLogBuffer(m.opts.BufferLines), podColor: map[string]int{},
+		filter: domain.NewLogFilter(),
 	}
 }
 
@@ -89,7 +109,7 @@ func (l *logsScreen) open(m *Model) tea.Cmd {
 	l.close()
 	l.gen++
 	l.buf.Reset()
-	l.seqs, l.cursor, l.tail, l.paused, l.err, l.loading, l.notice = nil, 0, true, false, nil, true, ""
+	l.rows, l.cursor, l.tail, l.paused, l.err, l.loading, l.notice = nil, 0, true, false, nil, true, ""
 	if m.opts.Sessions == nil {
 		return nil
 	}
@@ -134,6 +154,15 @@ func (l *logsScreen) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 		}
 		l.apply(msg.batch)
 		return true, l.wait(msg.gen, msg.ch)
+	case filterTickMsg:
+		if msg.screen != l {
+			return false, nil
+		}
+		l.pending = false
+		if l.dirty {
+			l.rebuild()
+		}
+		return true, nil
 	case tea.MouseWheelMsg:
 		switch msg.Button {
 		case tea.MouseWheelDown:
@@ -154,10 +183,21 @@ func (l *logsScreen) apply(b ports.LogBatch) {
 	added := 0
 	for _, e := range b.Entries {
 		seq := l.buf.Append(e)
-		if l.inScope(e.Pod) {
-			l.seqs = append(l.seqs, seq)
+		if !l.inScope(e.Pod) || l.dirty {
+			continue
+		}
+		if l.needsFullSelect() {
+			l.dirty = true // context rows depend on neighbours
+			continue
+		}
+		i, _ := l.buf.Index(seq)
+		if r, ok := l.rowFor(seq, l.buf.At(i)); ok {
+			l.rows = append(l.rows, r)
 			added++
 		}
+	}
+	if l.dirty && !l.editing {
+		l.rebuild()
 	}
 	if l.newestTop && !l.tail && !l.paused {
 		// New entries are inserted above: keep the same entries on screen.
@@ -186,13 +226,13 @@ func (l *logsScreen) apply(b ports.LogBatch) {
 func (l *logsScreen) evict() {
 	first := l.buf.FirstSeq()
 	n := 0
-	for n < len(l.seqs) && l.seqs[n] < first {
+	for n < len(l.rows) && l.rows[n].seq < first {
 		n++
 	}
 	if n == 0 {
 		return
 	}
-	l.seqs = l.seqs[n:]
+	l.rows = l.rows[n:]
 	l.frozen = max(l.frozen-n, 0)
 	if !l.newestTop {
 		l.cursor, l.offset = max(l.cursor-n, 0), max(l.offset-n, 0)
@@ -201,24 +241,47 @@ func (l *logsScreen) evict() {
 
 func (l *logsScreen) inScope(pod string) bool { return l.scope == nil || l.scope[pod] }
 
-// rebuild recomputes the view after the scope changed.
+// rebuild recomputes the rows after the scope or the filters changed,
+// keeping the cursor on the same entry when it is still shown.
 func (l *logsScreen) rebuild() {
-	l.seqs = l.seqs[:0]
-	for i := range l.buf.Len() {
-		e := l.buf.At(i)
-		if l.inScope(e.Pod) {
-			l.seqs = append(l.seqs, e.Seq)
+	var keep uint64
+	if !l.tail {
+		if e, ok := l.entryAt(l.displayCursor()); ok {
+			keep = e.Seq
 		}
 	}
-	l.cursor, l.tail, l.paused = max(len(l.seqs)-1, 0), true, false
+	var idx []int
+	for i := range l.buf.Len() {
+		if l.inScope(l.buf.At(i).Pod) {
+			idx = append(idx, i)
+		}
+	}
+	sel := l.filter.Select(len(idx), func(i int) *domain.LogEntry { return l.buf.At(idx[i]) })
+	l.rows = l.rows[:0]
+	for _, r := range sel {
+		l.rows = append(l.rows, viewRow{seq: l.buf.At(idx[r.Index]).Seq, match: r.Match, context: r.Context, gap: r.Gap})
+	}
+	l.dirty, l.paused = false, false
+	if keep != 0 {
+		for i, r := range l.rows {
+			if r.seq >= keep {
+				l.cursor = i
+				if l.newestTop {
+					l.cursor = len(l.rows) - 1 - i
+				}
+				return
+			}
+		}
+	}
+	l.tail = true
 }
 
 // shown is the number of view entries displayed (frozen while paused).
 func (l *logsScreen) shown() int {
 	if l.paused {
-		return min(l.frozen, len(l.seqs))
+		return min(l.frozen, len(l.rows))
 	}
-	return len(l.seqs)
+	return len(l.rows)
 }
 
 // entryAt returns the entry at display position i (newest first when
@@ -231,7 +294,7 @@ func (l *logsScreen) entryAt(i int) (*domain.LogEntry, bool) {
 	if l.newestTop {
 		i = n - 1 - i
 	}
-	idx, ok := l.buf.Index(l.seqs[i])
+	idx, ok := l.buf.Index(l.rows[i].seq)
 	if !ok {
 		return nil, false
 	}
@@ -263,6 +326,9 @@ func (l *logsScreen) scroll(delta int) {
 }
 
 func (l *logsScreen) key(m *Model, k tea.KeyPressMsg) (bool, tea.Cmd) {
+	if l.editing {
+		return true, l.filterKey(m, k)
+	}
 	keys, key := m.opts.Keys, k.String()
 	page := max(l.height-2, 1)
 	if w, ok := l.windowKey(m, key); ok {
@@ -285,15 +351,41 @@ func (l *logsScreen) key(m *Model, k tea.KeyPressMsg) (bool, tea.Cmd) {
 		l.jumpError(1)
 	case keys.Is(key, ActPrevError):
 		l.jumpError(-1)
+	case keys.Is(key, ActFilter):
+		l.startEditing()
+	case keys.Is(key, ActFilterMode):
+		l.toggleMode(m)
+		l.rebuild()
+	case keys.Is(key, ActRegex):
+		l.regex = !l.regex
+		l.setTexts()
+		l.rebuild()
+		m.flash(onOff("regex", l.regex))
+	case keys.Is(key, ActContext):
+		l.cycleContext(m)
+	case keys.Is(key, ActNextMatch):
+		l.jumpMatch(m, 1)
+	case keys.Is(key, ActPrevMatch):
+		l.jumpMatch(m, -1)
+	case keys.Is(key, ActLevels):
+		m.popup = newLevelPicker(l)
+	case keys.Is(key, ActErrorsOnly):
+		l.setLevels(m, errorsOnly())
+	case keys.Is(key, ActWarnAndError):
+		l.setLevels(m, warnAndError())
+	case keys.Is(key, ActAllLevels):
+		l.setLevels(m, domain.AllLevels())
 	case keys.Is(key, ActFollow):
 		l.follow = !l.follow
+		m.flash(onOff("follow", l.follow))
 		return true, l.open(m)
 	case keys.Is(key, ActPause):
 		l.paused = !l.paused
-		l.frozen = len(l.seqs)
+		l.frozen = len(l.rows)
 		if !l.paused {
 			l.scroll(l.shown())
 		}
+		m.flash(map[bool]string{true: "paused (lines keep buffering)", false: "resumed"}[l.paused])
 	case keys.Is(key, ActWindowNext):
 		return true, l.setWindow(m, domain.NextWindow(m.opts.Windows, l.window))
 	case keys.Is(key, ActWindowPick):
@@ -301,12 +393,16 @@ func (l *logsScreen) key(m *Model, k tea.KeyPressMsg) (bool, tea.Cmd) {
 	case keys.Is(key, ActOrder):
 		l.newestTop = !l.newestTop
 		l.cursor = l.shown() - 1 - l.displayCursor()
+		m.flash(map[bool]string{true: "newest first", false: "oldest first"}[l.newestTop])
 	case keys.Is(key, ActTimestamps):
 		l.timestamps = (l.timestamps + 1) % (ports.TimestampNone + 1)
+		m.flash("timestamps " + [...]string{"local", "UTC", "relative", "hidden"}[l.timestamps])
 	case keys.Is(key, ActPodID):
 		l.podID = (l.podID + 1) % (podIDNone + 1)
+		m.flash("pod id " + [...]string{"short", "full", "hidden"}[l.podID])
 	case keys.Is(key, ActWrap):
 		l.wrap, l.pan = !l.wrap, 0
+		m.flash(onOff("wrap", l.wrap))
 	case keys.Is(key, ActPanRight):
 		l.pan += 8
 	case keys.Is(key, ActPanLeft):
@@ -319,8 +415,10 @@ func (l *logsScreen) key(m *Model, k tea.KeyPressMsg) (bool, tea.Cmd) {
 		l.fullscreen = !l.fullscreen
 	case keys.Is(key, ActBack) && l.fullscreen:
 		l.fullscreen = false
+	case keys.Is(key, ActBack) && l.clearLastFilter(m):
 	case keys.Is(key, ActPodScope):
 		l.cycleScope()
+		m.flash("scope " + l.scopeLabel())
 	case keys.Is(key, ActPodSelector):
 		return true, m.push(newPodSelector(l))
 	case keys.Is(key, ActOpen):
@@ -430,7 +528,8 @@ func (l *logsScreen) lines(m *Model, w, h int) string {
 		if !ok {
 			return nil
 		}
-		return l.renderEntry(m, e, w)
+		r, _ := l.rowAt(i)
+		return l.renderEntry(m, e, r, w)
 	}
 	heightOf := func(i int) int { return len(render(i)) }
 	switch {
@@ -479,7 +578,7 @@ func (l *logsScreen) lines(m *Model, w, h int) string {
 
 // renderEntry returns the display rows of one entry: the line (wrapped or
 // panned) and, for a stack trace, one folded summary row.
-func (l *logsScreen) renderEntry(m *Model, e *domain.LogEntry, w int) []string {
+func (l *logsScreen) renderEntry(m *Model, e *domain.LogEntry, row viewRow, w int) []string {
 	t := m.opts.Theme
 	var b strings.Builder
 	b.WriteString(" ")
@@ -488,17 +587,28 @@ func (l *logsScreen) renderEntry(m *Model, e *domain.LogEntry, w int) []string {
 	}
 	opts := ports.RenderOptions{Timestamps: l.timestamps, Now: m.opts.Now()}
 	for _, s := range m.opts.Renderer.Render(*e, opts) {
-		b.WriteString(l.segmentStyle(t, e, s.Role).Render(s.Text))
+		style := l.segmentStyle(t, e, s.Role)
+		if row.context {
+			style = t.Dim
+		}
+		if l.filter.Active() && (s.Role == ports.RoleMessage || s.Role == ports.RoleLogger || s.Role == ports.RoleThread) {
+			b.WriteString(l.highlight(t, s.Text, style))
+		} else {
+			b.WriteString(style.Render(s.Text))
+		}
 	}
 	line := b.String()
 	var rows []string
+	if row.gap {
+		rows = append(rows, t.Dim.Render(" --"))
+	}
 	if l.wrap {
-		rows = strings.Split(ansi.Hardwrap(line, w, true), "\n")
+		rows = append(rows, strings.Split(ansi.Hardwrap(line, w, true), "\n")...)
 	} else {
 		if l.pan > 0 {
 			line = ansi.TruncateLeft(line, l.pan, "…")
 		}
-		rows = []string{ansi.Truncate(line, w, "…")}
+		rows = append(rows, ansi.Truncate(line, w, "…"))
 	}
 	if e.Stack != "" {
 		first, _, _ := strings.Cut(strings.TrimSpace(e.Stack), "\n")
@@ -598,7 +708,7 @@ func (l *logsScreen) statusLeft(m *Model) string {
 	var chip string
 	switch {
 	case l.paused:
-		chip = t.ChipPaused.Render(fmt.Sprintf("PAUSED +%d", len(l.seqs)-l.frozen))
+		chip = t.ChipPaused.Render(fmt.Sprintf("PAUSED +%d", len(l.rows)-l.frozen))
 	case !l.follow:
 		chip = t.Chip.Render("STOPPED")
 	case !l.tail && !l.newestTop:
@@ -606,26 +716,20 @@ func (l *logsScreen) statusLeft(m *Model) string {
 	default:
 		chip = t.ChipLive.Render("LIVE")
 	}
-	scope := "all pods"
-	if l.scope != nil {
-		if len(l.scope) == 1 {
-			for p := range l.scope {
-				scope = "pod " + l.shortName(p)
-			}
-		} else {
-			scope = fmt.Sprintf("%d pods", len(l.scope))
-		}
-	}
+	scope := l.scopeLabel()
 	order := "oldest first"
 	if l.newestTop {
 		order = "newest first"
 	}
-	fields := []string{
-		l.window.Label(), scope, "levels all", order,
+	fields := []string{l.window.Label(), scope, "levels " + levelsLabel(l.filter.Levels)}
+	if f := l.filterSummary(); f != "" {
+		fields = append(fields, f)
+	}
+	fields = append(fields, order,
 		fmt.Sprintf("%d/%d lines", l.shown(), l.buf.Len()),
 		fmt.Sprintf("buffer %d%%", l.buf.Len()*100/max(l.buf.Cap(), 1)),
 		fmt.Sprintf("dropped %d", l.buf.Dropped()),
-	}
+	)
 	if l.wrap {
 		fields = append(fields, "wrap")
 	}
@@ -636,19 +740,54 @@ func (l *logsScreen) statusLeft(m *Model) string {
 }
 
 func (l *logsScreen) hints(m *Model) []hint {
-	return []hint{
-		{m.label(ActFollow), "follow"},
-		{m.label(ActPause), "pause"},
-		{m.label(ActWindowNext), "window"},
-		{m.label(ActPodScope), "pods"},
-		{m.label(ActOpen), "zoom"},
-		{m.label(ActBack), "back"},
+	if l.editing {
+		return nil
 	}
+	return m.hintsFor(ActFilter, ActLevels, ActFollow, ActPause, ActWindowNext, ActPodScope, ActHelp)
 }
 
-func (l *logsScreen) prompt(*Model) string { return "" }
+func (l *logsScreen) prompt(m *Model) string {
+	if !l.editing {
+		return ""
+	}
+	return l.promptLine(m)
+}
 
-// selectedPods lists the pods in scope, for the pod selector.
+// scopeLabel describes the pod scope.
+func (l *logsScreen) scopeLabel() string {
+	switch {
+	case l.scope == nil:
+		return "all pods"
+	case len(l.scope) == 1:
+		for p := range l.scope {
+			return "pod " + l.shortName(p)
+		}
+	}
+	return fmt.Sprintf("%d pods", len(l.scope))
+}
+
+// seqList returns the displayed entries' sequence numbers, oldest first.
+func (l *logsScreen) seqList() []uint64 {
+	out := make([]uint64, len(l.rows))
+	for i, r := range l.rows {
+		out[i] = r.seq
+	}
+	return out
+}
+
+// rowAt returns the row at display position i.
+func (l *logsScreen) rowAt(i int) (viewRow, bool) {
+	n := l.shown()
+	if i < 0 || i >= n {
+		return viewRow{}, false
+	}
+	if l.newestTop {
+		i = n - 1 - i
+	}
+	return l.rows[i], true
+}
+
+// podNames lists the pods, for the pod selector.
 func (l *logsScreen) podNames() []string {
 	out := make([]string, 0, len(l.pods))
 	for _, p := range l.pods {

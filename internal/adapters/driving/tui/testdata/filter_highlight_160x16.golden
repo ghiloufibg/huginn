@@ -12,13 +12,5 @@
  x4k2p 19:13:42.000  INFO [exec-1] i.g.p.HealthReporter : health probe succeeded components=db,redis,gateway                                                    
                                                                                                                                                                 
                                                                                                                                                                 
-                                                                                                                                                                
-                                                                                                                                                                
-                                                                                                                                                                
-                                                                                                                                                                
-                                                                                                                                                                
-                                                                                                                                                                
-                                                                                                                                                                
-                                                                                                                                                                
-                                                                                                                                                                
- sort name   LIVE   15m  ·  all pods  ·  levels all  ·  oldest first  ·  9/9 lines  ·  buffer 0%  ·  dropped 0       / filter  l levels  f follow  space pause  
+ /  gateway|declined_    HIGHLIGHT   REGEX    match 4 of 4   ctrl+r regex · ctrl+x filter/highlight · ! invert · ctrl+a add · enter keep · esc cancel           
+ highlight mode   LIVE   15m  ·  all pods  ·  levels all  ·  highlight /gateway|declined/ · match 4 of 4  ·  oldest first  ·  9/9 lines  ·  buffer 0%  ·  drop… 

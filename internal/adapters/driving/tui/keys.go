@@ -50,6 +50,7 @@ const (
 	ActFilterMode   Action = "filter_mode"
 	ActRegex        Action = "regex"
 	ActAddFilter    Action = "add_filter"
+	ActContext      Action = "context"
 	ActNextMatch    Action = "next_match"
 	ActPrevMatch    Action = "prev_match"
 	ActNextError    Action = "next_error"
@@ -92,7 +93,7 @@ var defaultKeys = map[Action][]string{
 	ActWindow5: {"5", "("}, ActWindow6: {"6", "-"}, ActWindow7: {"7", "è"}, ActWindowTail: {"0", "à"},
 	ActFollow: {"f"}, ActPause: {"space"}, ActOrder: {"o"},
 	ActLevels: {"l"}, ActErrorsOnly: {"e"}, ActWarnAndError: {"w"}, ActAllLevels: {"a"},
-	ActFilterMode: {"x"}, ActRegex: {"ctrl+r"}, ActAddFilter: {"ctrl+a"},
+	ActFilterMode: {"x"}, ActRegex: {"ctrl+r"}, ActAddFilter: {"ctrl+a"}, ActContext: {"X"},
 	ActNextMatch: {"n"}, ActPrevMatch: {"N"}, ActNextError: {">"}, ActPrevError: {"<"},
 	ActPanLeft: {"left"}, ActPanRight: {"right"}, ActPanLeftHalf: {"H"}, ActPanRightHalf: {"L"},
 	ActNextEntry: {"J"}, ActPrevEntry: {"K"},

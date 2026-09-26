@@ -1,0 +1,12 @@
+ huginn  REC  gke_acme_europe-west1_main / app-rec   services / payment-service / logs                    demo · watching · synced 19:14:02 
+ pods  all 3    m8q7v Healthy 1 restart v2.14.3   x4k2p Healthy v2.14.3   p3w1n Healthy v2.14.4 new                                         
+ m8q7v 19:13:04.000 DEBUG [exec-1] c.z.hikari.pool.HikariPool : HikariPool-1 - Pool stats (total=40, active=12, idle=28, waiting=0)         
+ x4k2p 19:13:07.000  WARN [exec-1] i.g.p.gateway.GatewayClient : gateway latency above threshold provider=adyen p95=842ms                   
+ m8q7v 19:13:12.000 ERROR [exec-1] i.g.p.PaymentService : Payment authorization failed orderId=ord_8f91a2 traceId=7fd28c90                  
+    io.gimle.payment.PaymentGatewayException: upstream request timed out   [+3 lines, enter to open]                                        
+ --                                                                                                                                         
+ p3w1n 19:13:22.000  INFO [exec-1] i.g.p.PaymentApplication : Started PaymentApplication in 7.412 seconds                                   
+ m8q7v 19:13:32.000 ERROR [exec-1] i.g.p.card.CardController : Card declined by issuer orderId=ord_72bf10 retryable=false                   
+ x4k2p 19:13:42.000  INFO [exec-1] i.g.p.HealthReporter : health probe succeeded components=db,redis,gateway                                
+                                                                                                                                            
+ regex on   LIVE   15m  ·  all pods  ·  levels all  ·  filter /gateway latency|declined/ · context 1  ·  oldest first  ·  6/9 lines  ·  bu… 
