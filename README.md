@@ -4,7 +4,7 @@
 
 Huginn is a keyboard-driven, **read-only** terminal UI for reading the logs of application pods on Kubernetes (GKE), from inside your IDE's terminal. It feels like k9s and kl, but does one thing: help a developer debug from logs.
 
-**Status: prototype, milestone M2 done.** Services screen and logs screen (merged live logs of a repository's application containers in the Spring Boot layout, time windows, follow/pause, pod scope, zoom). Level and text filters arrive in M3. See [`docs/plan/M0.md`](docs/plan/M0.md) and the design mockups linked from [`docs/DECISIONS.md`](docs/DECISIONS.md).
+**Status: prototype, milestone M3 done.** Services screen and logs screen (merged live logs of a repository's application containers in the Spring Boot layout, time windows, follow/pause, pod scope, zoom), level and live text filters with highlight, and help on every screen (`?` / `F1`). The real GKE connection arrives in M4. See [`docs/plan/M0.md`](docs/plan/M0.md) and the design mockups linked from [`docs/DECISIONS.md`](docs/DECISIONS.md).
 
 ## Try it
 
@@ -72,7 +72,13 @@ Environment variables: `HUGINN_ENV`, `HUGINN_CONFIG`, `HUGINN_THEME`, `NO_COLOR`
 | `o` `c` `I` `W` | order, timestamps, pod id, wrap |
 | `←` `→` `H` `L` | pan when not wrapped |
 | `F` | fullscreen |
-| `esc` | back |
+| `/` or `ctrl+f` | filter as you type (in the prompt: `ctrl+r` regex, `ctrl+x` filter/highlight, `!` prefix inverts, `ctrl+a` stacks another filter, `enter` keeps, `esc` cancels) |
+| `x` | filter (hide non-matching) or highlight (keep all) |
+| `n` `N` | next / previous match |
+| `X` | context lines around matches: 0, 1, 3, 5 |
+| `l` / `e` `w` `a` | level picker / errors only, warn+error, all levels |
+| `?` `F1` | help for this screen (searchable with `/`) |
+| `esc` | exit fullscreen, clear the last filter, then back |
 
 Every key can be remapped with `ui.keymap` in the configuration.
 

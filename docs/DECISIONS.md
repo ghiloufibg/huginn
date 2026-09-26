@@ -139,3 +139,13 @@ Status: accepted.
 - **Pod identity**: each line starts with the pod's generated suffix (`m8q7v`) in a per-pod color; the text identifies the pod, the color only helps. `I` switches to the full name or nothing.
 - **Screens and async data**: session and catalog messages reach every screen of the stack, so the stream keeps filling under a zoom; screens close their sessions when left.
 Status: accepted.
+
+## D-026 Filters and help (M3)
+- **What a text filter searches**: message, logger, thread, trace id, stack trace and visible fields (`key=value`); the raw line for unstructured entries; never the hidden Kubernetes metadata. Matching is case-insensitive.
+- **Invert is the `!` prefix only** (`\!` for a literal `!`): `ctrl+i` is `tab` for terminals and `i` is text inside the prompt. **Context lines use `X`** (cycles 0, 1, 3, 5): `-`/`+` collide with the AZERTY number-row window shortcuts. **Filter ⇄ highlight** is `x` on the stream and `ctrl+x` inside the prompt (where `x` is text).
+- **`esc` on the logs screen** exits fullscreen, then clears the last filter, then goes back — the most local thing first.
+- **Performance**: each entry caches its lower-cased search text; substring filtering of 50 000 entries takes ~9 ms. Regexes get a literal prefilter from their syntax tree; a plain word alternation (`gateway|redis`) never runs the regex engine (~17 ms). A regex whose literal appears on every line still costs ~325 ms on 50 000 entries (Go's RE2 engine), so filter recomputation is debounced: 30 ms for plain filters, 300 ms after the last keystroke when a regex is involved. Filtering stays on the UI goroutine (the ring buffer is not safe to share); moving it to a background snapshot is the next step if real logs show hitches.
+- **Highlight style** is background + underline so matches remain visible without color (`NO_COLOR`).
+- **Mode-change confirmations** show for 2 s at the start of the status bar (before the state), so they are never cut on narrow terminals.
+- **One action table** (`internal/adapters/driving/tui/actions.go`) drives help, status-bar hints and the README tables; help is generated from the live keymap, so remapped keys are shown as remapped.
+Status: accepted.
