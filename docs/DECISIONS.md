@@ -72,3 +72,12 @@ Secrets live in `config.env` files per Kustomize overlay, encrypted with sops in
 Status: accepted; scope pending.
 
 D-010 is now mostly moot: level always comes from the JSON level field.
+
+## D-017 Prototype first: every site-specific shape is a pluggable, config-driven profile
+Huginn is built as a prototype to be tuned against the real environment later, so nothing specific to one JSON shape, manifest layout or cluster topology is hard-coded:
+- **Log format profiles** (`log_formats:`): a named profile maps JSON paths to canonical fields (timestamp, level, logger, thread, message, stack trace, trace id, app name, pid), lists level aliases and the fields to hide. A `LogDecoder` interface sits behind it, so a new format is either a config entry or one small Go type. The Spring Boot 3 console renderer is a separate `Renderer` (a line template), so parsing and display change independently. Default profile: logstash-logback-encoder names.
+- **Manifest layout profiles** (`manifests:`): glob patterns for the overlay directory per env (default `**/overlays/{env}`), the file(s) to read, and where namespace / workload names / labels come from. A `ManifestScanner` interface backs it; Kustomize is the first implementation, Helm or raw YAML can be added without touching callers.
+- **Topology** (`environments:`): each env declares its own `context` and `namespaces`; several envs can point to the same cluster/context (current setup: one cluster, one namespace per env) or to different ones, with no code change.
+- **Secrets**: sops is optional. `config.env` values are decrypted lazily and only when a config entry explicitly references a key (e.g. `namespace_from: sops:config.env#K8S_NAMESPACE`); otherwise sops is never invoked.
+Each profile ships with a documented example and table-driven tests, so adapting to the real codebase means editing YAML first and code only if a genuinely new shape appears.
+Status: accepted.
