@@ -115,19 +115,22 @@ type compactRenderer struct{}
 
 func (compactRenderer) Render(e domain.LogEntry, o ports.RenderOptions) []ports.Segment {
 	var out []ports.Segment
-	if o.Timestamps != ports.TimestampNone {
+	if o.Timestamps != ports.TimestampNone && !o.Hide.Has(ports.ColTime) {
 		out = append(out, ports.Segment{Text: e.Time.UTC().Format("15:04:05.000") + " ", Role: ports.RoleTimestamp})
 	}
 	if !e.Structured {
 		return append(out, ports.Segment{Text: e.Message, Role: ports.RoleMessage})
 	}
-	return append(out,
-		ports.Segment{Text: fmt.Sprintf("%5s ", e.Level), Role: ports.RoleLevel},
-		ports.Segment{Text: "[" + e.Thread + "] ", Role: ports.RoleThread},
-		ports.Segment{Text: e.Logger, Role: ports.RoleLogger},
-		ports.Segment{Text: " : ", Role: ports.RoleDim},
-		ports.Segment{Text: e.Message, Role: ports.RoleMessage},
-	)
+	if !o.Hide.Has(ports.ColLevel) {
+		out = append(out, ports.Segment{Text: fmt.Sprintf("%5s ", e.Level), Role: ports.RoleLevel})
+	}
+	if !o.Hide.Has(ports.ColThread) {
+		out = append(out, ports.Segment{Text: "[" + e.Thread + "] ", Role: ports.RoleThread})
+	}
+	if !o.Hide.Has(ports.ColLogger) {
+		out = append(out, ports.Segment{Text: e.Logger + " : ", Role: ports.RoleLogger})
+	}
+	return append(out, ports.Segment{Text: e.Message, Role: ports.RoleMessage})
 }
 
 const (

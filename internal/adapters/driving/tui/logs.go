@@ -72,6 +72,12 @@ type logsScreen struct {
 	fullscreen bool
 	height     int
 
+	// columns (columns.go)
+	hide          ports.Columns // columns hidden by the user
+	manualColumns bool          // the user chose columns: no automatic narrowing
+	focus         bool
+	beforeFocus   columnState
+
 	// filters (logfilter.go)
 	filter    domain.LogFilter
 	committed []domain.TextFilter // stacked filters before the one being edited
@@ -395,11 +401,15 @@ func (l *logsScreen) key(m *Model, k tea.KeyPressMsg) (bool, tea.Cmd) {
 		l.cursor = l.shown() - 1 - l.displayCursor()
 		m.flash(map[bool]string{true: "newest first", false: "oldest first"}[l.newestTop])
 	case keys.Is(key, ActTimestamps):
-		l.timestamps = (l.timestamps + 1) % (ports.TimestampNone + 1)
-		m.flash("timestamps " + [...]string{"local", "UTC", "relative", "hidden"}[l.timestamps])
+		l.cycleTime(m)
 	case keys.Is(key, ActPodID):
 		l.podID = (l.podID + 1) % (podIDNone + 1)
+		l.manualColumns = true
 		m.flash("pod id " + [...]string{"short", "full", "hidden"}[l.podID])
+	case keys.Is(key, ActColumns):
+		m.popup = newColumnsPicker(l)
+	case keys.Is(key, ActFocus):
+		l.toggleFocus(m)
 	case keys.Is(key, ActWrap):
 		l.wrap, l.pan = !l.wrap, 0
 		m.flash(onOff("wrap", l.wrap))
@@ -585,7 +595,7 @@ func (l *logsScreen) renderEntry(m *Model, e *domain.LogEntry, row viewRow, w in
 	if id := l.podLabel(e.Pod); id != "" {
 		b.WriteString(t.podStyle(l.podColor[e.Pod]).Render(id) + " ")
 	}
-	opts := ports.RenderOptions{Timestamps: l.timestamps, Now: m.opts.Now()}
+	opts := ports.RenderOptions{Timestamps: l.timestamps, Now: m.opts.Now(), Hide: l.effectiveHide(w)}
 	for _, s := range m.opts.Renderer.Render(*e, opts) {
 		style := l.segmentStyle(t, e, s.Role)
 		if row.context {
@@ -730,6 +740,9 @@ func (l *logsScreen) statusLeft(m *Model) string {
 		fmt.Sprintf("buffer %d%%", l.buf.Len()*100/max(l.buf.Cap(), 1)),
 		fmt.Sprintf("dropped %d", l.buf.Dropped()),
 	)
+	if cols := l.columnsLabel(m.width); cols != "" {
+		fields = append(fields, cols)
+	}
 	if l.wrap {
 		fields = append(fields, "wrap")
 	}

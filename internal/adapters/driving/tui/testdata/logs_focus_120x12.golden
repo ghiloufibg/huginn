@@ -1,0 +1,12 @@
+ huginn  REC  gke_acme_europe-west1_main / app…   services / payment-service / logs   demo · watching · synced 19:14:02 
+ pods  all 3    m8q7v Healthy 1 restart v2.14.3   x4k2p Healthy v2.14.3   p3w1n Healthy v2.14.4 new                     
+ 19:13:04.000 DEBUG HikariPool-1 - Pool stats (total=40, active=12, idle=28, waiting=0)                                 
+ 19:13:07.000  WARN gateway latency above threshold provider=adyen p95=842ms                                            
+ 19:13:12.000 ERROR Payment authorization failed orderId=ord_8f91a2 traceId=7fd28c90                                    
+    io.gimle.payment.PaymentGatewayException: upstream request timed out   [+3 lines, enter to open]                    
+ 19:13:17.000  INFO request completed GET /v1/payments/pay_802ae status=200 duration=14ms                               
+ 19:13:18.000  :: Spring Boot ::                (v3.4.1)                                                                
+ 19:13:22.000  INFO Started PaymentApplication in 7.412 seconds                                                         
+ 19:13:32.000 ERROR Card declined by issuer orderId=ord_72bf10 retryable=false                                          
+ 19:13:42.000  INFO health probe succeeded components=db,redis,gateway                                                  
+ focus layout on   LIVE   15m  ·  all pods  ·  levels all  ·  oldest first  ·  9/9 lines  ·  buffer 0%  ·  dropped 0  … 

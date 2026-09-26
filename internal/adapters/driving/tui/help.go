@@ -36,7 +36,7 @@ func helpActions(s screen) (string, []Action) {
 			ActFollow, ActPause, ActWindowNext, ActWindowPick, ActWindow1, ActWindow2, ActWindow3, ActWindow4, ActWindow5, ActWindow6, ActWindow7, ActWindowTail,
 			ActFilter, ActFilterMode, ActRegex, ActAddFilter, ActContext, ActNextMatch, ActPrevMatch, ActLevels, ActErrorsOnly, ActWarnAndError, ActAllLevels,
 			ActOpen, ActPodScope, ActPodSelector,
-			ActOrder, ActTimestamps, ActPodID, ActWrap, ActPanLeft, ActPanRight, ActPanLeftHalf, ActPanRightHalf, ActFullscreen,
+			ActOrder, ActTimestamps, ActPodID, ActColumns, ActFocus, ActWrap, ActPanLeft, ActPanRight, ActPanLeftHalf, ActPanRightHalf, ActFullscreen,
 		}
 	case *zoomScreen:
 		return "Zoom", []Action{ActUp, ActDown, ActPageUp, ActPageDown, ActTop, ActNextEntry, ActPrevEntry, ActJSONView, ActOpen}

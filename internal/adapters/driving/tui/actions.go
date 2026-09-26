@@ -64,6 +64,8 @@ var actions = map[Action]actionInfo{
 	ActWrap:         {"Display", "wrap lines", "wrap"},
 	ActTimestamps:   {"Display", "timestamps: local, UTC, relative, hidden", "time"},
 	ActPodID:        {"Display", "pod id: short, full, hidden", "pod id"},
+	ActColumns:      {"Display", "columns: time, pod, level, thread, class", "columns"},
+	ActFocus:        {"Display", "focus layout: hide pod, thread and class", "focus"},
 }
 
 // hintsFor builds status-bar hints from the live keymap.

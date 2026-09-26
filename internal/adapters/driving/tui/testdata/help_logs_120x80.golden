@@ -42,6 +42,8 @@
      o                newest or oldest first                                                                            
      c                timestamps: local, UTC, relative, hidden                                                          
      I                pod id: short, full, hidden                                                                       
+     C                columns: time, pod, level, thread, class                                                          
+     z                focus layout: hide pod, thread and class                                                          
      W                wrap lines                                                                                        
      left             pan left (wrap off)                                                                               
      right            pan right (wrap off)                                                                              
@@ -61,8 +63,6 @@
      !                invert (as first character; \! for a literal !)                                                   
      ctrl+a           stack another filter (AND)                                                                        
      enter / esc      keep / cancel the edit                                                                            
-                                                                                                                        
-                                                                                                                        
                                                                                                                         
                                                                                                                         
                                                                                                                         
