@@ -121,7 +121,7 @@ type WorkloadRef struct {
 // Containers is containers.yaml: which containers are sidecars.
 type Containers struct {
 	Version    int      `yaml:"version" doc:"Structure version of this file; must be 1." required:"true"`
-	Hide       []string `yaml:"hide" doc:"Container names, or substrings of their image, hidden from the logs screen (sidecars)."`
+	Hide       []string `yaml:"hide" doc:"Containers hidden from the logs screen (sidecars): a name hides that container and name-*; an image name (last path element without tag, e.g. proxyv2) hides containers running it."`
 	AlwaysShow []string `yaml:"always_show" doc:"Container names always shown, even if matched by hide."`
 	ShowInit   bool     `yaml:"show_init" doc:"Show init containers too."`
 }

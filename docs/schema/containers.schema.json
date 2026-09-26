@@ -10,7 +10,7 @@
       "type": "array"
     },
     "hide": {
-      "description": "Container names, or substrings of their image, hidden from the logs screen (sidecars).",
+      "description": "Containers hidden from the logs screen (sidecars): a name hides that container and name-*; an image name (last path element without tag, e.g. proxyv2) hides containers running it.",
       "items": {
         "type": "string"
       },
