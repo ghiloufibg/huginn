@@ -4,7 +4,7 @@
 
 Huginn is a keyboard-driven, **read-only** terminal UI for reading the logs of application pods on Kubernetes (GKE), from inside your IDE's terminal. It feels like k9s and kl, but does one thing: help a developer debug from logs.
 
-**Status: prototype, milestone M3.2 done.** Services screen (with a WHY column and a preview of the selected service) and logs screen (merged live logs of a repository's application containers in the Spring Boot layout, time windows, follow/pause, pod scope, zoom), level and live text filters with highlight, and help on every screen (`?` / `F1`). The real GKE connection arrives in M4. See [`docs/plan/M0.md`](docs/plan/M0.md) and the design mockups linked from [`docs/DECISIONS.md`](docs/DECISIONS.md).
+**Status: prototype, milestone M3.3 done.** Services screen (with a WHY column and a preview of the selected service) and logs screen (merged live logs of a repository's application containers in the Spring Boot layout, time windows, follow/pause, pod scope, zoom), level and live text filters with highlight, and help on every screen (`?` / `F1`). The real GKE connection arrives in M4. See [`docs/plan/M0.md`](docs/plan/M0.md) and the design mockups linked from [`docs/DECISIONS.md`](docs/DECISIONS.md).
 
 ## Try it
 
@@ -74,8 +74,11 @@ One row per repository; the **WHY** column says why a service is unhealthy (last
 | `space` | pause / resume (lines keep buffering) |
 | `t` / `T` / `1`…`7` / `0` | next window / window picker / 15m 30m 40m 45m 1h 1d 2d / tail (AZERTY: `&é"'(-è` / `à`) |
 | `tab` / `S` | cycle pod scope / pod selector |
-| `o` `c` `I` `W` | order, timestamps (local, UTC, relative, hidden), pod id (short, full, hidden), wrap |
-| `C` | columns picker: `t` time, `p` pod, `l` level, `h` thread, `c` class, `z` message only, `r` reset |
+| `c` | hide the next column (time, level, thread, class); after the last one, show them again |
+| `ctrl+t` | time format: local, UTC, relative (never hides the time) |
+| `R` | reset the display (columns, pod id, time format, pan, wrap); filters, window and pods are kept |
+| `o` `I` `W` | order, pod id (short, full, hidden), wrap |
+| `C` | columns picker: `t` time, `f` time format, `p` pod, `l` level, `h` thread, `c` class, `z` message only, `r` reset |
 | `z` | focus layout: hide pod, thread and class (again to restore) |
 | `←` `→` `H` `L` | pan when not wrapped |
 | `F` | fullscreen |

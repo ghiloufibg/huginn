@@ -163,3 +163,10 @@ Status: accepted.
 - **Events on demand**: a new driving port `ports.PodEvents` reads the worst pod's events once the cursor rests 300 ms on a service (a timer carrying a sequence number discards stale rests), cached 30 s per pod; only `Warning` events are listed. Errors show in the panel, never in place of the table. `Diagnostics` stays for the M5 diagnostics panel.
 - **Status groups**: when sorted by status, thin titles separate FAILING, DEGRADED/PENDING, ROLLING, HEALTHY and WITHOUT REPO — only when every row and title fits and the titles do not take the lines the preview would use. Priority for free space is: why, then preview, then group titles.
 Status: accepted.
+
+## D-029 Peeling columns with one key (M3.3)
+- **`c` hides one column per press** in a fixed order — time, level, thread, class — and the next press restores the layout from before the first press (not the defaults). Columns already hidden (width, `C`, config) are skipped so every press changes the line. The pod column is left to `I`: it tells replicas apart. `C`, `z`, `I` and `R` end a cycle; the next `c` starts from the current layout. Supersedes the `c` binding of D-027.
+- **The time format moved to `ctrl+t`** (local → UTC → relative → local) and to `f` in the columns picker. It never hides the time; on a hidden time it shows it again in the next format.
+- **`R` resets the display, never the data**: columns (configured ones, else automatic narrowing), pod id, time format, pan and wrap go back to their defaults; filters, levels, window, follow, pod scope and the selected line stay. `R` mirrors `r` inside the picker; `r` stays resync.
+- **WARN messages take the warning color while the level column is hidden** (ERROR messages are always red), so hiding the level loses no information.
+Status: accepted.
