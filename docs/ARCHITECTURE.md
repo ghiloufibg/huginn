@@ -73,15 +73,18 @@ These rules are enforced mechanically: `golangci-lint` `depguard` rules give edi
 cmd/huginn/                     main: calls bootstrap.Main
 internal/
   core/domain/                  Env, Repo, Workload, Pod, Container, Level, LogEntry,
-                                TimeWindow (+ presets, window selection), Secret, ServiceStatus
+                                TimeWindow (+ presets, window selection), Secret, ServiceStatus,
+                                status rules, ContainerFilter, LogBuffer
   core/ports/                   ClusterClient, LogSource, LogDecoder, LogRenderer,
                                 ManifestScanner, RepoResolver, SecretsProvider, Clock,
                                 driving ports, Registry[F]
   core/ports/portstest/         fakes + RunClusterContract / RunLogSourceContract
-  core/app/                     use cases: Catalog (ServiceCatalog), repo resolvers
+  core/app/                     use cases: Catalog (ServiceCatalog), LogSessions (LogSession), repo resolvers
   adapters/driven/demo/         synthetic cluster + log generator (--demo)
   adapters/driven/kubernetes/   client-go adapter (M4; placeholder until then)
   adapters/driven/clock/        system clock
+  adapters/driven/logformat/    LogDecoder: json-fields (format profiles), plain (Spring console, klog)
+  adapters/driven/springlayout/ LogRenderer: spring-compact, spring-full
   adapters/driving/cli/         cobra command tree -> cli.Options
   adapters/driving/tui/         Bubble Tea app: theme, keymap, screens
   bootstrap/                    composition root: config -> registries -> adapters -> tui

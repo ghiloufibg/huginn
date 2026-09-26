@@ -4,7 +4,7 @@
 
 Huginn is a keyboard-driven, **read-only** terminal UI for reading the logs of application pods on Kubernetes (GKE), from inside your IDE's terminal. It feels like k9s and kl, but does one thing: help a developer debug from logs.
 
-**Status: prototype, milestone M1 done.** The services screen is live (statuses from Kubernetes watches, filter, sort, environment switch); the logs screen arrives in M2. See [`docs/plan/M0.md`](docs/plan/M0.md) and the design mockups linked from [`docs/DECISIONS.md`](docs/DECISIONS.md).
+**Status: prototype, milestone M2 done.** Services screen and logs screen (merged live logs of a repository's application containers in the Spring Boot layout, time windows, follow/pause, pod scope, zoom). Level and text filters arrive in M3. See [`docs/plan/M0.md`](docs/plan/M0.md) and the design mockups linked from [`docs/DECISIONS.md`](docs/DECISIONS.md).
 
 ## Try it
 
@@ -57,6 +57,22 @@ Environment variables: `HUGINN_ENV`, `HUGINN_CONFIG`, `HUGINN_THEME`, `NO_COLOR`
 | `ctrl+e` | switch environment |
 | `esc` | back |
 | `q` `ctrl+c` | quit |
+
+## Keys (logs screen)
+
+| Key | Action |
+|---|---|
+| `j` `k` `pgup` `pgdn` `g` `G`, mouse wheel | move (`G` returns to the live tail) |
+| `>` `<` | next / previous ERROR |
+| `enter` | zoom on the entry (`J`/`K` next/previous, `p` raw JSON, `enter` metadata) |
+| `f` | follow on/off |
+| `space` | pause / resume (lines keep buffering) |
+| `t` / `T` / `1`…`7` / `0` | next window / window picker / 15m 30m 40m 45m 1h 1d 2d / tail (AZERTY: `&é"'(-è` / `à`) |
+| `tab` / `S` | cycle pod scope / pod selector |
+| `o` `c` `I` `W` | order, timestamps, pod id, wrap |
+| `←` `→` `H` `L` | pan when not wrapped |
+| `F` | fullscreen |
+| `esc` | back |
 
 Every key can be remapped with `ui.keymap` in the configuration.
 

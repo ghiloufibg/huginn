@@ -127,3 +127,15 @@ Status: accepted.
 - **Catalog**: one watch pair per namespace, reconnect backoff 1s/2s/5s/10s/30s, last known rows kept while a namespace is failing, snapshots coalesced to at most one per 100 ms and latest-wins. Snapshot cost is about 5 ms for 500 repos / 3 000 pods (benchmark in `internal/core/app`).
 - **Deferred**: `ctrl+p` service finder (M5), help overlay (M3), last-known-data cache at startup (M4).
 Status: accepted.
+
+## D-025 Logs screen rules (M2)
+- **Follow is on by default** (like kl and `kubectl logs -f` habits); `f` turns it off and reloads the window without following (`STOPPED`).
+- **History, then live**: each container's window is read without following, merged across pods by time, then the stream is re-opened from the last line's time. Lines at that boundary are skipped by text, so nothing is shown twice. Live lines wait **250 ms** in a reorder window; once shown, a line never moves.
+- **Decoding happens in the session** (one goroutine per container, so it scales with cores); the UI only renders. JSON decoding runs at ~43k lines/s per core for a Kubernetes-enriched logstash line, above the 10k lines/s target; flattening the hidden metadata is the main remaining cost and can be made lazy if needed.
+- **Bounded history**: each container's history is requested with a line limit equal to the buffer size (`LogRequest.Limit`, Kubernetes `tailLines` with the window), so a 2d window over a chatty pod stays bounded. When the limit cuts the window, the status bar says so ("older lines not loaded"), which is distinct from the **retention notice** ("logs available from HH:MM only"), emitted only when a container running since before the window returned nothing for more than 5 minutes and 10% of the window. The notice reports what was received; it cannot tell rotation from silence, and says "available from", not "deleted".
+- **Pause vs scroll**: `space` freezes the view (new lines keep buffering, `PAUSED +N`); scrolling up keeps the view live but stops auto-scroll (`LIVE +N below`); `G` returns to the tail.
+- **Compact layout** hides PID, `---` and the application name (identical on every line of a service); zoom shows the full Spring Boot layout. Stack traces are folded to their first line plus `+N lines` in the stream and shown in full in zoom.
+- **Own frames** in zoom are frames outside common framework packages (java, jakarta, org.springframework, org.apache, io.netty, reactor, …); the list is code today and will become configurable with the V1 stack folding work.
+- **Pod identity**: each line starts with the pod's generated suffix (`m8q7v`) in a per-pod color; the text identifies the pod, the color only helps. `I` switches to the full name or nothing.
+- **Screens and async data**: session and catalog messages reach every screen of the stack, so the stream keeps filling under a zoom; screens close their sessions when left.
+Status: accepted.
