@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"runtime/debug"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -88,3 +89,9 @@ func (s *servicesScreen) busy(*Model) bool {
 	e, ok := s.preview.cache[s.preview.target]
 	return ok && e.loading
 }
+
+// releaseMemory returns the memory freed after a history load to the
+// system. Loading a long window decodes many more lines than the view
+// keeps; without this, the process keeps its peak size for minutes. It
+// runs in the background: the forced collection must not delay a frame.
+func releaseMemory() { go debug.FreeOSMemory() }

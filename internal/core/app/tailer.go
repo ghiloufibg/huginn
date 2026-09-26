@@ -26,7 +26,7 @@ func (t *tailer) decode(l domain.RawLine) domain.LogEntry {
 	if t.dec == nil {
 		t.dec = t.s.Decoders.For(t.q.Repo, t.container)
 	}
-	return t.dec.Decode(l)
+	return safeDecode(t.dec, l)
 }
 
 func (t *tailer) send(ctx context.Context, m tailMsg) bool {
@@ -48,10 +48,16 @@ func (t *tailer) request() ports.LogRequest {
 }
 
 func (t *tailer) run(ctx context.Context) {
+	defer recovered(t.s.logger(), "log stream of "+t.pod.Name+"/"+t.container, func(err error) {
+		t.send(ctx, tailMsg{streamErr: err})
+	})
 	req := t.request()
 	hist, last, seen, err := t.history(ctx)
 	capped := req.Limit > 0 && len(hist) >= req.Limit
-	if !t.send(ctx, tailMsg{history: hist, historyDone: true, historyErr: err, capped: capped}) || !t.q.Follow {
+	if t.dec == nil {
+		t.dec = t.s.Decoders.For(t.q.Repo, t.container)
+	}
+	if !t.send(ctx, tailMsg{history: hist, decoder: t.dec, historyDone: true, historyErr: err, capped: capped}) || !t.q.Follow {
 		return
 	}
 	for attempt := 0; ctx.Err() == nil; attempt++ {
@@ -83,19 +89,20 @@ func (t *tailer) run(ctx context.Context) {
 	}
 }
 
-// history reads the window without following. It returns the entries, the
-// source time of the last line and the texts of the lines at that time,
-// which a stream resumed from that time delivers again.
-func (t *tailer) history(ctx context.Context) ([]domain.LogEntry, time.Time, map[string]bool, error) {
+// history reads the window without following. It returns the raw lines
+// (decoded later by the session, which keeps only the newest lines of all
+// containers), the source time of the last line and the texts of the lines
+// at that time, which a stream resumed from that time delivers again.
+func (t *tailer) history(ctx context.Context) ([]domain.RawLine, time.Time, map[string]bool, error) {
 	seen := map[string]bool{}
 	st, err := t.s.Logs.Stream(ctx, t.request())
 	if err != nil {
 		return nil, time.Time{}, seen, err
 	}
-	var out []domain.LogEntry
+	var out []domain.RawLine
 	var last time.Time
 	for l := range st.Lines() {
-		out = append(out, t.decode(l))
+		out = append(out, l)
 		if l.Time.After(last) {
 			last = l.Time
 			clear(seen)

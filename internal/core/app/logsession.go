@@ -125,7 +125,8 @@ func (s *LogSessions) logger() *slog.Logger {
 // tailMsg is what a tailer or pod watch reports to the session loop.
 type tailMsg struct {
 	pod, container string
-	history        []domain.LogEntry // with historyDone
+	history        []domain.RawLine // with historyDone, undecoded
+	decoder        ports.LogDecoder // decodes history
 	historyDone    bool
 	historyErr     error
 	capped         bool // the history reached the line limit
@@ -152,7 +153,7 @@ type session struct {
 	out       chan ports.LogBatch
 
 	awaiting    int // initial containers whose history is pending
-	history     []domain.LogEntry
+	history     []rawHistory
 	historySent bool
 	reorder     []domain.LogEntry
 	committed   time.Time
@@ -162,6 +163,12 @@ type session struct {
 
 func (r *session) loop(ctx context.Context, initial []domain.Pod) {
 	defer close(r.out)
+	defer recovered(r.s.logger(), "log session of "+r.q.Repo, func(err error) {
+		select { // best effort: the view shows why the stream stopped
+		case r.out <- ports.LogBatch{Notices: []ports.LogNotice{{Text: err.Error()}}}:
+		default:
+		}
+	})
 	for _, p := range initial {
 		r.addPod(ctx, p, false)
 	}
@@ -247,6 +254,7 @@ func (r *session) watchPods(ctx context.Context) {
 			continue
 		}
 		go func() {
+			defer recovered(r.s.logger(), "pod watch of "+w.Ref.Name, nil)
 			for ev := range ch {
 				select {
 				case r.msgs <- tailMsg{podEvent: &ev}:
@@ -301,10 +309,10 @@ func (r *session) handleHistory(m tailMsg) {
 	if r.historySent {
 		// History of a pod that appeared later: it is recent, treat it as
 		// live so the reorder window places it.
-		r.reorder = append(r.reorder, m.history...)
+		r.reorder = append(r.reorder, decodeAll(m.decoder, m.history)...)
 		return
 	}
-	r.history = append(r.history, m.history...)
+	r.history = append(r.history, rawHistory{lines: m.history, dec: m.decoder})
 	if n := r.retentionNotice(m); n != "" {
 		r.pending.Notices = append(r.pending.Notices, ports.LogNotice{Pod: m.pod, Text: n})
 	}
@@ -331,6 +339,9 @@ func (r *session) retentionNotice(m tailMsg) string {
 		return ""
 	}
 	first := m.history[0].Time
+	if first.IsZero() {
+		return ""
+	}
 	if gap := first.Sub(start); gap <= 5*time.Minute || gap <= r.q.Window.Since/10 {
 		return ""
 	}
@@ -338,10 +349,20 @@ func (r *session) retentionNotice(m tailMsg) string {
 }
 
 func (r *session) finishHistory() {
-	slices.SortStableFunc(r.history, compareEntries)
-	r.pending.Entries = append(r.pending.Entries, r.history...)
-	if n := len(r.history); n > 0 {
-		r.committed = r.history[n-1].Time
+	limit := r.s.MaxHistory
+	if limit <= 0 {
+		limit = 50000
+	}
+	entries, dropped := decodeHistory(r.history, limit)
+	if dropped > 0 {
+		r.pending.Notices = append(r.pending.Notices, ports.LogNotice{
+			Text: fmt.Sprintf("older lines of the window not loaded: %d lines kept (buffer size), %d older skipped", len(entries), dropped),
+		})
+	}
+	slices.SortStableFunc(entries, compareEntries)
+	r.pending.Entries = append(r.pending.Entries, entries...)
+	if n := len(entries); n > 0 {
+		r.committed = entries[n-1].Time
 	}
 	r.history, r.historySent = nil, true
 	r.pending.HistoryDone = true

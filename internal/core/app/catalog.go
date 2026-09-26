@@ -68,6 +68,7 @@ func (c *Catalog) Watch(ctx context.Context, env domain.Env) (<-chan ports.Catal
 
 // feed keeps one namespace watched, reconnecting with backoff.
 func (c *Catalog) feed(ctx context.Context, ns string, scope ports.Scope, msgs chan<- feedMsg) {
+	defer recovered(c.logger(), "watch of namespace "+ns, nil)
 	send := func(m feedMsg) bool {
 		select {
 		case msgs <- m:
@@ -202,6 +203,12 @@ func (s *state) dropNamespace(ns string) {
 
 func (c *Catalog) loop(ctx context.Context, env domain.Env, namespaces []string, msgs <-chan feedMsg, out chan ports.CatalogSnapshot) {
 	defer close(out)
+	defer recovered(c.logger(), "services of "+env.String(), func(err error) {
+		select {
+		case out <- ports.CatalogSnapshot{Env: env, Err: err}:
+		default:
+		}
+	})
 	st := &state{workloads: map[string]domain.Workload{}, pods: map[string]domain.Pod{}, nsErr: map[string]error{}, connected: map[string]bool{}}
 	coalesce := c.Coalesce
 	if coalesce <= 0 {

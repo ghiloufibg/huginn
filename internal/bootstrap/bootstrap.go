@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/pprof"
 	"syscall"
 
 	"github.com/ghiloufibg/huginn/examples"
@@ -206,11 +207,35 @@ func run(ctx context.Context, o cli.Options) error {
 		return err
 	}
 	log.Info("starting", "version", buildinfo.String(), "env", app.Env, "cluster", app.UI.Source)
+	stopProfile, err := startCPUProfile(os.Getenv(EnvCPUProfile))
+	if err != nil {
+		return err
+	}
+	defer stopProfile()
 	err = tui.Run(ctx, app.UI)
 	if errors.Is(err, context.Canceled) {
 		return nil
 	}
 	return err
+}
+
+// EnvCPUProfile names a file receiving a CPU profile of the whole session
+// (go tool pprof), to diagnose performance on a user's machine.
+const EnvCPUProfile = "HUGINN_CPUPROFILE"
+
+func startCPUProfile(path string) (func(), error) {
+	if path == "" {
+		return func() {}, nil
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", EnvCPUProfile, err)
+	}
+	if err := pprof.StartCPUProfile(f); err != nil {
+		_ = f.Close()
+		return nil, fmt.Errorf("%s: %w", EnvCPUProfile, err)
+	}
+	return func() { pprof.StopCPUProfile(); _ = f.Close() }, nil
 }
 
 func cacheDir() string {

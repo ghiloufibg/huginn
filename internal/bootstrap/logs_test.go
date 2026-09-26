@@ -1,6 +1,8 @@
 package bootstrap
 
 import (
+	"context"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -77,7 +79,7 @@ func TestDemoLogsAreOrderedAppOnlyAndDecoded(t *testing.T) {
 		if i > 0 && e.Time.Before(r.entries[i-1].Time) {
 			t.Fatalf("entry %d out of order", i)
 		}
-		if !e.Structured || e.Logger == "" || e.Hidden["kubernetes.namespace_name"] != "app-rec" {
+		if !e.Structured || e.Logger == "" || e.HiddenFields()["kubernetes.namespace_name"] != "app-rec" {
 			t.Fatalf("not decoded with the logstash profile: %+v", e)
 		}
 		pods[e.Pod] = true
@@ -116,5 +118,35 @@ func TestDemoRetentionNotice(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("2d in demo must report retention: %v", r.notices)
+	}
+}
+
+// TestClosedSessionsLeaveNoGoroutines opens and closes demo log sessions:
+// a long-running TUI opens many.
+func TestClosedSessionsLeaveNoGoroutines(t *testing.T) {
+	base := runtime.NumGoroutine()
+	for range 5 {
+		ctx, cancel := context.WithCancel(t.Context())
+		c := demoConfig(t)
+		clock := portstest.NewFakeClock(t0)
+		cluster := demo.New(demo.Options{Seed: 42, Rate: 1, Clock: clock})
+		lp, _ := logParts(c)
+		s := newLogSessions(c, cluster, clock, containerFilter(c), lp.decoders, diag.Discard())
+		ch, err := s.Open(ctx, ports.LogQuery{Env: "rec", Repo: "payment-service", Window: domain.TimeWindow{Tail: 10}, Follow: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		<-ch
+		cancel()
+		for range ch { //nolint:revive // drain until the session closes its channel
+		}
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for runtime.NumGoroutine() > base+2 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if n := runtime.NumGoroutine(); n > base+2 {
+		buf := make([]byte, 1<<16)
+		t.Fatalf("%d goroutines left (was %d):\n%s", n, base, buf[:runtime.Stack(buf, true)])
 	}
 }

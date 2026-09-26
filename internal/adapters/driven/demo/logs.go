@@ -141,8 +141,8 @@ func (c *Cluster) history(g generator, pc podContext, ctr domain.Container, inst
 		from = latest(lower, now.Add(-w.Since))
 	}
 	if limit > 0 {
-		// Only generate what the limit keeps (twice the expected span).
-		from = latest(from, to.Add(-time.Duration(float64(limit)*2/c.opts.Rate*float64(time.Second))))
+		// Only generate what the limit keeps (a quarter more than the expected span).
+		from = latest(from, to.Add(-time.Duration(float64(limit)*1.25/c.opts.Rate*float64(time.Second))))
 	}
 	lines := c.lines(g, pc, ctr, inst, from, to, true)
 	if limit > 0 && len(lines) > limit {

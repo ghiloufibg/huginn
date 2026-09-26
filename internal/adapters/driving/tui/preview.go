@@ -147,6 +147,12 @@ func (p *preview) store(m *Model, msg eventsMsg) {
 	if p.cache == nil {
 		p.cache = map[podKey]eventsEntry{}
 	}
+	now := m.opts.Now()
+	for k, e := range p.cache { // a long session visits many pods: keep the fresh ones
+		if !e.loading && now.Sub(e.at) >= eventsTTL {
+			delete(p.cache, k)
+		}
+	}
 	p.cache[msg.key] = eventsEntry{at: m.opts.Now(), events: msg.events, err: msg.err}
 }
 

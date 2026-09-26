@@ -58,42 +58,66 @@ func (d *JSONDecoder) Decode(raw domain.RawLine) domain.LogEntry {
 	}
 	e.Logger, e.Thread, e.Message = str(d.p.Logger), str(d.p.Thread), str(d.p.Message)
 	e.Stack, e.TraceID, e.App, e.PID = str(d.p.Stack), str(d.p.TraceID), str(d.p.App), str(d.p.PID)
-	e.Fields, e.Hidden = d.rest(obj, used)
+	var hasHidden bool
+	e.Fields, hasHidden = d.rest(obj, used)
+	if hasHidden {
+		raw := text
+		e.LoadHidden = func() map[string]string { return d.hiddenOf(raw) }
+	}
 	return e
 }
 
-// rest flattens the fields not consumed by the profile and splits them into
-// visible fields and hidden metadata.
-func (d *JSONDecoder) rest(obj map[string]any, used map[string]bool) (fields, hidden map[string]string) {
-	flat := map[string]string{}
-	flatten("", obj, flat)
-	for k, v := range flat {
-		if used[k] || consumedPrefix(k, used) {
-			continue
-		}
-		if d.hidden(k) {
-			if hidden == nil {
-				hidden = map[string]string{}
+// rest flattens the visible fields not consumed by the profile. Hidden
+// fields are skipped, whole hidden objects without being walked; it only
+// reports whether there were any, so they can be read again on demand.
+func (d *JSONDecoder) rest(obj map[string]any, used map[string]bool) (fields map[string]string, hasHidden bool) {
+	var walk func(prefix string, m map[string]any)
+	walk = func(prefix string, m map[string]any) {
+		for k, v := range m {
+			p := k
+			if prefix != "" {
+				p = prefix + "." + k
 			}
-			hidden[k] = v
-			continue
+			if used[p] {
+				continue
+			}
+			if d.hidden(p) {
+				hasHidden = true
+				continue
+			}
+			if child, ok := v.(map[string]any); ok {
+				if d.hidden(p + ".\x00") { // every key below is hidden
+					hasHidden = hasHidden || len(child) > 0
+					continue
+				}
+				walk(p, child)
+				continue
+			}
+			if fields == nil {
+				fields = map[string]string{}
+			}
+			fields[p] = stringify(v)
 		}
-		if fields == nil {
-			fields = map[string]string{}
-		}
-		fields[k] = v
 	}
-	return fields, hidden
+	walk("", obj)
+	return fields, hasHidden
 }
 
-// consumedPrefix reports whether k lives inside a consumed object path.
-func consumedPrefix(k string, used map[string]bool) bool {
-	for u := range used {
-		if strings.HasPrefix(k, u+".") {
-			return true
+// hiddenOf decodes the hidden fields of a line again, for the zoom view.
+func (d *JSONDecoder) hiddenOf(raw string) map[string]string {
+	var obj map[string]any
+	if err := json.Unmarshal([]byte(raw), &obj); err != nil {
+		return nil
+	}
+	flat := map[string]string{}
+	flatten("", obj, flat)
+	out := map[string]string{}
+	for k, v := range flat {
+		if d.hidden(k) {
+			out[k] = v
 		}
 	}
-	return false
+	return out
 }
 
 func (d *JSONDecoder) hidden(k string) bool {

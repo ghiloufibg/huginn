@@ -144,14 +144,14 @@ func (z *zoomScreen) structured(m *Model, e *domain.LogEntry) []string {
 	out = append(out, sec("CONTEXT", "   same pod, 3 entries before and after"))
 	out = append(out, z.context(m, e)...)
 	out = append(out, "")
-	if len(e.Hidden) > 0 {
+	if hidden := e.HiddenFields(); len(hidden) > 0 {
 		if z.metadata {
-			out = append(out, sec("KUBERNETES METADATA", fmt.Sprintf("   %d fields · enter to collapse", len(e.Hidden))))
-			for _, k := range sortedKeys(e.Hidden) {
-				out = append(out, "   "+t.Dim.Render(fmt.Sprintf("%-32s", k))+e.Hidden[k])
+			out = append(out, sec("KUBERNETES METADATA", fmt.Sprintf("   %d fields · enter to collapse", len(hidden))))
+			for _, k := range sortedKeys(hidden) {
+				out = append(out, "   "+t.Dim.Render(fmt.Sprintf("%-32s", k))+hidden[k])
 			}
 		} else {
-			out = append(out, t.Dim.Render(fmt.Sprintf(" [+] kubernetes metadata   %d fields · enter to expand", len(e.Hidden))))
+			out = append(out, t.Dim.Render(fmt.Sprintf(" [+] kubernetes metadata   %d fields · enter to expand", len(hidden))))
 		}
 	}
 	return out

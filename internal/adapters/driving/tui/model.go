@@ -196,10 +196,15 @@ func (m *Model) push(s screen) tea.Cmd {
 
 // pop closes the top screen.
 func (m *Model) pop() {
-	if c, ok := m.top().(closer); ok {
+	c, ok := m.top().(closer)
+	if ok {
 		c.close()
 	}
+	m.stack[len(m.stack)-1] = nil // let the screen and its buffer be collected
 	m.stack = m.stack[:len(m.stack)-1]
+	if ok {
+		releaseMemory() // a logs screen held up to buffer_lines entries
+	}
 }
 
 // reset closes every screen but the services screen.

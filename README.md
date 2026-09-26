@@ -42,7 +42,7 @@ Flags
 
 Exit codes: `0` success, `1` runtime error, `2` config folder missing or invalid (every problem is printed with its `file:line:column`).
 
-Environment variables: `HUGINN_ENV`, `HUGINN_CONFIG`, `HUGINN_THEME`, `NO_COLOR` (forces the `none` theme), `HUGINN_DEBUG=1` (diagnostic log in the user cache directory, never on screen).
+Environment variables: `HUGINN_ENV`, `HUGINN_CONFIG`, `HUGINN_THEME`, `NO_COLOR` (forces the `none` theme), `HUGINN_DEBUG=1` (diagnostic log in the user cache directory, never on screen), `HUGINN_CPUPROFILE=<file>` (CPU profile of the session for `go tool pprof`).
 
 ## Services screen
 

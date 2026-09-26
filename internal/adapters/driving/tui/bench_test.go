@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/ghiloufibg/huginn/internal/core/domain"
 	"github.com/ghiloufibg/huginn/internal/core/ports"
@@ -93,5 +94,26 @@ func BenchmarkLogsIngestWithContext(b *testing.B) {
 	for b.Loop() {
 		l.apply(batch, t0)
 		_ = m.View()
+	}
+}
+
+// TestFarJumpStaysFast guards against the viewport scanning the whole
+// buffer: a jump of 40 000 entries used to hang the UI.
+func TestFarJumpStaysFast(t *testing.T) {
+	m, l := openLogs(t)
+	var batch ports.LogBatch
+	for i := range 50000 {
+		batch.Entries = append(batch.Entries, logEntry(i, podA, domain.LevelInfo, "a.B", "line"))
+	}
+	feed(m, l, batch)
+	render(m, 200, 60)
+	start := time.Now()
+	l.tail, l.offset, l.cursor = false, 0, 40000
+	render(m, 200, 60)
+	if d := time.Since(start); d > 2*time.Second {
+		t.Fatalf("a far jump took %v", d)
+	}
+	if l.offset < 40000-60 {
+		t.Fatalf("the cursor is not visible: offset %d", l.offset)
 	}
 }

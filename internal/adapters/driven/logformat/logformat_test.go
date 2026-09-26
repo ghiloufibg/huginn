@@ -48,8 +48,12 @@ func TestLogstashLine(t *testing.T) {
 	if e.Fields["spanId"] != "0011" || e.Fields["extra.orderId"] != "ord_1" || len(e.Fields) != 2 {
 		t.Errorf("fields %v", e.Fields)
 	}
-	if e.Hidden["kubernetes.namespace_name"] != "app-rec" || e.Hidden["kubernetes.labels.app"] != "payment" || e.Hidden["@version"] != "1" || e.Hidden["level_value"] != "40000" {
-		t.Errorf("hidden %v", e.Hidden)
+	if e.Hidden != nil {
+		t.Error("hidden fields are computed on demand, not kept per line")
+	}
+	h := e.HiddenFields()
+	if h["kubernetes.namespace_name"] != "app-rec" || h["kubernetes.labels.app"] != "payment" || h["@version"] != "1" || h["level_value"] != "40000" || len(h) != 5 {
+		t.Errorf("hidden %v", h)
 	}
 }
 

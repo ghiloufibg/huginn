@@ -238,6 +238,7 @@ func (l *logsScreen) apply(b ports.LogBatch, now time.Time) {
 	}
 	if b.HistoryDone {
 		l.loading, l.live = false, true
+		releaseMemory()
 	}
 	l.evict()
 }
@@ -656,6 +657,9 @@ func (l *logsScreen) lines(m *Model, w, h int) string {
 	return strings.Join(out, "\n")
 }
 
+// maxWrapRows caps the rows one entry takes in wrap mode.
+const maxWrapRows = 12
+
 // frameState is what every line of a frame shares.
 type frameState struct {
 	opts      ports.RenderOptions
@@ -704,7 +708,14 @@ func (l *logsScreen) renderRows(m *Model, e *domain.LogEntry, row viewRow, w int
 		rows = append(rows, m.dim().paint(" --"))
 	}
 	if l.wrap {
-		rows = append(rows, strings.Split(ansi.Hardwrap(line, w, true), "\n")...)
+		wrapped := strings.Split(ansi.Hardwrap(line, w, true), "\n")
+		if len(wrapped) > maxWrapRows {
+			// A huge line (a serialized payload) must not fill the view:
+			// zoom shows it all.
+			more := len(wrapped) - maxWrapRows + 1
+			wrapped = append(wrapped[:maxWrapRows-1], m.dim().paint(fmt.Sprintf("    … %d more rows, enter to open", more)))
+		}
+		rows = append(rows, wrapped...)
 	} else {
 		if l.pan > 0 {
 			line = ansi.TruncateLeft(line, l.pan, "…")

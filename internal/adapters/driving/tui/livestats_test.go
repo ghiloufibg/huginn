@@ -111,3 +111,14 @@ func TestLogsErrorCanBeRetried(t *testing.T) {
 		t.Fatalf("r must reopen the logs: %d queries, err %v", len(sessions.queries)-before, l.err)
 	}
 }
+
+func TestHugeLinesTakeBoundedRowsWhenWrapped(t *testing.T) {
+	m, l := openLogs(t)
+	e := logEntry(70, podA, domain.LevelInfo, "a.B", strings.Repeat("payload ", 5000))
+	feed(m, l, ports.LogBatch{Entries: []domain.LogEntry{e}})
+	press(m, "W")
+	rows := l.renderEntry(m, l.buf.At(l.buf.Len()-1), viewRow{}, 80)
+	if len(rows) != maxWrapRows || !strings.Contains(rows[len(rows)-1], "more rows, enter to open") {
+		t.Fatalf("%d rows, last %q", len(rows), rows[len(rows)-1])
+	}
+}

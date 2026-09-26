@@ -35,9 +35,13 @@ type LogEntry struct {
 	PID     string
 	// Fields holds other structured fields worth showing in zoom mode.
 	Fields map[string]string
-	// Hidden holds fields the format profile hides by default (for example
-	// Kubernetes enrichment metadata).
-	Hidden map[string]string
+	// Hidden holds fields the format hides from the stream (for example
+	// Kubernetes enrichment metadata). Decoders may leave it nil and set
+	// LoadHidden instead: most entries are never zoomed, and keeping this
+	// metadata for every buffered line was most of the memory. Read it
+	// with HiddenFields.
+	Hidden     map[string]string
+	LoadHidden func() map[string]string
 	// Raw is the original line, kept for the raw view and exports.
 	Raw string
 	// Structured is true when Raw was parsed as a structured record.
@@ -79,4 +83,13 @@ func (e *LogEntry) searchText() string {
 		e.search = "\n"
 	}
 	return e.search
+}
+
+// HiddenFields returns the hidden fields, computing them if the decoder
+// deferred them.
+func (e *LogEntry) HiddenFields() map[string]string {
+	if e.Hidden == nil && e.LoadHidden != nil {
+		return e.LoadHidden()
+	}
+	return e.Hidden
 }

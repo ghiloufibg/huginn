@@ -200,3 +200,29 @@ Status: accepted.
   - empty views say why (window, filters, pod scope) and name the keys that help;
   - a logs error offers `r` to reload the logs (on that screen `r` otherwise keeps resyncing the watches).
 Status: accepted.
+
+## D-032 Resource budget and robustness (production readiness)
+Measured on the real binary in a 200×50 terminal, demo streaming 400 lines/s over 4 containers, 15 min window, 50 000-line buffer:
+
+| | Before | After |
+|---|---|---|
+| History load CPU / time (headless) | 167% for ~8 s / 4.4 s | 35–45% briefly / 1.0 s |
+| RSS while streaming | 1.37 GB | 280 MB |
+| Steady streaming CPU | 14% | 13% (≈ 8% terminal diffing, most of the rest the demo's own line generator) |
+| Idle CPU (services screen) | 1.0% | 0.4–0.6% |
+| Default demo rate, logs open | 60 MB, 3% | 50 MB, 2.5% |
+
+- **History is cut before decoding**: every container may return up to `buffer_lines` lines, so a repository with n containers decoded n times what the view keeps. Tailers now return raw lines. The session keeps the newest `buffer_lines` of all containers by source time and decodes only those, in parallel (chunks of 4 096 lines, one goroutine per CPU). A notice says how many older lines were skipped. Without source timestamps nothing is cut.
+- **Hidden metadata on demand**: the JSON decoder no longer flattens hidden fields (the Kubernetes enrichment) for every line. Whole hidden objects are skipped, and `LogEntry.LoadHidden` re-reads them from the raw line when zoom shows them. Decoding is 33% faster (18.8 → 12.7 µs, 6.5 → 4.1 KB allocated per line). The live heap for 50 000 entries is about 87 MB.
+- **Memory is returned**: after a history load and when a logs screen closes, freed memory is given back to the system (`debug.FreeOSMemory` in the background). Otherwise the process kept its peak size.
+- **Frame rate 30 fps** (Bubble Tea's default is 60): it matches the sessions' 33 ms batches and halves idle redraw work.
+- **Bounded growth**: the preview's events cache drops expired pods. A wrapped entry takes at most 12 rows ("… n more rows, enter to open"). Popped screens are released.
+- **No crash leaves the terminal broken**: the use-case goroutines (catalog, log session, tailers, pod watches) recover panics, log them with their stack to the diagnostic log and report an error through their normal channel. A decoder panicking on an unexpected line yields the raw line. Bubble Tea already recovers panics in `Update` and `View`.
+- **Guards**:
+  - fuzz tests for decoders, templates and the config loader (no crash in 75 s of fuzzing);
+  - a test that closed sessions leave no goroutines;
+  - a test that a 40 000-line jump stays fast;
+  - benchmarks for frames and ingestion.
+- **Diagnosis in the field**: `HUGINN_CPUPROFILE=<file>` writes a CPU profile of the session (`go tool pprof`), next to the existing `HUGINN_DEBUG` log.
+- **Not done**: the terminal renderer's diffing cost belongs to Bubble Tea and is only limited by the frame rate. Replacing `encoding/json` with a streaming parser could halve decode time again; this is not needed at the target rates.
+Status: accepted.

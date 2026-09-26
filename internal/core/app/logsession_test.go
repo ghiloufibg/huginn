@@ -239,16 +239,17 @@ func TestSessionClosesOnCancel(t *testing.T) {
 	}
 }
 
-func TestHistoryIsCappedPerContainer(t *testing.T) {
+func TestHistoryIsCappedToTheNewestLinesOfAllContainers(t *testing.T) {
 	f := newFixture(t)
 	f.s.MaxHistory = 1
 	r, cancel := f.open(t, ports.LogQuery{})
 	defer cancel()
 	r.until(10*time.Millisecond, func() bool { return r.history })
-	if got := strings.Join(r.entries, ","); got != "a3,b4" {
-		t.Fatalf("capped history %s", got)
+	if got := strings.Join(r.entries, ","); got != "b4" {
+		t.Fatalf("the buffer holds 1 line: the newest of all containers, got %s", got)
 	}
-	if len(r.notices) != 2 || !strings.Contains(r.notices[0], "not loaded (limit 1 lines per container)") {
+	if len(r.notices) != 3 || !strings.Contains(r.notices[0], "not loaded (limit 1 lines per container)") ||
+		!strings.Contains(r.notices[2], "1 lines kept (buffer size), 1 older skipped") {
 		t.Fatalf("a capped history must say so, not report retention: %v", r.notices)
 	}
 }

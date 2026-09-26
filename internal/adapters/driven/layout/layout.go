@@ -204,7 +204,7 @@ func value(e domain.LogEntry, p part, o ports.RenderOptions, timeFormat string) 
 		if v, ok := e.Fields[p.path]; ok {
 			return v
 		}
-		return e.Hidden[p.path]
+		return e.HiddenFields()[p.path] // decoded again: prefer visible fields in columns
 	}
 	return ""
 }
