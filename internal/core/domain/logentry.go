@@ -1,6 +1,9 @@
 package domain
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // RawLine is one line as delivered by a log source, before decoding.
 type RawLine struct {
@@ -39,4 +42,38 @@ type LogEntry struct {
 	Raw string
 	// Structured is true when Raw was parsed as a structured record.
 	Structured bool
+
+	search string // cached lower-cased searchable text, see searchText
+}
+
+// searchText is what text filters search, lower-cased, joined with
+// newlines so a match cannot span two fields: message, logger, thread, trace id, stack trace
+// and visible fields ("key=value"), or the raw line of unstructured
+// entries. Hidden metadata is excluded. It is computed once per entry.
+func (e *LogEntry) searchText() string {
+	if e.search != "" {
+		return e.search
+	}
+	var b strings.Builder
+	if !e.Structured {
+		b.WriteString(e.Raw)
+		if e.Message != e.Raw {
+			b.WriteString("\n" + e.Message)
+		}
+	} else {
+		for _, s := range [...]string{e.Message, e.Logger, e.Thread, e.TraceID, e.Stack} {
+			if s != "" {
+				b.WriteString(s)
+				b.WriteByte('\n')
+			}
+		}
+		for k, v := range e.Fields {
+			b.WriteString(k + "=" + v + "\n")
+		}
+	}
+	e.search = strings.ToLower(b.String())
+	if e.search == "" {
+		e.search = "\n"
+	}
+	return e.search
 }
