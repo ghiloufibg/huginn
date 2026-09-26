@@ -10,20 +10,7 @@ import (
 )
 
 // shortAge formats a duration like kubectl: 45s, 12m, 3h, 12d.
-func shortAge(d time.Duration) string {
-	switch {
-	case d < 0:
-		return "0s"
-	case d < time.Minute:
-		return fmt.Sprintf("%ds", int(d.Seconds()))
-	case d < time.Hour:
-		return fmt.Sprintf("%dm", int(d.Minutes()))
-	case d < 48*time.Hour:
-		return fmt.Sprintf("%dh", int(d.Hours()))
-	default:
-		return fmt.Sprintf("%dd", int(d.Hours()/24))
-	}
-}
+func shortAge(d time.Duration) string { return domain.FormatAge(d) }
 
 // since formats the age of t at now, or "-" for a zero time.
 func since(now, t time.Time) string {

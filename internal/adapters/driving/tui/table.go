@@ -12,6 +12,7 @@ type column struct {
 	title string
 	width int  // fixed width; for the flex column, the minimum width
 	flex  bool // takes the remaining width, up to its content width
+	fill  bool // takes whatever width is left after the flex columns
 	right bool // right-aligned
 	// drop orders the columns removed when the terminal is too narrow:
 	// 1 goes first; 0 never.
@@ -66,6 +67,11 @@ func (t *table) layout(total, content int) []int {
 	for i, c := range t.cols {
 		if c.flex {
 			widths[i] += min(max(total-need(), 0), max(content-widths[i], 0))
+		}
+	}
+	for i, c := range t.cols {
+		if c.fill && widths[i] > 0 {
+			widths[i] += max(total-need(), 0)
 		}
 	}
 	return widths

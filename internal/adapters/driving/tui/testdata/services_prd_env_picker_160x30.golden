@@ -1,20 +1,20 @@
  huginn  PRD  gke_acme_europe-west1_main / app-prd   services                                                                 demo · watching · synced 19:14:02 
- REPO                   WORKLOADS   PODS  STATUS              RESTARTS  LAST RESTART  VERSION             AGE                                                   
- catalog-indexer                1    0/2  CrashLoopBackOff          23            4m  v1.3.7              21m                                                   
- order-orchestrator             2    2/3  OOMKilled                 12           38m  v2.7.4               1h                                                   
- document-renderer              1    0/1  ImagePullBackOff           0             -  v1.11.0             14m                                                   
- billing-gateway                2    1/3  Degraded                   7            9m  v3.9.2              47m                                                   
- email-dispatcher               1    1/2  ┌─────────────────────────────────────────────────────────────────────────┐                                           
- ledger-writer                  1    2/2  │ Switch environment                                                      │                                           
- notification-worker            1    2/3  │                                                                         │                                           
- audit-stream                   2    4/4  │  dev     gke_acme_europe-west1_main / app-dev                           │                                           
- fraud-detector                 1    3/3  │  rec     gke_acme_europe-west1_main / app-rec                           │                                           
- identity-provider              2    4/4  │  prprd   gke_acme_europe-west1_main / app-prprd                         │                                           
- payment-service                2    5/5  │  prd     gke_acme_europe-west1_main / app-prd   PRODUCTION   (current)  │                                           
- pricing-engine                 2    4/4  │                                                                         │                                           
- search-api                     2    3/3  │ enter switch  esc cancel                                                │                                           
- user-api                       3    6/6  └─────────────────────────────────────────────────────────────────────────┘                                           
- legacy-cron (no repo)          1    1/1  Healthy                    0             -  1.0                 16d                                                   
+ REPO                   WL   PODS  STATUS            RST  LAST  VERSION           AGE  WHY                                                                      
+ catalog-indexer         1    0/2  CrashLoopBackOff   23    4m  v1.3.7            21m  app: exit 1 (Error) 4m ago · 23 restarts · back-off 5m0s restarting fail…
+ order-orchestrator      2    2/3  OOMKilled          12   38m  v2.7.4             1h  app: OOMKilled exit 137, 38m ago · limit 1Gi · 12 restarts               
+ document-renderer       1    0/1  ImagePullBackOff    0     -  v1.11.0           14m  cannot pull app:v1.11.0 — Back-off pulling image "eu.gcr.io/acme/documen…
+ billing-gateway         2    1/3  Degraded            7    9m  v3.9.2            47m  1 of 3 replicas available                                                
+ email-dispatcher        1    1/2  Pending┌─────────────────────────────────────────────────────────────────────────┐vailable: 6 Insufficient memory            
+ ledger-writer           1    2/2  Progres│ Switch environment                                                      │                                           
+ notification-worker     1    2/3  Progres│                                                                         │ated                                       
+ audit-stream            2    4/4  Healthy│  dev     gke_acme_europe-west1_main / app-dev                           │                                           
+ fraud-detector          1    3/3  Healthy│  rec     gke_acme_europe-west1_main / app-rec                           │                                           
+ identity-provider       2    4/4  Healthy│  prprd   gke_acme_europe-west1_main / app-prprd                         │                                           
+ payment-service         2    5/5  Healthy│  prd     gke_acme_europe-west1_main / app-prd   PRODUCTION   (current)  │                                           
+ pricing-engine          2    4/4  Healthy│                                                                         │                                           
+ search-api              2    3/3  Healthy│ enter switch  esc cancel                                                │                                           
+ user-api                3    6/6  Healthy└─────────────────────────────────────────────────────────────────────────┘                                           
+ legacy-cron (no repo)   1    1/1  Healthy             0     -  1.0               16d                                                                           
                                                                                                                                                                 
                                                                                                                                                                 
                                                                                                                                                                 

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/ghiloufibg/huginn/internal/core/domain"
 )
@@ -29,13 +30,14 @@ func newServicesScreen(openRepo string) *servicesScreen {
 		openRepo: openRepo,
 		tbl: table{cols: []column{
 			{title: "REPO", width: 16, flex: true},
-			{title: "WORKLOADS", width: 9, right: true, drop: 3},
+			{title: "WL", width: 2, right: true, drop: 4},
 			{title: "PODS", width: 5, right: true},
-			{title: "STATUS", width: 18},
-			{title: "RESTARTS", width: 8, right: true},
-			{title: "LAST RESTART", width: 12, right: true, drop: 2},
-			{title: "VERSION", width: 16, drop: 4},
-			{title: "AGE", width: 5, right: true, drop: 1},
+			{title: "STATUS", width: 16},
+			{title: "RST", width: 3, right: true},
+			{title: "LAST", width: 4, right: true, drop: 3},
+			{title: "VERSION", width: 15, drop: 5},
+			{title: "AGE", width: 4, right: true, drop: 2},
+			{title: "WHY", width: 24, fill: true, drop: 1},
 		}},
 	}
 }
@@ -194,12 +196,12 @@ func (s *servicesScreen) view(m *Model, w, h int) string {
 	cells := make([][]cell, len(rows))
 	now := m.opts.Now()
 	for i, r := range rows {
-		cells[i] = s.cells(r, now, t)
+		cells[i] = s.cells(r, now, t, m.opts.Filter)
 	}
 	return s.tbl.render(cells, w, h, t)
 }
 
-func (s *servicesScreen) cells(r domain.ServiceSummary, now time.Time, t Theme) []cell {
+func (s *servicesScreen) cells(r domain.ServiceSummary, now time.Time, t Theme, filter domain.ContainerFilter) []cell {
 	name := cell{text: r.Repo, style: t.Bold}
 	if r.Unassigned {
 		name = cell{text: r.Repo + " (no repo)", style: t.Dim}
@@ -215,6 +217,10 @@ func (s *servicesScreen) cells(r domain.ServiceSummary, now time.Time, t Theme) 
 	case r.Restarts > 0:
 		restarts.style = t.Warn
 	}
+	why := cell{text: domain.Explain(r, filter, now), style: t.Dim}
+	if r.Status < domain.StatusProgressing {
+		why.style = lipgloss.NewStyle()
+	}
 	return []cell{
 		name,
 		{text: strconv.Itoa(r.Workloads)},
@@ -224,6 +230,7 @@ func (s *servicesScreen) cells(r domain.ServiceSummary, now time.Time, t Theme) 
 		{text: since(now, r.LastRestart)},
 		{text: r.Version},
 		{text: since(now, r.Created)},
+		why,
 	}
 }
 

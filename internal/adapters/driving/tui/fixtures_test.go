@@ -70,10 +70,42 @@ func mockupSnapshot(env string) ports.CatalogSnapshot {
 		if r.repo == "payment-service" {
 			sum.Pods = paymentPods()
 		}
+		sum.Pods = append(sum.Pods, troubledPods(r)...)
 		s.Services = append(s.Services, sum)
 	}
 	s.Services = append(s.Services, domain.ServiceSummary{Repo: "legacy-cron", Workloads: 1, ReadyPods: 1, DesiredPods: 1, Status: domain.StatusHealthy, Version: "1.0", Created: t0.Add(-400 * time.Hour), Unassigned: true})
 	return s
+}
+
+// troubledPods gives the unhealthy mockup services the container state
+// their WHY column explains.
+func troubledPods(r row) []domain.Pod {
+	app := domain.Container{Name: "app", Image: "eu.gcr.io/acme/" + r.repo + ":" + r.version}
+	pod := func(cs ...domain.Container) domain.Pod {
+		return domain.Pod{Name: r.repo + "-7d4b9c-abcde", OwnerName: r.repo, Phase: domain.PodRunning, Containers: cs}
+	}
+	switch r.status {
+	case domain.StatusCrashLoopBackOff:
+		app.State, app.Reason, app.Restarts = domain.ContainerWaiting, "CrashLoopBackOff", r.restarts
+		app.Message = "back-off 5m0s restarting failed container=app pod=x"
+		app.LastTermination = &domain.Termination{Reason: "Error", ExitCode: 1, At: t0.Add(-r.lastRestart)}
+		return []domain.Pod{pod(app)}
+	case domain.StatusOOMKilled:
+		app.State, app.Reason, app.Restarts = domain.ContainerWaiting, "CrashLoopBackOff", r.restarts
+		app.LastTermination = &domain.Termination{Reason: "OOMKilled", ExitCode: 137, At: t0.Add(-r.lastRestart)}
+		app.Resources.MemoryLimit = "1Gi"
+		return []domain.Pod{pod(app)}
+	case domain.StatusImagePullBackOff:
+		app.State, app.Reason = domain.ContainerWaiting, "ImagePullBackOff"
+		app.Message = `Back-off pulling image "` + app.Image + `": manifest unknown`
+		return []domain.Pod{pod(app)}
+	case domain.StatusPending:
+		p := pod(domain.Container{Name: "app", State: domain.ContainerWaiting, Reason: "ContainerCreating"})
+		p.Phase, p.Reason = domain.PodPending, "Unschedulable"
+		p.Message = "0/6 nodes are available: 6 Insufficient memory. preemption: not eligible"
+		return []domain.Pod{p}
+	}
+	return nil
 }
 
 func paymentPods() []domain.Pod {

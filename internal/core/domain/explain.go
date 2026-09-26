@@ -77,6 +77,9 @@ func Explain(s ServiceSummary, f ContainerFilter, now time.Time) string {
 				why = podWhy(p)
 			}
 		}
+		if n == 0 {
+			return ""
+		}
 		out := plural(n, "pod") + " pending"
 		if why != "" {
 			out += ": " + why
