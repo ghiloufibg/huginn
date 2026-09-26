@@ -78,7 +78,7 @@ internal/
                                 ManifestScanner, RepoResolver, SecretsProvider, Clock,
                                 driving ports, Registry[F]
   core/ports/portstest/         fakes + RunClusterContract / RunLogSourceContract
-  core/app/                     use cases (from M1)
+  core/app/                     use cases: Catalog (ServiceCatalog), repo resolvers
   adapters/driven/demo/         synthetic cluster + log generator (--demo)
   adapters/driven/kubernetes/   client-go adapter (M4; placeholder until then)
   adapters/driven/clock/        system clock

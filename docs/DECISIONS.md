@@ -117,3 +117,13 @@ Status: accepted.
 - **Demo retention** defaults to 6 hours, so asking for 1d/2d in demo mode reproduces the real "logs available from HH:MM only" situation.
 - **CI uses the latest Go 1.26 patch** while `go.mod` requires 1.26.0, so security fixes in the standard library are picked up without forcing users to upgrade.
 Status: accepted.
+
+## D-024 Services screen rules (M1)
+- **Status precedence**, worst first: CrashLoopBackOff, OOMKilled, ImagePullBackOff, Degraded, Pending, Progressing, Unknown, Healthy. A crash loop whose last termination was an OOM kill is shown as **OOMKilled** (it names the cause). Sidecar containers count for status (a crashing proxy breaks the pod) but not for restarts. During a rollout, not-ready or pending pods of the rolling workload are **Progressing**, never Degraded; a crash stays a crash. "Fewer ready than desired" becomes **Degraded** only when no pod state already explains it (so a pending pod shows **Pending**). A workload scaled to 0 shows "scaled to 0".
+- **Version** is the image tag of the primary workload's app container (the workload named like the repo), `old→new` while two versions run; digests show as `sha256:1234567`.
+- **Unassigned workloads** (no resolver claims them) are listed after repositories as `name (no repo)`, dimmed, so nothing running is invisible. Default label keys are `app.kubernetes.io/part-of`, then `app.kubernetes.io/name`, then `app`, so in practice most workloads resolve.
+- **Sort** cycles status (worst first) → name → restarts → age (newest first); ties by name. Unassigned rows always stay last.
+- **Narrow terminals**: columns drop AGE, then LAST RESTART, WORKLOADS, VERSION; STATUS never. The header shortens the context before the breadcrumb; the status bar drops key hints before state.
+- **Catalog**: one watch pair per namespace, reconnect backoff 1s/2s/5s/10s/30s, last known rows kept while a namespace is failing, snapshots coalesced to at most one per 100 ms and latest-wins. Snapshot cost is about 5 ms for 500 repos / 3 000 pods (benchmark in `internal/core/app`).
+- **Deferred**: `ctrl+p` service finder (M5), help overlay (M3), last-known-data cache at startup (M4).
+Status: accepted.

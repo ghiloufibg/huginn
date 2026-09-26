@@ -4,7 +4,7 @@
 
 Huginn is a keyboard-driven, **read-only** terminal UI for reading the logs of application pods on Kubernetes (GKE), from inside your IDE's terminal. It feels like k9s and kl, but does one thing: help a developer debug from logs.
 
-**Status: prototype, milestone M0 done.** The foundations (configuration, architecture, demo cluster, CI) are in place; screens arrive in the next milestones. See [`docs/plan/M0.md`](docs/plan/M0.md) and the design mockups linked from [`docs/DECISIONS.md`](docs/DECISIONS.md).
+**Status: prototype, milestone M1 done.** The services screen is live (statuses from Kubernetes watches, filter, sort, environment switch); the logs screen arrives in M2. See [`docs/plan/M0.md`](docs/plan/M0.md) and the design mockups linked from [`docs/DECISIONS.md`](docs/DECISIONS.md).
 
 ## Try it
 
@@ -13,6 +13,7 @@ Requires Go 1.26+.
 ```sh
 make build            # or: CGO_ENABLED=0 go build -o bin/huginn ./cmd/huginn
 ./bin/huginn --demo   # synthetic cluster, no credentials needed; q quits
+                      # a live rollout of payment-service plays ~90 s after start
 ./bin/huginn prd --demo
 ./bin/huginn --help
 ```
@@ -43,6 +44,21 @@ Commands
 ```
 
 Environment variables: `HUGINN_ENV`, `HUGINN_CONFIG`, `HUGINN_THEME`, `NO_COLOR` (forces the `none` theme), `HUGINN_DEBUG=1` (diagnostic log in the user cache directory, never on screen).
+
+## Keys (services screen)
+
+| Key | Action |
+|---|---|
+| `j` `k` `↑` `↓` `pgup` `pgdn` `g` `G`, mouse wheel | move |
+| `enter` | open the repository |
+| `/` or `ctrl+f` | filter by name (enter keeps, esc clears) |
+| `s` | sort: status, name, restarts, age |
+| `r` | resync the watches |
+| `ctrl+e` | switch environment |
+| `esc` | back |
+| `q` `ctrl+c` | quit |
+
+Every key can be remapped with `ui.keymap` in the configuration.
 
 ## Configuration
 
