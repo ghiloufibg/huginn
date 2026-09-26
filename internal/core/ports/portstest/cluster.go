@@ -18,6 +18,8 @@ type FakeCluster struct {
 	podSubs   []podSub
 	// Err, when set, is returned by every call.
 	Err error
+	// NamespaceErr makes calls whose scope includes a namespace fail.
+	NamespaceErr map[string]error
 }
 
 type podSub struct {
@@ -100,12 +102,31 @@ func inScope(s ports.Scope, env domain.Env, ns string) bool {
 	return false
 }
 
+// SetErr sets the error returned by every call (nil clears it).
+func (f *FakeCluster) SetErr(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.Err = err
+}
+
+func (f *FakeCluster) errFor(scope ports.Scope) error {
+	if f.Err != nil {
+		return f.Err
+	}
+	for _, ns := range scope.Namespaces {
+		if err := f.NamespaceErr[ns]; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // ListWorkloads returns the workloads in scope.
 func (f *FakeCluster) ListWorkloads(_ context.Context, scope ports.Scope) ([]domain.Workload, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.Err != nil {
-		return nil, f.Err
+	if err := f.errFor(scope); err != nil {
+		return nil, err
 	}
 	var out []domain.Workload
 	for _, w := range f.workloads {
@@ -134,8 +155,8 @@ func (f *FakeCluster) WatchWorkloads(ctx context.Context, scope ports.Scope) (<-
 func (f *FakeCluster) ListPods(_ context.Context, scope ports.Scope, sel ports.Selector) ([]domain.Pod, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.Err != nil {
-		return nil, f.Err
+	if err := f.errFor(scope); err != nil {
+		return nil, err
 	}
 	var out []domain.Pod
 	for _, p := range f.pods {

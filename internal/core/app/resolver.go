@@ -115,16 +115,18 @@ func sortPrimaryFirst(r *domain.Repo) {
 func split(ws []domain.Workload, name func(domain.Workload) string) ([]domain.Repo, []domain.Workload, error) {
 	var repos []domain.Repo
 	var rest []domain.Workload
+	index := map[string]int{}
 	for _, w := range ws {
 		n := name(w)
 		if n == "" {
 			rest = append(rest, w)
 			continue
 		}
-		i := slices.IndexFunc(repos, func(r domain.Repo) bool { return r.Name == n })
-		if i < 0 {
+		i, ok := index[n]
+		if !ok {
+			i = len(repos)
+			index[n] = i
 			repos = append(repos, domain.Repo{Name: n})
-			i = len(repos) - 1
 		}
 		repos[i].Workloads = append(repos[i].Workloads, w.Ref)
 	}
