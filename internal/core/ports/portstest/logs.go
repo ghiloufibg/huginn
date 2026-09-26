@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/ghiloufibg/huginn/internal/core/domain"
 	"github.com/ghiloufibg/huginn/internal/core/ports"
@@ -75,6 +76,9 @@ func (s *FakeLogSource) Stream(ctx context.Context, req ports.LogRequest) (ports
 		return nil, fmt.Errorf("logs of %s: %w", k, domain.ErrNotFound)
 	}
 	hist := domain.SelectWindow(src, req.Window, s.clock.Now())
+	if !req.SinceTime.IsZero() {
+		hist = sinceTime(src, req.SinceTime)
+	}
 	st := &stream{ch: make(chan domain.RawLine, len(hist)+256)}
 	for _, l := range hist {
 		st.ch <- l
@@ -96,10 +100,38 @@ func (s *FakeLogSource) Stream(ctx context.Context, req ports.LogRequest) (ports
 		for i, ch := range subs {
 			if ch == st.ch {
 				s.live[k] = append(subs[:i], subs[i+1:]...)
+				close(st.ch) // not closed yet by Close
 				break
 			}
 		}
-		close(st.ch)
 	}()
 	return st, nil
+}
+
+func sinceTime(src []domain.RawLine, t time.Time) []domain.RawLine {
+	for i, l := range src {
+		if !l.Time.Before(t) {
+			return src[i:]
+		}
+	}
+	return nil
+}
+
+// Close ends every following stream of a container, as when the
+// connection drops.
+func (s *FakeLogSource) Close(ns, pod, container string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	k := key(ns, pod, container)
+	for _, ch := range s.live[k] {
+		close(ch)
+	}
+	s.live[k] = nil
+}
+
+// Following returns how many streams currently follow a container.
+func (s *FakeLogSource) Following(ns, pod, container string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.live[key(ns, pod, container)])
 }

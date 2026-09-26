@@ -137,6 +137,19 @@ func RunLogSourceContract(t *testing.T, newFixture func(t *testing.T) LogFixture
 		}
 	})
 
+	t.Run("since time excludes older lines", func(t *testing.T) {
+		f := newFixture(t)
+		req := f.Request
+		req.Window = domain.TimeWindow{Tail: 3}
+		lines := collect(t, ctx, f.Source, req)
+		req.Window, req.SinceTime = domain.TimeWindow{}, lines[len(lines)-1].Time
+		for _, l := range collect(t, ctx, f.Source, req) {
+			if l.Time.Before(req.SinceTime) {
+				t.Fatalf("line at %v before %v", l.Time, req.SinceTime)
+			}
+		}
+	})
+
 	t.Run("unknown pod is not found", func(t *testing.T) {
 		f := newFixture(t)
 		req := f.Request

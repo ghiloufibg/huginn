@@ -52,7 +52,7 @@ func (c *Cluster) Stream(ctx context.Context, req ports.LogRequest) (ports.LogSt
 	now := c.opts.Clock.Now()
 	g := c.generatorFor(pod, spec)
 	pc := contextOf(pod, ctr)
-	hist := c.history(g, pc, ctr, inst, req.Window, now)
+	hist := c.history(g, pc, ctr, inst, req, now)
 	st := &stream{ch: make(chan domain.RawLine, len(hist)+1024)}
 	for _, l := range hist {
 		st.ch <- l
@@ -122,13 +122,17 @@ func (c *Cluster) generatorFor(p domain.Pod, spec podSpec) generator {
 }
 
 // history returns the lines of inst inside window w, bounded by retention.
-func (c *Cluster) history(g generator, pc podContext, ctr domain.Container, inst instance, w domain.TimeWindow, now time.Time) []domain.RawLine {
+func (c *Cluster) history(g generator, pc podContext, ctr domain.Container, inst instance, req ports.LogRequest, now time.Time) []domain.RawLine {
+	w := req.Window
 	to := now
 	if !inst.end.IsZero() && inst.end.Before(now) {
 		to = inst.end
 	}
 	lower := latest(inst.start, now.Add(-c.opts.Retention))
 	from := lower
+	if !req.SinceTime.IsZero() {
+		return c.lines(g, pc, ctr, inst, latest(lower, req.SinceTime), to, true)
+	}
 	if w.IsTail() {
 		from = latest(lower, to.Add(-time.Duration(float64(w.Tail)*2/c.opts.Rate*float64(time.Second))))
 	} else if w.Since > 0 {

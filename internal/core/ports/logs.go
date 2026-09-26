@@ -2,6 +2,7 @@ package ports
 
 import (
 	"context"
+	"time"
 
 	"github.com/ghiloufibg/huginn/internal/core/domain"
 )
@@ -13,6 +14,9 @@ type LogRequest struct {
 	Pod       string
 	Container string
 	Window    domain.TimeWindow
+	// SinceTime, when set, replaces Window: lines at or after this time
+	// (used to resume a stream without reloading its history).
+	SinceTime time.Time
 	// Follow keeps the stream open and delivers new lines as they arrive.
 	Follow bool
 	// Previous reads the previous (terminated) instance of the container.
