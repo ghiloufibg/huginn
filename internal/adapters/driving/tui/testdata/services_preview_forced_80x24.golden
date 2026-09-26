@@ -16,7 +16,7 @@
  PODS                                                                           
    6kq2x  CrashLoopBackOff  0/1 ready  23 restarts  last: Error exit 1, 4m ago  
  WARNINGS                                                                       
-   reading events of 6kq2x…                                                     
+   ⠋ reading events of 6kq2x                                                    
  HIDDEN                                                                         
    istio-proxy                                                                  
                                                                                 

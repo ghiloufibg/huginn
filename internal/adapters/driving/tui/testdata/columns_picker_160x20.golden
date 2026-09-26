@@ -16,5 +16,5 @@
                                                              │  thread below 140, class below 110 │                                                             
                                                              │                                    │                                                             
                                                              │ letter toggle  esc close           │                                                             
- sort name   LIVE   15m  ·  all pods  ·  levels all  ·  oldest first  ·  9/9 lines  ·  buffer 0%  ·  dropped 0                                                  
+ sort name   LIVE   2 errors · 1 warning  ·  15m  ·  all pods  ·  levels all  ·  oldest first  ·  9/9 lines  ·  buffer 0%  ·  dropped 0                         
  p pod  t time  l level  h thread  c class  f time format  z message only  r reset  esc close                                                                   

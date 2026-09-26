@@ -12,5 +12,5 @@
  x4k2p 19:13:42.000  INFO i.g.p.HealthR└───────────────────────────────────────┘ts=db,redis,gateway                     
                                                                                                                         
                                                                                                                         
- levels all   LIVE   15m  ·  all pods  ·  levels all  ·  oldest first  ·  9/9 lines  ·  buffer 0%  ·  dropped 0  ·  co… 
+ levels all   LIVE   2 errors · 1 warning  ·  15m  ·  all pods  ·  levels all  ·  cols pod time level class msg  ·  ol… 
  j/k move  space toggle  e errors  w warn+  a all  enter apply  esc cancel                                              

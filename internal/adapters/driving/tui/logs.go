@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -77,9 +78,12 @@ type logsScreen struct {
 	manualColumns bool            // the user chose columns: no automatic narrowing
 	focus         bool
 	beforeFocus   columnState
-	idxBuf        []int        // rebuild scratch buffers, reused
-	selBuf        []domain.Row // across the ~30 rebuilds a second
-	cycling       bool         // c is hiding columns one by one
+	levels        [domain.LevelError + 1]int // view rows by level (context rows excluded)
+	live          bool                       // history loaded: new batches are live lines
+	rate          rateMeter                  // live lines per second
+	idxBuf        []int                      // rebuild scratch buffers, reused
+	selBuf        []domain.Row               // across the ~30 rebuilds a second
+	cycling       bool                       // c is hiding columns one by one
 	beforeCycle   columnState
 
 	// filters (logfilter.go)
@@ -97,9 +101,10 @@ type logsScreen struct {
 // viewRow is one displayed entry.
 type viewRow struct {
 	seq     uint64
-	match   bool // matches the text filters
-	context bool // shown as context around a match
-	gap     bool // a separator precedes it
+	level   domain.Level // for the level counts of the status bar
+	match   bool         // matches the text filters
+	context bool         // shown as context around a match
+	gap     bool         // a separator precedes it
 }
 
 func newLogsScreen(m *Model, repo string) *logsScreen {
@@ -120,6 +125,7 @@ func (l *logsScreen) open(m *Model) tea.Cmd {
 	l.gen++
 	l.buf.Reset()
 	l.rows, l.cursor, l.tail, l.paused, l.err, l.loading, l.notice = nil, 0, true, false, nil, true, ""
+	l.levels, l.live, l.rate = [domain.LevelError + 1]int{}, false, rateMeter{}
 	if m.opts.Sessions == nil {
 		return nil
 	}
@@ -162,7 +168,7 @@ func (l *logsScreen) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 		if msg.screen != l || msg.gen != l.gen || msg.closed {
 			return false, nil
 		}
-		l.apply(msg.batch)
+		l.apply(msg.batch, m.opts.Now())
 		return true, l.wait(msg.gen, msg.ch)
 	case filterTickMsg:
 		if msg.screen != l {
@@ -188,8 +194,12 @@ func (l *logsScreen) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 }
 
 // apply stores a batch: entries go to the buffer, those in scope to the
-// view; evicted entries leave the view.
-func (l *logsScreen) apply(b ports.LogBatch) {
+// view; evicted entries leave the view. now dates the batch for the live
+// rate.
+func (l *logsScreen) apply(b ports.LogBatch, now time.Time) {
+	if l.live {
+		l.rate.add(now, len(b.Entries))
+	}
 	added := 0
 	for _, e := range b.Entries {
 		seq := l.buf.Append(e)
@@ -203,6 +213,7 @@ func (l *logsScreen) apply(b ports.LogBatch) {
 		i, _ := l.buf.Index(seq)
 		if r, ok := l.rowFor(seq, l.buf.At(i)); ok {
 			l.rows = append(l.rows, r)
+			l.count(r, 1)
 			added++
 		}
 	}
@@ -226,7 +237,7 @@ func (l *logsScreen) apply(b ports.LogBatch) {
 		l.notice = b.Notices[len(b.Notices)-1].Text
 	}
 	if b.HistoryDone {
-		l.loading = false
+		l.loading, l.live = false, true
 	}
 	l.evict()
 }
@@ -241,6 +252,9 @@ func (l *logsScreen) evict() {
 	}
 	if n == 0 {
 		return
+	}
+	for _, r := range l.rows[:n] {
+		l.count(r, -1)
 	}
 	l.rows = l.rows[n:]
 	l.frozen = max(l.frozen-n, 0)
@@ -270,8 +284,12 @@ func (l *logsScreen) rebuild() {
 	sel := l.filter.SelectAppend(l.selBuf, len(idx), func(i int) *domain.LogEntry { return l.buf.At(idx[i]) })
 	l.selBuf = sel
 	l.rows = l.rows[:0]
+	l.levels = [domain.LevelError + 1]int{}
 	for _, r := range sel {
-		l.rows = append(l.rows, viewRow{seq: l.buf.At(idx[r.Index]).Seq, match: r.Match, context: r.Context, gap: r.Gap})
+		e := l.buf.At(idx[r.Index])
+		row := viewRow{seq: e.Seq, level: e.Level, match: r.Match, context: r.Context, gap: r.Gap}
+		l.rows = append(l.rows, row)
+		l.count(row, 1)
 	}
 	l.dirty, l.paused = false, false
 	if keep != 0 {
@@ -398,6 +416,9 @@ func (l *logsScreen) key(m *Model, k tea.KeyPressMsg) (bool, tea.Cmd) {
 			l.scroll(l.shown())
 		}
 		m.flash(map[bool]string{true: "paused (lines keep buffering)", false: "resumed"}[l.paused])
+	case keys.Is(key, ActRefresh) && l.err != nil:
+		m.flash("reloading " + l.repo)
+		return true, l.open(m)
 	case keys.Is(key, ActWindowNext):
 		return true, l.setWindow(m, domain.NextWindow(m.opts.Windows, l.window))
 	case keys.Is(key, ActWindowPick):
@@ -524,15 +545,42 @@ func (l *logsScreen) view(m *Model, w, h int) string {
 	l.height = h
 	switch {
 	case l.err != nil:
-		parts = append(parts, centered(t.Bad.Render("Cannot read the logs of "+l.repo+": "+errKind(l.err))+"\n\n"+t.Dim.Render(l.err.Error()), w, h))
+		parts = append(parts, centered(t.Bad.Render("Cannot read the logs of "+l.repo+": "+errKind(l.err))+"\n\n"+t.Dim.Render(l.err.Error())+
+			"\n\n"+l.keyHint(m, ActRefresh, "retry", ActBack, "back"), w, h))
 	case l.shown() == 0 && l.loading:
-		parts = append(parts, centered(t.Dim.Render(fmt.Sprintf("loading %s of %s…", l.window.Label(), l.repo)), w, h))
+		parts = append(parts, centered(t.Key.Render(m.spinner())+t.Dim.Render(fmt.Sprintf(" loading %s of %s", l.window.Label(), l.repo)), w, h))
 	case l.shown() == 0:
-		parts = append(parts, centered(t.Dim.Render(fmt.Sprintf("no log lines in the last %s", l.window.Label())), w, h))
+		parts = append(parts, centered(l.emptyMessage(m), w, h))
 	default:
 		parts = append(parts, l.lines(m, w, h))
 	}
 	return strings.Join(parts, "\n")
+}
+
+// emptyMessage explains an empty view and offers the next step.
+func (l *logsScreen) emptyMessage(m *Model) string {
+	t := m.opts.Theme
+	switch {
+	case l.buf.Len() > 0 && (l.filter.Active() || levelsLabel(l.filter.Levels) != "all"):
+		return t.Dim.Render(fmt.Sprintf("no line out of %d matches the filters", l.buf.Len())) + "\n\n" +
+			l.keyHint(m, ActBack, "clear the last filter", ActAllLevels, "all levels")
+	case l.buf.Len() > 0:
+		return t.Dim.Render("no line from the selected pods") + "\n\n" + l.keyHint(m, ActPodScope, "pods")
+	case l.window.Tail > 0:
+		return t.Dim.Render("no log line yet") + "\n\n" + l.keyHint(m, ActFollow, "follow", ActBack, "back")
+	}
+	return t.Dim.Render("no log line in the last "+l.window.Label()) + "\n\n" +
+		l.keyHint(m, ActWindowNext, "longer window", ActWindowTail, "last lines", ActBack, "back")
+}
+
+// keyHint formats key/description pairs: "t longer window  ·  0 last lines".
+func (l *logsScreen) keyHint(m *Model, pairs ...any) string {
+	t := m.opts.Theme
+	var parts []string
+	for i := 0; i+1 < len(pairs); i += 2 {
+		parts = append(parts, t.Key.Render(m.label(pairs[i].(Action)))+" "+t.Dim.Render(pairs[i+1].(string)))
+	}
+	return strings.Join(parts, t.Dim.Render("  ·  "))
 }
 
 // lines renders the viewport: the cursor is kept visible, the tail pins the
@@ -748,11 +796,20 @@ func (l *logsScreen) podStrip(m *Model, w int) string {
 
 func (l *logsScreen) shortName(pod string) string { return podShortID(pod) }
 
+// bar is the status bar style (red in production).
+func (l *logsScreen) bar(m *Model) lipgloss.Style {
+	if m.env.Production {
+		return m.opts.Theme.StatusProd
+	}
+	return m.opts.Theme.Status
+}
+
 func (l *logsScreen) statusLeft(m *Model) string {
 	t := m.opts.Theme
-	bar := t.Status
-	if m.env.Production {
-		bar = t.StatusProd
+	bar := l.bar(m)
+	live := "LIVE"
+	if r := l.rate.label(m.opts.Now()); r != "" {
+		live += " " + r
 	}
 	var chip string
 	switch {
@@ -761,9 +818,13 @@ func (l *logsScreen) statusLeft(m *Model) string {
 	case !l.follow:
 		chip = t.Chip.Render("STOPPED")
 	case !l.tail && !l.newestTop:
-		chip = t.ChipLive.Render(fmt.Sprintf("LIVE +%d below", l.shown()-1-l.displayCursor()))
+		chip = t.ChipLive.Render(fmt.Sprintf("%s +%d below", live, l.shown()-1-l.displayCursor()))
 	default:
-		chip = t.ChipLive.Render("LIVE")
+		chip = t.ChipLive.Render(live)
+	}
+	out := chip + bar.Render("  ")
+	if counts := l.levelCounts(m); counts != "" {
+		out += counts + bar.Render("  ·  ")
 	}
 	scope := l.scopeLabel()
 	order := "oldest first"
@@ -774,21 +835,22 @@ func (l *logsScreen) statusLeft(m *Model) string {
 	if f := l.filterSummary(); f != "" {
 		fields = append(fields, f)
 	}
-	fields = append(fields, order,
-		fmt.Sprintf("%d/%d lines", l.shown(), l.buf.Len()),
-		fmt.Sprintf("buffer %d%%", l.buf.Len()*100/max(l.buf.Cap(), 1)),
-		fmt.Sprintf("dropped %d", l.buf.Dropped()),
-	)
+	// Most useful first: a narrow terminal truncates the end.
+	if l.notice != "" {
+		fields = append(fields, l.notice)
+	}
 	if cols := l.columnsLabel(m, m.width); cols != "" {
 		fields = append(fields, cols)
 	}
 	if l.wrap {
 		fields = append(fields, "wrap")
 	}
-	if l.notice != "" {
-		fields = append(fields, l.notice)
-	}
-	return chip + bar.Render("  "+strings.Join(fields, "  ·  "))
+	fields = append(fields, order,
+		fmt.Sprintf("%d/%d lines", l.shown(), l.buf.Len()),
+		fmt.Sprintf("buffer %d%%", l.buf.Len()*100/max(l.buf.Cap(), 1)),
+		fmt.Sprintf("dropped %d", l.buf.Dropped()),
+	)
+	return out + bar.Render(strings.Join(fields, "  ·  "))
 }
 
 func (l *logsScreen) hints(m *Model) []hint {

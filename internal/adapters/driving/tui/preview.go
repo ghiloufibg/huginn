@@ -296,7 +296,7 @@ func (p *preview) warnings(m *Model, now time.Time, wrap int) []string {
 	e, ok := p.cache[p.target]
 	switch {
 	case !ok || (e.loading && e.at.IsZero()):
-		return []string{t.Dim.Render("reading events of " + podShortID(p.target.pod) + "…")}
+		return []string{t.Key.Render(m.spinner()) + t.Dim.Render(" reading events of "+podShortID(p.target.pod))}
 	case e.err != nil:
 		return []string{t.Bad.Render("cannot read events: " + e.err.Error())}
 	}

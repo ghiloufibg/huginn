@@ -364,7 +364,7 @@ func TestLogsFollowPauseAndTail(t *testing.T) {
 	}
 	press(m, "k", "k")
 	feed(m, l, ports.LogBatch{Entries: []domain.LogEntry{logEntry(3, podB, domain.LevelInfo, "a.B", "new 3")}})
-	if out := render(m, 160, 20); !strings.Contains(out, "LIVE +3 below") {
+	if out := render(m, 160, 20); !strings.Contains(out, "+3 below") {
 		t.Fatalf("scrolling up must stop auto-scroll:\n%s", out)
 	}
 	press(m, "G")

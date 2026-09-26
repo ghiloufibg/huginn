@@ -39,7 +39,7 @@ func (l *logsScreen) rowFor(seq uint64, e *domain.LogEntry) (viewRow, bool) {
 	if l.filter.Mode == domain.ModeFilter && l.filter.Active() && !match {
 		return viewRow{}, false
 	}
-	return viewRow{seq: seq, match: match}, true
+	return viewRow{seq: seq, level: e.Level, match: match}, true
 }
 
 // setTexts rebuilds the text filters from the committed ones and the

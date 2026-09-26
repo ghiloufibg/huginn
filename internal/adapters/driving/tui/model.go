@@ -95,6 +95,9 @@ type hint struct{ key, what string }
 // Model is the root Bubble Tea model.
 type Model struct {
 	opts          Options
+	frame         int            // spinner frame, see anim.go
+	animPending   bool           // a spinner tick is scheduled
+	clockPending  bool           // a clock tick is scheduled
 	inks          map[string]ink // see ink.go
 	width, height int
 	env           EnvInfo
@@ -154,7 +157,7 @@ func NewModel(o Options) *Model {
 }
 
 // Init implements tea.Model.
-func (m *Model) Init() tea.Cmd { return m.startWatch() }
+func (m *Model) Init() tea.Cmd { return tea.Batch(m.startWatch(), m.schedule()) }
 
 func (m *Model) startWatch() tea.Cmd {
 	if m.cancel != nil {
@@ -212,37 +215,45 @@ func (m *Model) reset(s screen) {
 
 // Update implements tea.Model.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if ok, cmd := m.tick(msg); ok {
+		return m, cmd
+	}
+	cmd := m.update(msg)
+	return m, tea.Batch(cmd, m.schedule())
+}
+
+func (m *Model) update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
-		return m, nil
+		return nil
 	case watchStartedMsg:
 		if msg.gen != m.gen {
-			return m, nil
+			return nil
 		}
 		m.watchErr = msg.err
 		if msg.err != nil {
-			return m, nil
+			return nil
 		}
-		return m, waitSnapshot(msg.gen, msg.ch)
+		return waitSnapshot(msg.gen, msg.ch)
 	case snapshotMsg:
 		if msg.gen != m.gen || msg.closed {
-			return m, nil
+			return nil
 		}
 		m.snap, m.resyncing = &msg.snap, false
-		return m, tea.Batch(m.broadcast(msg), waitSnapshot(msg.gen, msg.ch))
+		return tea.Batch(m.broadcast(msg), waitSnapshot(msg.gen, msg.ch))
 	case tea.KeyPressMsg:
-		return m, m.handleKey(msg)
+		return m.handleKey(msg)
 	case flashDoneMsg:
 		if msg.id == m.flashID {
 			m.flashText = ""
 		}
-		return m, nil
+		return nil
 	case tea.MouseWheelMsg:
 		_, cmd := m.top().update(m, msg)
-		return m, cmd
+		return cmd
 	}
-	return m, m.broadcast(msg)
+	return m.broadcast(msg)
 }
 
 // broadcast delivers a non-input message to every screen of the stack, so
@@ -411,7 +422,7 @@ func (m *Model) connection(bar lipgloss.Style) string {
 	case m.watchErr != nil:
 		return src + t.Bad.Inherit(bar).Render("error: "+errKind(m.watchErr))
 	case m.snap == nil || m.resyncing:
-		return src + bar.Render("connecting…")
+		return src + bar.Render(m.spinner()+" connecting")
 	case m.snap.Err != nil:
 		return src + t.Bad.Inherit(bar).Render("error: "+errKind(m.snap.Err)) + bar.Render(" · retrying")
 	default:
@@ -439,7 +450,7 @@ func (m *Model) statusBar() string {
 	}
 	// Keys live in the key bar; when it is hidden, say how to get it back.
 	right := ""
-	if m.keyBar == keyBarHidden && lipgloss.Width(left)+24 <= m.width {
+	if m.keyBar == keyBarHidden && m.width >= 60 {
 		right = t.Key.Inherit(bar).Render(m.label(ActKeyBar)) + bar.Render(" keys  ") +
 			t.Key.Inherit(bar).Render(m.label(ActHelp)) + bar.Render(" help ")
 	}

@@ -16,5 +16,5 @@
                                                └────────────────────────┘                                               
                                                                                                                         
                                                                                                                         
- sort name   LIVE   15m  ·  all pods  ·  levels all  ·  oldest first  ·  9/9 lines  ·  buffer 0%  ·  dropped 0  ·  col… 
+ sort name   LIVE   2 errors · 1 warning  ·  15m  ·  all pods  ·  levels all  ·  cols pod time level class msg  ·  old… 
  j/k move  1…0 pick  enter load  esc cancel                                                                             

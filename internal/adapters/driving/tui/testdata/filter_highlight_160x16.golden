@@ -12,5 +12,5 @@
  x4k2p 19:13:42.000  INFO [exec-1] i.g.p.HealthReporter : health probe succeeded components=db,redis,gateway                                                    
                                                                                                                                                                 
  /  gateway|declined_    HIGHLIGHT   REGEX    match 4 of 4                                                                                                      
- highlight mode   LIVE   15m  ·  all pods  ·  levels all  ·  highlight /gateway|declined/ · match 4 of 4  ·  oldest first  ·  9/9 lines  ·  buffer 0%  ·  drop… 
+ highlight mode   LIVE   2 errors · 1 warning  ·  15m  ·  all pods  ·  levels all  ·  highlight /gateway|declined/ · match 4 of 4  ·  oldest first  ·  9/9 lin… 
  enter keep  esc cancel  ctrl+r regex  ctrl+x filter/highlight  ! invert (first char)  ctrl+a add filter (AND)  ctrl+u erase                                    

@@ -180,3 +180,23 @@ Status: accepted.
 - **Not done**: the manifests rule is validated but read only with the real cluster (M4). `namespace_from` is validated but not decrypted yet. The single-file `config.yaml` was removed without a migration path, because this is a prototype.
 Supersedes the file layout of D-022 (strict YAML decoding and did-you-mean suggestions are kept).
 Status: accepted.
+
+## D-031 Performance budget and a livelier UI
+- **Frame budget**: a frame must stay far below the 33 ms of a 30 Hz stream. With 50 000 lines at 200×60, a logs frame now takes 0.6 ms (it was 4.4 ms) and the services screen with 500 repositories 2.5 ms (it was 6.4 ms). Benchmarks in `internal/adapters/driving/tui/bench_test.go` guard these numbers.
+  - **Viewport**: the logs viewport never scans more than one screen of entries, however far the cursor jumps. Before, it re-summed heights one offset at a time and a jump of 40 000 lines hung.
+  - **Rendering**: each entry is rendered once per frame. Log segments are painted with cached escape sequences (`ink`) instead of `lipgloss.Style.Render`, which is kept for blocks.
+  - **Width**: widths of ASCII text are counted without grapheme segmentation.
+  - **Services table**: it builds cells for the visible rows only and caches its sorted rows per snapshot, sort and filter.
+  - **Rebuilds with context lines**: they reuse their buffers (3 MB → 0.23 MB per batch).
+- **The logs status bar shows the stream's pulse**:
+  - the LIVE chip carries the live rate over the last 5 s (history is not counted);
+  - error and warning counts for the current view appear first, coloured, and are maintained incrementally, eviction included;
+  - fields are ordered by usefulness so a narrow terminal truncates the diagnostics (order, line and buffer counts) first.
+- **Motion only when it means something**:
+  - a spinner runs while connecting, resyncing, loading history or reading events, driven by a 100 ms timer that exists only while something is awaited;
+  - a 1 s clock runs only while a stream is followed (rate, relative times) or a highlight must end;
+  - a service whose status changes is shown in reverse video for 5 s, but not on the first snapshot of an environment.
+- **No dead ends**:
+  - empty views say why (window, filters, pod scope) and name the keys that help;
+  - a logs error offers `r` to reload the logs (on that screen `r` otherwise keeps resyncing the watches).
+Status: accepted.

@@ -12,5 +12,5 @@
  x4k2p 19:13:42.000  INFO health probe succeeded components=db,redis,gateway    
                                                                                 
                                                                                 
- sort name   LIVE   15m  ·  all pods  ·  levels all  ·  oldest first  ·  9/9 l… 
+ sort name   LIVE   2 errors · 1 warning  ·  15m  ·  all pods  ·  levels all  … 
  / filter  l levels  x mode  n/N match  f follow  space pause  t window  ? help 

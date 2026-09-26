@@ -46,7 +46,7 @@ Environment variables: `HUGINN_ENV`, `HUGINN_CONFIG`, `HUGINN_THEME`, `NO_COLOR`
 
 ## Services screen
 
-One row per repository; the **WHY** column says why a service is unhealthy (last exit, OOM limit, image that cannot be pulled, scheduler message, rollout progress). The space the rows leave free shows a **preview** of the selected service — workloads, pods, recent warnings of its worst pod (events read only when the cursor rests on a service), hidden sidecars — on the right from 200 columns, below the rows when 8 lines are free. Sorted by status, rows are grouped (FAILING, DEGRADED/PENDING, ROLLING, HEALTHY) when the titles fit.
+A service whose status changes is highlighted for a few seconds. One row per repository; the **WHY** column says why a service is unhealthy (last exit, OOM limit, image that cannot be pulled, scheduler message, rollout progress). The space the rows leave free shows a **preview** of the selected service — workloads, pods, recent warnings of its worst pod (events read only when the cursor rests on a service), hidden sidecars — on the right from 200 columns, below the rows when 8 lines are free. Sorted by status, rows are grouped (FAILING, DEGRADED/PENDING, ROLLING, HEALTHY) when the titles fit.
 
 ## Keys (services screen)
 
@@ -61,6 +61,10 @@ One row per repository; the **WHY** column says why a service is unhealthy (last
 | `ctrl+e` | switch environment |
 | `esc` | back |
 | `q` `ctrl+c` | quit |
+
+## Logs screen
+
+The status bar shows the stream at a glance: `LIVE 42/s` (live lines per second), then the errors and warnings of the current view (`>` / `<` jump to them), the window, pod scope and filters. When a view is empty it says why and which key helps; after a read error, `r` reloads the logs.
 
 ## Keys (logs screen)
 

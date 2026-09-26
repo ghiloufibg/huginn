@@ -27,6 +27,7 @@ type servicesScreen struct {
 	preview  preview
 	cacheKey rowsKey
 	cache    []domain.ServiceSummary
+	changes  statusChanges
 }
 
 func newServicesScreen(openRepo string) *servicesScreen {
@@ -134,6 +135,7 @@ func (s *servicesScreen) handle(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 	s.sync(rows)
 	switch msg := msg.(type) {
 	case snapshotMsg:
+		s.changes.observe(msg.snap, m.opts.Now())
 		return false, s.openRequested(m)
 	case tea.MouseWheelMsg:
 		switch msg.Button {
@@ -222,7 +224,7 @@ func (s *servicesScreen) view(m *Model, w, h int) string {
 		return centered(t.Bad.Render("Cannot watch "+m.env.Name+": "+errKind(m.watchErr))+"\n\n"+
 			t.Dim.Render(m.watchErr.Error())+"\n\n"+t.Dim.Render("press ")+t.Key.Render(m.label(ActRefresh))+t.Dim.Render(" to retry"), w, h)
 	case m.snap == nil:
-		return centered(t.Dim.Render("connecting to "+m.env.Name+"…"), w, h)
+		return centered(t.Key.Render(m.spinner())+t.Dim.Render(" connecting to "+m.env.Name), w, h)
 	case m.snap.Err != nil && len(m.snap.Services) == 0:
 		return centered(t.Bad.Render("Cannot reach "+m.env.Name+": "+errKind(m.snap.Err))+"\n\n"+
 			t.Dim.Render(m.snap.Err.Error())+"\n\n"+t.Dim.Render("retrying automatically · press ")+
@@ -303,6 +305,11 @@ func (s *servicesScreen) cells(r domain.ServiceSummary, now time.Time, t Theme, 
 		name = cell{text: r.Repo + " (no repo)", style: t.Dim}
 	}
 	status := cell{text: r.Status.String(), style: t.statusStyle(r.Status)}
+	if s.changes.recent(r.Repo, now) {
+		// Just changed: stand out until the eye finds it, even after a
+		// re-sort moved the row.
+		status.style = status.style.Reverse(true)
+	}
 	if r.Status == domain.StatusUnknown && r.DesiredPods == 0 {
 		status.text = "scaled to 0"
 	}

@@ -12,5 +12,5 @@
                                                                                                                                                                 
                                                                                                                                                                 
  /  gateway|declined_    FILTER   REGEX    4 matching lines                                                                                                     
- regex on   LIVE   15m  ·  all pods  ·  levels all  ·  filter /gateway|declined/  ·  oldest first  ·  4/9 lines  ·  buffer 0%  ·  dropped 0                     
+ regex on   LIVE   2 errors · 1 warning  ·  15m  ·  all pods  ·  levels all  ·  filter /gateway|declined/  ·  oldest first  ·  4/9 lines  ·  buffer 0%  ·  dro… 
  enter keep  esc cancel  ctrl+r regex  ctrl+x filter/highlight  ! invert (first char)  ctrl+a add filter (AND)  ctrl+u erase                                    

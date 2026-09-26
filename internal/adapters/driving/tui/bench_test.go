@@ -56,7 +56,7 @@ func BenchmarkLogsIngest30Hz(b *testing.B) {
 	}
 	b.ReportAllocs()
 	for b.Loop() {
-		l.apply(batch)
+		l.apply(batch, t0)
 		_ = m.View()
 	}
 }
@@ -91,7 +91,7 @@ func BenchmarkLogsIngestWithContext(b *testing.B) {
 	}
 	b.ReportAllocs()
 	for b.Loop() {
-		l.apply(batch)
+		l.apply(batch, t0)
 		_ = m.View()
 	}
 }

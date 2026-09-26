@@ -12,5 +12,5 @@
  x4k2p [exec-1] i.g.p.HealthReporter : health probe succeeded components=db,redis,gateway                                                                       
                                                                                                                                                                 
                                                                                                                                                                 
- level hidden   LIVE   15m  ·  all pods  ·  levels all  ·  oldest first  ·  9/9 lines  ·  buffer 0%  ·  dropped 0  ·  cols pod thread class msg                 
+ level hidden   LIVE   2 errors · 1 warning  ·  15m  ·  all pods  ·  levels all  ·  cols pod thread class msg  ·  oldest first  ·  9/9 lines  ·  buffer 0%  · … 
  / filter  l levels  x mode  n/N match  f follow  space pause  t window  tab pods  c cols  C columns  z focus  enter zoom  ? help                               

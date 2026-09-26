@@ -14,7 +14,7 @@
    Services                                                                                         
      s                sort: status, name, restarts, age                                             
      p                preview of the selected service: on/off                                       
-     r                resync the watches                                                            
+     r                resync the watches (on a logs error: reload the logs)                         
                                                                                                     
  GLOBAL                                                                                             
      ?  f1            help for this screen                                                          
