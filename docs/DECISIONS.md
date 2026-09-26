@@ -86,3 +86,7 @@ Status: accepted.
 The package layout follows ports & adapters as specified in `docs/ARCHITECTURE.md` (`internal/core/{domain,ports,app}`, `internal/adapters/{driving,driven}/…`, `internal/bootstrap`). Adapters are chosen by name from config through registries, so enterprise-specific behavior is added as a new adapter or config entry, never inside the core. Layer rules are enforced by `depguard` and an import-graph test. `CLAUDE.md` points future agents to these rules.
 Trade-off: more packages and interfaces than a prototype strictly needs, accepted because the explicit goal is to port Huginn onto an enterprise codebase later. Supersedes the flat layout proposed initially.
 Status: accepted.
+
+## D-019 Keys added or changed while drafting the mockups
+`[`/`]` need AltGr on AZERTY, so: next/previous error = `>` / `<`; next/previous entry in zoom = `J` / `K`. Unassigned toggles from the spec get: `c` cycle timestamp format (local/UTC/relative/none), `I` cycle pod identifier (short/full/none), `B` copy as bug report. Mockups: https://claude.ai/artifact/4RuyPRpu8V6BvcaYx8bcqq
+Status: accepted, pending design review.
