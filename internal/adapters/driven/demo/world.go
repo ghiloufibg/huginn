@@ -191,6 +191,7 @@ func (w *world) applyCondition(p *domain.Pod, spec *podSpec, i int) {
 	switch spec.cond {
 	case crashLoop:
 		app.State, app.Reason, app.Ready = domain.ContainerWaiting, "CrashLoopBackOff", false
+		app.Message = fmt.Sprintf("back-off 5m0s restarting failed container=%s pod=%s_%s", app.Name, p.Name, p.Namespace)
 		app.Restarts = 12 - i
 		app.LastTermination = &domain.Termination{Reason: "Error", ExitCode: 1, At: w.start.Add(-4 * time.Minute)}
 		spec.runningSince = w.start.Add(-4*time.Minute - 25*time.Second)
@@ -213,6 +214,7 @@ func (w *world) applyCondition(p *domain.Pod, spec *podSpec, i int) {
 	case imagePull:
 		p.Phase, p.Started = domain.PodPending, time.Time{}
 		app.State, app.Reason, app.Ready = domain.ContainerWaiting, "ImagePullBackOff", false
+		app.Message = `Back-off pulling image "` + app.Image + `": manifest unknown`
 		w.events[key] = []domain.Event{
 			{Type: "Warning", Reason: "Failed", Message: `Failed to pull image "` + app.Image + `": manifest unknown`, Count: 9, LastSeen: w.start.Add(-time.Minute)},
 			{Type: "Normal", Reason: "BackOff", Message: `Back-off pulling image "` + app.Image + `"`, Count: 40, LastSeen: w.start.Add(-20 * time.Second)},
@@ -232,6 +234,7 @@ func (w *world) applyCondition(p *domain.Pod, spec *podSpec, i int) {
 			return
 		}
 		p.Phase, p.Started, p.Node = domain.PodPending, time.Time{}, ""
+		p.Reason, p.Message = "Unschedulable", "0/6 nodes are available: 6 Insufficient memory. preemption: 0/6 nodes are available: 6 No preemption victims found for incoming pod."
 		for j := range p.Containers {
 			if !p.Containers[j].Init {
 				p.Containers[j].State, p.Containers[j].Reason, p.Containers[j].Ready = domain.ContainerWaiting, "ContainerCreating", false

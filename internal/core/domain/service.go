@@ -38,6 +38,8 @@ type ServiceSummary struct {
 	Workloads   int
 	ReadyPods   int
 	DesiredPods int
+	// UpdatedPods counts replicas already on the latest version.
+	UpdatedPods int
 	Status      ServiceStatus
 	Restarts    int
 	LastRestart time.Time

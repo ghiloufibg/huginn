@@ -69,6 +69,7 @@ func Summarize(repo string, workloads []Workload, pods []Pod, f ContainerFilter)
 		s.Refs = append(s.Refs, w.Ref)
 		s.DesiredPods += w.DesiredReplicas
 		s.ReadyPods += w.ReadyReplicas
+		s.UpdatedPods += w.UpdatedReplicas
 		if i == 0 || w.Created.Before(s.Created) {
 			s.Created = w.Created
 		}

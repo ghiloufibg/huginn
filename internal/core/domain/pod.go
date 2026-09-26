@@ -29,6 +29,9 @@ type Pod struct {
 	// OwnerName is the name of the controlling workload (the ReplicaSet's
 	// owner for Deployments), when known.
 	OwnerName string
+	// Reason and Message explain a pod-level problem, e.g. Unschedulable /
+	// "0/6 nodes are available: 6 Insufficient memory."
+	Reason, Message string
 }
 
 // ContainerState is the current state of a container.
@@ -56,11 +59,14 @@ type Resources struct {
 
 // Container is the observed state of one container of a pod.
 type Container struct {
-	Name     string
-	Image    string
-	Init     bool
-	State    ContainerState
-	Reason   string
+	Name   string
+	Image  string
+	Init   bool
+	State  ContainerState
+	Reason string
+	// Message is the Kubernetes message of the current state, e.g.
+	// "back-off 5m0s restarting failed container".
+	Message  string
 	Ready    bool
 	Restarts int
 	// LastTermination is the previous instance's termination, if any; it
