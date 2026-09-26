@@ -69,7 +69,9 @@ Environment variables: `HUGINN_ENV`, `HUGINN_CONFIG`, `HUGINN_THEME`, `NO_COLOR`
 | `space` | pause / resume (lines keep buffering) |
 | `t` / `T` / `1`…`7` / `0` | next window / window picker / 15m 30m 40m 45m 1h 1d 2d / tail (AZERTY: `&é"'(-è` / `à`) |
 | `tab` / `S` | cycle pod scope / pod selector |
-| `o` `c` `I` `W` | order, timestamps, pod id, wrap |
+| `o` `c` `I` `W` | order, timestamps (local, UTC, relative, hidden), pod id (short, full, hidden), wrap |
+| `C` | columns picker: `t` time, `p` pod, `l` level, `h` thread, `c` class, `z` message only, `r` reset |
+| `z` | focus layout: hide pod, thread and class (again to restore) |
 | `←` `→` `H` `L` | pan when not wrapped |
 | `F` | fullscreen |
 | `/` or `ctrl+f` | filter as you type (in the prompt: `ctrl+r` regex, `ctrl+x` filter/highlight, `!` prefix inverts, `ctrl+a` stacks another filter, `enter` keeps, `esc` cancels) |
@@ -78,6 +80,7 @@ Environment variables: `HUGINN_ENV`, `HUGINN_CONFIG`, `HUGINN_THEME`, `NO_COLOR`
 | `X` | context lines around matches: 0, 1, 3, 5 |
 | `l` / `e` `w` `a` | level picker / errors only, warn+error, all levels |
 | `?` `F1` | help for this screen (searchable with `/`) |
+| `F2` `ctrl+k` | key bar at the bottom: compact, full, hidden |
 | `esc` | exit fullscreen, clear the last filter, then back |
 
 Every key can be remapped with `ui.keymap` in the configuration.

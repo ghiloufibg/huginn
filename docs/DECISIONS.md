@@ -149,3 +149,10 @@ Status: accepted.
 - **Mode-change confirmations** show for 2 s at the start of the status bar (before the state), so they are never cut on narrow terminals.
 - **One action table** (`internal/adapters/driving/tui/actions.go`) drives help, status-bar hints and the README tables; help is generated from the live keymap, so remapped keys are shown as remapped.
 Status: accepted.
+
+## D-027 Optional columns and key bar (M3.1)
+- **Columns**: time, pod, level, thread and class (logger) are optional; the message never is. `C` opens a picker where one letter toggles each column (`t p l h c`, `z` message only, `r` reset) — one global key instead of one per column keeps the keyspace free for M5 (`d`, `m`, `v`, `P`, `E`, `B`) and shows the state of every column. `z` on the stream is the **focus layout** (hides pod, thread and class, restores them on the second press). `I` and `c` keep cycling pod id and timestamp format, and reach "hidden" through the same column set.
+- **Automatic narrowing** until the user chooses (or configures `ui.logs.columns`): thread hidden below 140 cells, class below 110. Zoom always shows every field, and filters keep searching hidden columns.
+- **Key bar at the bottom**, one line under the status bar; the status bar keeps state only and the header keeps context only. Rationale: keys belong next to where input happens (the filter prompt is at the bottom), k9s-style header key blocks cost 5–6 lines of logs, and separating hints from state stops hints from being the first thing truncated. `f2` / `ctrl+k` cycles compact (1 line) → full (2 lines) → hidden (0 lines, status shows `f2 keys ? help`); default `ui.key_bar: compact`. It follows the context (stream, prompt, paused, zoom, popups, services, help), is built from the live keymap, drops low-priority keys first and always keeps `? help` last.
+- **Not done**: `ui.logs.focus_columns` from the plan (what `z` keeps is fixed to time + level + message for now); per-column widths and column order.
+Status: accepted.
