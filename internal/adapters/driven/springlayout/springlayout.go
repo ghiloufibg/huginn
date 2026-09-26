@@ -30,7 +30,8 @@ func NewFull() *Layout { return &Layout{full: true, loggerWidth: 40, threadWidth
 func (l *Layout) Render(e domain.LogEntry, o ports.RenderOptions) []ports.Segment {
 	var out []ports.Segment
 	add := func(text string, role ports.Role) { out = append(out, ports.Segment{Text: text, Role: role}) }
-	if ts := l.timestamp(e.Time, o); ts != "" {
+	show := func(c ports.Column) bool { return !o.Hide.Has(c) }
+	if ts := l.timestamp(e.Time, o); ts != "" && show(ports.ColTime) {
 		add(ts, ports.RoleTimestamp)
 		add(" ", ports.RolePlain)
 	}
@@ -38,19 +39,31 @@ func (l *Layout) Render(e domain.LogEntry, o ports.RenderOptions) []ports.Segmen
 		add(e.Message, ports.RoleMessage)
 		return out
 	}
-	add(fmt.Sprintf("%5s", levelWord(e.Level)), ports.RoleLevel)
-	add(" ", ports.RolePlain)
-	if l.full {
+	if show(ports.ColLevel) {
+		add(fmt.Sprintf("%5s", levelWord(e.Level)), ports.RoleLevel)
+		add(" ", ports.RolePlain)
+	}
+	if l.full && show(ports.ColPID) {
 		add(e.PID, ports.RolePID)
 		add(" --- ", ports.RoleDim)
-		if e.App != "" {
-			add("["+e.App+"] ", ports.RoleDim)
-		}
 	}
-	add("["+fitLeft(e.Thread, l.threadWidth)+"]", ports.RoleThread)
-	add(" ", ports.RolePlain)
-	add(fmt.Sprintf("%-*s", l.loggerWidth, Abbreviate(e.Logger, l.loggerWidth)), ports.RoleLogger)
-	add(" : ", ports.RoleDim)
+	if l.full && show(ports.ColApp) && e.App != "" {
+		add("["+e.App+"] ", ports.RoleDim)
+	}
+	meta := false
+	if show(ports.ColThread) {
+		add("["+fitLeft(e.Thread, l.threadWidth)+"]", ports.RoleThread)
+		add(" ", ports.RolePlain)
+		meta = true
+	}
+	if show(ports.ColLogger) {
+		add(fmt.Sprintf("%-*s", l.loggerWidth, Abbreviate(e.Logger, l.loggerWidth)), ports.RoleLogger)
+		add(" ", ports.RolePlain)
+		meta = true
+	}
+	if meta {
+		add(": ", ports.RoleDim)
+	}
 	add(e.Message, ports.RoleMessage)
 	return out
 }

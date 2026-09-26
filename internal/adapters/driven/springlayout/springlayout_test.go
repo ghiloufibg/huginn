@@ -95,3 +95,26 @@ func TestAbbreviate(t *testing.T) {
 		}
 	}
 }
+
+func TestHiddenColumns(t *testing.T) {
+	l := NewCompact()
+	o := ports.RenderOptions{Location: time.UTC}
+	tests := map[ports.Columns]string{
+		0:                                      "17:12:40.104  WARN [nio-8080-exec-7] i.g.p.gateway.GatewayClient    : latency high p95=842ms",
+		ports.Columns(0).With(ports.ColThread): "17:12:40.104  WARN i.g.p.gateway.GatewayClient    : latency high p95=842ms",
+		ports.Columns(0).With(ports.ColLogger): "17:12:40.104  WARN [nio-8080-exec-7] : latency high p95=842ms",
+		ports.Columns(0).With(ports.ColThread).With(ports.ColLogger): "17:12:40.104  WARN latency high p95=842ms",
+		ports.Columns(0).With(ports.ColTime).With(ports.ColLevel):    "[nio-8080-exec-7] i.g.p.gateway.GatewayClient    : latency high p95=842ms",
+	}
+	for hide, want := range tests {
+		o.Hide = hide
+		if got := text(l.Render(entry, o)); got != want {
+			t.Errorf("hide %b:\ngot  %q\nwant %q", hide, got, want)
+		}
+	}
+	full := NewFull()
+	o.Hide = ports.Columns(0).With(ports.ColPID).With(ports.ColApp)
+	if got := text(full.Render(entry, o)); strings.Contains(got, "18472") || strings.Contains(got, "[payment-service]") {
+		t.Errorf("full without pid/app: %q", got)
+	}
+}

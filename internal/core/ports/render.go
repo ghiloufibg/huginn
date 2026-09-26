@@ -43,8 +43,36 @@ const (
 	TimestampDelta
 )
 
+// Column is an optional part of a rendered line. The message is never
+// optional.
+type Column uint8
+
+// Optional columns.
+const (
+	ColTime Column = 1 << iota
+	ColLevel
+	ColThread
+	ColLogger
+	ColPID
+	ColApp
+)
+
+// Columns is a set of columns.
+type Columns uint8
+
+// Has reports whether c is in the set.
+func (s Columns) Has(c Column) bool { return s&Columns(c) != 0 }
+
+// With returns the set with c added.
+func (s Columns) With(c Column) Columns { return s | Columns(c) }
+
+// Without returns the set with c removed.
+func (s Columns) Without(c Column) Columns { return s &^ Columns(c) }
+
 // RenderOptions are the display toggles that affect a rendered line.
 type RenderOptions struct {
+	// Hide lists columns left out of the line (zero hides nothing).
+	Hide       Columns
 	Timestamps TimestampMode
 	Location   *time.Location
 	// DeltaFrom is the reference time for TimestampDelta.
