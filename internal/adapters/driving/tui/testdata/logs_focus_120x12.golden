@@ -9,4 +9,4 @@
  19:13:32.000 ERROR Card declined by issuer orderId=ord_72bf10 retryable=false                                          
  19:13:42.000  INFO health probe succeeded components=db,redis,gateway                                                  
  focus layout on   LIVE   15m  ·  all pods  ·  levels all  ·  oldest first  ·  9/9 lines  ·  buffer 0%  ·  dropped 0  … 
- / filter  l levels  x mode  n/N match  f follow  space pause  t window  tab pods  C columns  z focus  ? help           
+ / filter  l levels  x mode  n/N match  f follow  space pause  t window  tab pods  c cols  C columns  z focus  ? help   

@@ -40,10 +40,12 @@
      S                select pods (fullscreen)                                                                          
    Display                                                                                                              
      o                newest or oldest first                                                                            
-     c                timestamps: local, UTC, relative, hidden                                                          
+     c                hide the next column (time, level, thread, class), then show them again                           
+     ctrl+t           time format: local, UTC, relative (never hides it)                                                
      I                pod id: short, full, hidden                                                                       
      C                columns: time, pod, level, thread, class                                                          
      z                focus layout: hide pod, thread and class                                                          
+     R                reset the display (columns, time format, pan, wrap), keep the filters                             
      W                wrap lines                                                                                        
      left             pan left (wrap off)                                                                               
      right            pan right (wrap off)                                                                              
@@ -64,8 +66,6 @@
      !                invert (as first character; \! for a literal !)                                                   
      ctrl+a           stack another filter (AND)                                                                        
      enter / esc      keep / cancel the edit                                                                            
-                                                                                                                        
-                                                                                                                        
                                                                                                                         
                                                                                                                         
                                                                                                                         

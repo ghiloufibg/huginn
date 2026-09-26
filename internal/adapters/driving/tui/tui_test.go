@@ -108,7 +108,7 @@ func keyMsg(k string) tea.KeyPressMsg {
 		return tea.KeyPressMsg{Code: tea.KeyBackspace}
 	case "down":
 		return tea.KeyPressMsg{Code: tea.KeyDown}
-	case "ctrl+e", "ctrl+r", "ctrl+x", "ctrl+a", "ctrl+f", "ctrl+l", "ctrl+u":
+	case "ctrl+e", "ctrl+r", "ctrl+x", "ctrl+a", "ctrl+f", "ctrl+l", "ctrl+u", "ctrl+t":
 		return tea.KeyPressMsg{Code: rune(k[5]), Mod: tea.ModCtrl}
 	case "tab":
 		return tea.KeyPressMsg{Code: tea.KeyTab}

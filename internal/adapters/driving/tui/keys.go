@@ -75,6 +75,8 @@ const (
 	ActFullscreen   Action = "fullscreen"
 	ActWrap         Action = "wrap"
 	ActTimestamps   Action = "timestamps"
+	ActCycleColumns Action = "columns_cycle"
+	ActResetDisplay Action = "reset_display"
 	ActPodID        Action = "pod_id"
 	ActMark         Action = "mark"
 	ActCopy         Action = "copy"
@@ -103,7 +105,7 @@ var defaultKeys = map[Action][]string{
 	ActNextEntry: {"J"}, ActPrevEntry: {"K"},
 	ActJSONView: {"p"}, ActViewTrace: {"v"}, ActDiagnostics: {"d"}, ActPreviousLogs: {"P"},
 	ActErrorGroups: {"E"}, ActPodScope: {"tab"}, ActPodSelector: {"S"}, ActFullscreen: {"F"},
-	ActWrap: {"W"}, ActTimestamps: {"c"}, ActPodID: {"I"}, ActMark: {"m"},
+	ActWrap: {"W"}, ActTimestamps: {"ctrl+t"}, ActCycleColumns: {"c"}, ActResetDisplay: {"R"}, ActPodID: {"I"}, ActMark: {"m"},
 	ActCopy: {"ctrl+y"}, ActSave: {"ctrl+s"}, ActBugReport: {"B"},
 }
 

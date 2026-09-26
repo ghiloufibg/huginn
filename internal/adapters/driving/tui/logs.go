@@ -77,6 +77,8 @@ type logsScreen struct {
 	manualColumns bool          // the user chose columns: no automatic narrowing
 	focus         bool
 	beforeFocus   columnState
+	cycling       bool // c is hiding columns one by one
+	beforeCycle   columnState
 
 	// filters (logfilter.go)
 	filter    domain.LogFilter
@@ -402,9 +404,13 @@ func (l *logsScreen) key(m *Model, k tea.KeyPressMsg) (bool, tea.Cmd) {
 		m.flash(map[bool]string{true: "newest first", false: "oldest first"}[l.newestTop])
 	case keys.Is(key, ActTimestamps):
 		l.cycleTime(m)
+	case keys.Is(key, ActCycleColumns):
+		l.cycleColumns(m)
+	case keys.Is(key, ActResetDisplay):
+		l.resetDisplay(m)
 	case keys.Is(key, ActPodID):
 		l.podID = (l.podID + 1) % (podIDNone + 1)
-		l.manualColumns = true
+		l.manualColumns, l.cycling = true, false
 		m.flash("pod id " + [...]string{"short", "full", "hidden"}[l.podID])
 	case keys.Is(key, ActColumns):
 		m.popup = newColumnsPicker(l)
@@ -598,6 +604,9 @@ func (l *logsScreen) renderEntry(m *Model, e *domain.LogEntry, row viewRow, w in
 	opts := ports.RenderOptions{Timestamps: l.timestamps, Now: m.opts.Now(), Hide: l.effectiveHide(w)}
 	for _, s := range m.opts.Renderer.Render(*e, opts) {
 		style := l.segmentStyle(t, e, s.Role)
+		if s.Role == ports.RoleMessage && e.Level == domain.LevelWarn && opts.Hide.Has(ports.ColLevel) {
+			style = t.Warn // the level column no longer says it
+		}
 		if row.context {
 			style = t.Dim
 		}
@@ -765,7 +774,7 @@ func (l *logsScreen) hints(m *Model) []hint {
 	return []hint{
 		m.h(ActFilter, "filter"), m.h(ActLevels, "levels"), m.h(ActFilterMode, "mode"), m.pair(ActNextMatch, ActPrevMatch, "match"),
 		m.h(ActFollow, "follow"), m.h(ActPause, "pause"), m.h(ActWindowNext, "window"), m.h(ActPodScope, "pods"),
-		m.h(ActColumns, "columns"), m.h(ActFocus, "focus"), m.h(ActOpen, "zoom"), m.h(ActHelp, "help"),
+		m.h(ActCycleColumns, "cols"), m.h(ActColumns, "columns"), m.h(ActFocus, "focus"), m.h(ActOpen, "zoom"), m.h(ActHelp, "help"),
 	}
 }
 
@@ -779,8 +788,8 @@ func (l *logsScreen) fullHints(m *Model) []hint {
 		m.h(ActAllLevels, "all"), m.pair(ActNextError, ActPrevError, "error"), m.h(ActOpen, "zoom"),
 		m.h(ActFollow, "follow"), m.h(ActPause, "pause"), m.h(ActWindowNext, "window"), m.h(ActWindowPick, "windows"),
 		{m.label(ActWindow1) + "…" + m.label(ActWindow7) + " " + m.label(ActWindowTail), "15m…2d tail"},
-		m.h(ActPodScope, "pods"), m.h(ActPodSelector, "select pods"), m.h(ActColumns, "columns"), m.h(ActFocus, "focus"),
-		m.h(ActTimestamps, "time"), m.h(ActOrder, "order"), m.h(ActWrap, "wrap"), m.h(ActFullscreen, "fullscreen"),
+		m.h(ActPodScope, "pods"), m.h(ActPodSelector, "select pods"), m.h(ActCycleColumns, "hide next column"), m.h(ActColumns, "columns"),
+		m.h(ActFocus, "focus"), m.h(ActResetDisplay, "reset display"), m.h(ActTimestamps, "time format"), m.h(ActOrder, "order"), m.h(ActWrap, "wrap"), m.h(ActFullscreen, "fullscreen"),
 		m.h(ActBack, "back"), m.h(ActKeyBar, "keys"), m.h(ActHelp, "help"),
 	}
 }

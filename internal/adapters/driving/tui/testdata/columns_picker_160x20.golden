@@ -2,7 +2,7 @@
  pods  all 3    m8q7v Healthy 1 restart v2.14.3   x4k2p H┌────────────────────────────────────────────┐                                                         
  x4k2p 19:13:02.000  INFO [exec-1] i.g.p.PaymentControlle│ Columns                                    │=201 duration=96ms                                       
  m8q7v 19:13:04.000 DEBUG [exec-1] c.z.hikari.pool.Hikari│                                            │tive=12, idle=28, waiting=0)                             
- x4k2p 19:13:07.000  WARN [exec-1] i.g.p.gateway.GatewayC│  t  [x] time                               │er=adyen p95=842ms                                       
+ x4k2p 19:13:07.000  WARN [exec-1] i.g.p.gateway.GatewayC│  t  [x] time  local (f format)             │er=adyen p95=842ms                                       
  m8q7v 19:13:12.000 ERROR [exec-1] i.g.p.PaymentService :│  p  [x] pod                                │a2 traceId=7fd28c90                                      
     io.gimle.payment.PaymentGatewayException: upstream re│  l  [x] level                              │                                                         
  x4k2p 19:13:17.000  INFO [exec-1] i.g.p.PaymentControlle│  h  [x] thread                             │ae status=200 duration=14ms                              
@@ -17,4 +17,4 @@
                                                          │                                            │                                                         
                                                          │ letter toggle  esc close                   │                                                         
  sort name   LIVE   15m  ·  all pods  ·  levels all  ·  oldest first  ·  9/9 lines  ·  buffer 0%  ·  dropped 0                                                  
- t time  p pod  l level  h thread  c class  z message only  r reset  esc close                                                                                  
+ t time  f time format  p pod  l level  h thread  c class  z message only  r reset  esc close                                                                   

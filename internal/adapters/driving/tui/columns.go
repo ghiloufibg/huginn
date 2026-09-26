@@ -16,10 +16,56 @@ const (
 	loggerMinWidth = 110
 )
 
-// columnState is what the focus layout saves and restores.
+// columnState is what the focus layout and the column cycle save and
+// restore.
 type columnState struct {
-	hide  ports.Columns
-	podID podIDMode
+	hide   ports.Columns
+	podID  podIDMode
+	manual bool
+}
+
+// cycleOrder is the order in which c hides columns (docs/DECISIONS.md
+// D-029). The pod column is left out: I cycles it.
+var cycleOrder = []struct {
+	col  ports.Column
+	name string
+}{
+	{ports.ColTime, "time"},
+	{ports.ColLevel, "level"},
+	{ports.ColThread, "thread"},
+	{ports.ColLogger, "class"},
+}
+
+// cycleColumns hides the next shown column of cycleOrder; once none is
+// left, it restores the layout from before the first press. Columns
+// already hidden (by width, C or config) are skipped, so every press
+// changes the line.
+func (l *logsScreen) cycleColumns(m *Model) {
+	hide := l.effectiveHide(m.width)
+	for _, c := range cycleOrder {
+		if hide.Has(c.col) {
+			continue
+		}
+		if !l.cycling {
+			l.beforeCycle = columnState{hide: l.hide, podID: l.podID, manual: l.manualColumns}
+			l.cycling = true
+		}
+		l.hide, l.manualColumns, l.focus = hide.With(c.col), true, false
+		m.flash(c.name + " hidden")
+		return
+	}
+	if l.cycling {
+		b := l.beforeCycle
+		l.hide, l.podID, l.manualColumns, l.cycling = b.hide, b.podID, b.manual, false
+		m.flash("columns restored")
+		return
+	}
+	// All four were hidden another way: show them.
+	for _, c := range cycleOrder {
+		hide = hide.Without(c.col)
+	}
+	l.hide, l.manualColumns, l.focus = hide, true, false
+	m.flash("columns shown")
 }
 
 // effectiveHide is the set of hidden columns for a terminal width.
@@ -39,7 +85,7 @@ func (l *logsScreen) effectiveHide(width int) ports.Columns {
 // toggleColumn flips a column and records a manual choice.
 func (l *logsScreen) toggleColumn(m *Model, c ports.Column, name string) {
 	l.hide = l.effectiveHide(m.width)
-	l.manualColumns, l.focus = true, false
+	l.manualColumns, l.focus, l.cycling = true, false, false
 	if l.hide.Has(c) {
 		l.hide = l.hide.Without(c)
 		m.flash(name + " shown")
@@ -50,7 +96,7 @@ func (l *logsScreen) toggleColumn(m *Model, c ports.Column, name string) {
 }
 
 func (l *logsScreen) togglePod(m *Model) {
-	l.manualColumns, l.focus = true, false
+	l.manualColumns, l.focus, l.cycling = true, false, false
 	if l.podID == podIDNone {
 		l.podID = podIDShort
 		m.flash("pod shown")
@@ -60,21 +106,28 @@ func (l *logsScreen) togglePod(m *Model) {
 	}
 }
 
-// cycleTime goes local → UTC → relative → hidden → local.
+// cycleTime goes local → UTC → relative → local. It never hides the time
+// (c does): when the time is hidden, it shows it in the next format.
 func (l *logsScreen) cycleTime(m *Model) {
-	switch {
-	case l.hide.Has(ports.ColTime):
-		l.hide, l.timestamps = l.hide.Without(ports.ColTime), ports.TimestampLocal
-	case l.timestamps == ports.TimestampRelative:
-		l.hide = l.hide.With(ports.ColTime)
-	default:
+	if l.timestamps >= ports.TimestampRelative {
+		l.timestamps = ports.TimestampLocal
+	} else {
 		l.timestamps++
 	}
-	name := [...]string{"local", "UTC", "relative"}[l.timestamps]
 	if l.hide.Has(ports.ColTime) {
-		name = "hidden"
+		l.hide, l.cycling = l.hide.Without(ports.ColTime), false
 	}
-	m.flash("timestamps " + name)
+	m.flash("time " + timeFormatName(l.timestamps))
+}
+
+func timeFormatName(t ports.TimestampMode) string {
+	switch t {
+	case ports.TimestampUTC:
+		return "UTC"
+	case ports.TimestampRelative:
+		return "relative"
+	}
+	return "local"
 }
 
 // toggleFocus hides pod, thread and logger in one key, or restores the
@@ -87,13 +140,24 @@ func (l *logsScreen) toggleFocus(m *Model) {
 	}
 	l.beforeFocus = columnState{hide: l.hide, podID: l.podID}
 	l.hide = l.hide.With(ports.ColThread).With(ports.ColLogger)
-	l.podID, l.focus, l.manualColumns = podIDNone, true, true
+	l.podID, l.focus, l.manualColumns, l.cycling = podIDNone, true, true, false
 	m.flash("focus layout on")
 }
 
+// resetColumns returns to the configured columns (automatic narrowing
+// when none are configured).
 func (l *logsScreen) resetColumns(m *Model) {
-	l.hide, l.podID, l.focus, l.manualColumns = 0, podIDShort, false, false
+	l.hide, l.podID, l.focus, l.manualColumns, l.cycling = 0, podIDShort, false, false, false
+	l.withColumns(m.opts.LogColumns)
 	m.flash("columns reset")
+}
+
+// resetDisplay puts back how lines look — columns, pod id, time format,
+// pan, wrap — never which lines are shown (filters, window, scope).
+func (l *logsScreen) resetDisplay(m *Model) {
+	l.resetColumns(m)
+	l.timestamps, l.pan, l.wrap = ports.TimestampLocal, 0, false
+	m.flash("display reset")
 }
 
 // columnsLabel lists the shown columns when they differ from the default.
@@ -151,8 +215,10 @@ func (p *columnsPicker) update(m *Model, k tea.KeyPressMsg) tea.Cmd {
 	switch {
 	case key == "z":
 		l.hide = ports.Columns(0).With(ports.ColThread).With(ports.ColLogger).With(ports.ColLevel).With(ports.ColTime)
-		l.podID, l.manualColumns, l.focus = podIDNone, true, false
+		l.podID, l.manualColumns, l.focus, l.cycling = podIDNone, true, false, false
 		m.flash("message only")
+	case key == "f":
+		l.cycleTime(m)
 	case key == "r":
 		l.resetColumns(m)
 	case m.opts.Keys.Is(key, ActBack), m.opts.Keys.Is(key, ActColumns), m.opts.Keys.Is(key, ActOpen):
@@ -175,7 +241,11 @@ func (p *columnsPicker) view(m *Model) string {
 		if on {
 			box = "[x]"
 		}
-		lines = append(lines, " "+t.Key.Render(c.key)+"  "+box+" "+c.name)
+		line := " " + t.Key.Render(c.key) + "  " + box + " " + c.name
+		if c.col == ports.ColTime {
+			line += t.Dim.Render("  "+timeFormatName(l.timestamps)+" (") + t.Key.Render("f") + t.Dim.Render(" format)")
+		}
+		lines = append(lines, line)
 	}
 	lines = append(lines, " "+t.Dim.Render("    [x] message (always shown)"), "",
 		" "+t.Key.Render("z")+"  message only", " "+t.Key.Render("r")+"  reset to defaults")
@@ -194,7 +264,7 @@ func (p *columnsPicker) view(m *Model) string {
 }
 
 func (p *columnsPicker) hints(m *Model) []hint {
-	return []hint{{"t", "time"}, {"p", "pod"}, {"l", "level"}, {"h", "thread"}, {"c", "class"}, {"z", "message only"}, {"r", "reset"}, m.h(ActBack, "close")}
+	return []hint{{"t", "time"}, {"f", "time format"}, {"p", "pod"}, {"l", "level"}, {"h", "thread"}, {"c", "class"}, {"z", "message only"}, {"r", "reset"}, m.h(ActBack, "close")}
 }
 
 // withColumns applies configured columns; none configured keeps the
