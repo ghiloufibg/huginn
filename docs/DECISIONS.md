@@ -81,3 +81,8 @@ Huginn is built as a prototype to be tuned against the real environment later, s
 - **Secrets**: sops is optional. `config.env` values are decrypted lazily and only when a config entry explicitly references a key (e.g. `namespace_from: sops:config.env#K8S_NAMESPACE`); otherwise sops is never invoked.
 Each profile ships with a documented example and table-driven tests, so adapting to the real codebase means editing YAML first and code only if a genuinely new shape appears.
 Status: accepted.
+
+## D-018 Hexagonal architecture with enforced layer rules
+The package layout follows ports & adapters as specified in `docs/ARCHITECTURE.md` (`internal/core/{domain,ports,app}`, `internal/adapters/{driving,driven}/…`, `internal/bootstrap`). Adapters are chosen by name from config through registries, so enterprise-specific behavior is added as a new adapter or config entry, never inside the core. Layer rules are enforced by `depguard` and an import-graph test. `CLAUDE.md` points future agents to these rules.
+Trade-off: more packages and interfaces than a prototype strictly needs, accepted because the explicit goal is to port Huginn onto an enterprise codebase later. Supersedes the flat layout proposed initially.
+Status: accepted.
