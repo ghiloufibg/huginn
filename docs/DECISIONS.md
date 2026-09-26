@@ -100,3 +100,7 @@ Supersedes the symbol part of D-011 and the keys of D-019 where they differ.
 - **Debugging views**: zoom shows fields, stack trace with own frames bold and framework frames dimmed/folded, and 3 lines of same-pod context; `v` (view trace) filters every pod of the service on the entry's traceId and shows a time delta column; error groups show a per-group trend sparkline and correlate onset with rollouts; the error state keeps showing the last cached data greyed out.
 - **Keys**: `c` timestamps, `I` pod id, `v` view trace, `ctrl+a` stack another filter, `a` all levels, `ctrl+t` search trace across repos (V2).
 Status: accepted, pending design review.
+
+## D-021 Toolchain: Go 1.26, Bubble Tea v2, client-go v0.37
+Current client-go (v0.37.x) and Bubble Tea v2 (`charm.land/bubbletea/v2`) both require Go ≥ 1.26, so the module targets Go 1.26. Bubble Tea v2 over v1: current major line and richer key events (can tell `ctrl+i` from `tab` on terminals supporting keyboard enhancements; D-007 fallback stays for others). client-go is only imported from M4, keeping M0–M3 builds light.
+Status: accepted.
