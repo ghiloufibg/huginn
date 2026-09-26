@@ -279,6 +279,12 @@ The standard fields are:
 | `app` | Application name. |
 | `pid` | Process id. |
 
+Some details of how lines are read:
+- **Numbers** are shown as written in the line, so long ids keep all their digits.
+- **Repeated keys**: when an object repeats a key, the first occurrence wins.
+- **Hidden objects**: a hidden key that holds an object hides the whole object.
+- **Invalid UTF-8**: bytes that aren't valid UTF-8 are shown as `�`.
+
 Every other field of the object stays available:
 - zoom shows it;
 - text filters search it (`key=value`);

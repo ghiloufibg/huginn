@@ -95,7 +95,7 @@ func (d *RegexDecoder) time(v string) (time.Time, bool) {
 		t, err := time.Parse(d.p.TimeFormat, v)
 		return t, err == nil
 	}
-	return parseTime(v)
+	return parseTimeText(v)
 }
 
 func (d *RegexDecoder) levelFrom(v string) domain.Level {

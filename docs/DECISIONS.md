@@ -226,3 +226,15 @@ Measured on the real binary in a 200×50 terminal, demo streaming 400 lines/s ov
 - **Diagnosis in the field**: `HUGINN_CPUPROFILE=<file>` writes a CPU profile of the session (`go tool pprof`), next to the existing `HUGINN_DEBUG` log.
 - **Not done**: the terminal renderer's diffing cost belongs to Bubble Tea and is only limited by the frame rate. Replacing `encoding/json` with a streaming parser could halve decode time again; this is not needed at the target rates.
 Status: accepted.
+
+## D-033 fastjson for the JSON log decoder
+- **Why**: decoding is the main per-line cost on the client, since in production nothing generates lines. `encoding/json` into `map[string]any` uses reflection and allocates a map for every object. `github.com/valyala/fastjson` (MIT, no dependencies) parses into a reusable tree, from a `ParserPool` safe across goroutines. The profile's paths are read from that tree and hidden subtrees are skipped without being built. Strings are copied out before the parser is reused. The standard library's `encoding/json/jsontext` needs `GOEXPERIMENT=jsonv2` in Go 1.26, so it is not an option yet.
+- **Gain** (logstash line with Kubernetes metadata): 12.7 → 3.5 µs, 4.1 KB → 0.7 KB, 89 → 23 allocations per line, about 280 000 lines/s per core (43 000 at M2). Retained memory for 50 000 entries: 87 → 77 MB.
+- **Same results**: the former implementation is kept in `oracle_test.go`, and a differential fuzz test compares both on arbitrary input. Four minutes of fuzzing pass. The differences it found are deliberate and documented in docs/CONFIG.md:
+  - **numbers**: they keep the text written in the line (a 19-digit id is no longer rounded through float64);
+  - **invalid UTF-8**: each bad byte becomes U+FFFD, as with encoding/json;
+  - **repeated keys**: when an object repeats a key, the first occurrence wins, consistently in lookups and extra fields (encoding/json kept the last);
+  - **hidden objects**: a hidden key holding an object hides the whole object (its children used to leak as fields);
+  - **literal dotted keys**: a key with a literal dot next to a consumed field (`level.x` beside `level`) stays visible (it was wrongly dropped).
+  - Keys that flatten to the same dotted path (`"."` and an empty key under an empty key) remain ambiguous in both implementations and are not compared.
+Status: accepted.
