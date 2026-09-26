@@ -55,3 +55,20 @@ Status: accepted.
 ## D-013 Personal tool: no license, lightweight distribution
 Huginn is a personal tool: no LICENSE file, no Homebrew tap or Scoop bucket. goreleaser still builds static binaries for linux/darwin/windows × amd64/arm64 attached to GitHub releases, plus `go install` instructions.
 Status: accepted.
+
+## D-014 Logs are always rendered as Spring Boot 3 console lines
+All backend services are Spring Boot 3 and emit JSON logs that carry Kubernetes metadata, which is noisy for a developer. Huginn parses each JSON line and **re-renders it in the default Spring Boot 3 console layout**:
+`2026-09-26T19:12:40.104+02:00  INFO 18472 --- [app-name] [http-nio-8080-exec-1] i.g.payment.PaymentController : message`
+(timestamp, 5-char right-aligned level, PID, `---`, application name, thread, abbreviated logger, `:` message), colored like Spring's ANSI output but adapted to the light theme. Stack traces from the JSON are printed under the line and are foldable. Kubernetes enrichment fields are hidden in the stream and visible only in zoom mode (`Enter`), under a collapsed "metadata" section. Non-JSON lines (e.g. startup banner, JVM crash output) are shown raw with level `unknown`. The field mapping (timestamp/level/logger/thread/message/stack/trace id) is configurable, with defaults to be set from a real sample line.
+The `p` key toggles between the Spring view (default) and pretty-printed JSON, instead of toggling pretty-print on raw JSON.
+Status: accepted; field defaults pending a sample.
+
+## D-015 No authentication handling in the TUI (this version)
+The user authenticates with gcloud before launching Huginn. Huginn only uses the current kubeconfig contexts as-is. If an API call fails with 401/403 or a credential-plugin error, the error panel shows the raw cause and a generic hint (`gcloud auth login` / `gcloud container clusters get-credentials …`) with a retry key; no auth detection or flow beyond that. Supersedes the auth part of M4.
+Status: accepted.
+
+## D-016 SOPS inputs are per-overlay `config.env` files
+Secrets live in `config.env` files per Kustomize overlay, encrypted with sops in dotenv format; decryption uses `sops -d --input-type dotenv --output-type dotenv` with output kept in memory only. Values are never displayed or exported. Which keys (if any) Huginn needs from them is still open.
+Status: accepted; scope pending.
+
+D-010 is now mostly moot: level always comes from the JSON level field.
