@@ -361,7 +361,8 @@ func (idx podIndex) podsOf(ws []domain.Workload) []domain.Pod {
 				out = append(out, p)
 			}
 		}
-		if len(w.Selector) == 0 && !(w.Standalone && w.Ref.Kind == domain.KindPod) {
+		bare := w.Standalone && w.Ref.Kind == domain.KindPod
+		if len(w.Selector) == 0 && !bare {
 			continue
 		}
 		for _, p := range idx.unowned[w.Ref.Namespace] {
