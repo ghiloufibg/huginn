@@ -1,0 +1,16 @@
+# yaml-language-server: $schema=../../../docs/schema/environments.schema.json
+# The lab: one local cluster, one namespace per environment.
+# With minikube, replace kind-huginn by minikube. The environment "restricted"
+# uses the read-only identity of rbac.yaml (context created by README.md) to
+# test a forbidden namespace.
+version: 1
+environments:
+  dev:
+    context: kind-huginn
+    namespaces: [app-dev]
+  rec:
+    context: kind-huginn
+    namespaces: [app-rec]
+  restricted:
+    context: huginn-restricted
+    namespaces: [app-rec, app-dev]

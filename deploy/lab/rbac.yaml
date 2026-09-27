@@ -1,0 +1,22 @@
+# A read-only identity limited to app-rec, to test Huginn against the
+# permissions a developer usually has (and a forbidden namespace).
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: huginn-reader, namespace: app-rec}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: huginn-reader, namespace: app-rec}
+rules:
+  - apiGroups: [""]
+    resources: [pods, pods/log, events]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [deployments, replicasets, statefulsets, daemonsets]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: huginn-reader, namespace: app-rec}
+subjects: [{kind: ServiceAccount, name: huginn-reader, namespace: app-rec}]
+roleRef: {kind: Role, name: huginn-reader, apiGroup: rbac.authorization.k8s.io}

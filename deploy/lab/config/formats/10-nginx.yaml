@@ -1,0 +1,14 @@
+# yaml-language-server: $schema=../../../../docs/schema/format.schema.json
+# nginx "combined" access lines:
+# 10.0.0.7 - - [26/Sep/2026:19:12:40 +0200] "GET /cart HTTP/1.1" 503 512 "-" "Mozilla/5.0"
+# Files are tried in name order: the 10- prefix puts this one first.
+version: 1
+decoder: regex
+match:
+  containers: ["nginx*"]
+pattern: '^(?P<remote>\S+) \S+ \S+ \[(?P<time>[^\]]+)\] "(?P<message>[^"]*)" (?P<status>\d{3}) (?P<bytes>\d+)'
+time_format: "02/Jan/2006:15:04:05 -0700"
+level_from:
+  field: status
+  map: { "5*": error, "4*": warn, "*": info }
+layout: access

@@ -1,0 +1,27 @@
+# yaml-language-server: $schema=../../../docs/schema/containers.schema.json
+# Which containers are sidecars (hidden from the logs screen).
+# Reference: docs/CONFIG.md#containersyaml
+version: 1
+
+hide:                          # container names (name and name-*) or image names
+  - istio-proxy
+  - istio-init
+  - istio-validation
+  - linkerd-proxy
+  - linkerd-init
+  - vault-agent
+  - vault-agent-init
+  - cloud-sql-proxy
+  - cloudsql-proxy
+  - fluent-bit
+  - fluentd
+  - filebeat
+  - otel-collector
+  - opentelemetry-collector
+  - datadog-agent
+  - config-reloader
+  - envoy
+  - oauth2-proxy
+  - traffic        # the curl loop next to nginx in workloads.yaml
+always_show: []
+show_init: false

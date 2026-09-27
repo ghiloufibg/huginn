@@ -1,0 +1,18 @@
+# kind cluster for Huginn's M4 lab (deploy/lab/up.sh). The containerd patch lets pods start
+# in nested or rootless environments that cannot lower OOM scores (the
+# control-plane pods ask for -998).
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: huginn
+containerdConfigPatches:
+  - |-
+    [plugins."io.containerd.cri.v1.runtime"]
+      restrict_oom_score_adj = true
+    [plugins."io.containerd.grpc.v1.cri"]
+      restrict_oom_score_adj = true
+# Kubernetes >= 1.35 refuses cgroup v1 hosts by default; some CI sandboxes
+# still run cgroup v1.
+kubeadmConfigPatches:
+  - |
+    kind: KubeletConfiguration
+    failCgroupV1: false

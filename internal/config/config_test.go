@@ -68,6 +68,7 @@ func TestMinimalFolderLoadsWithNeutralDefaults(t *testing.T) {
 
 func TestExamplesLoad(t *testing.T) {
 	dirs, _ := filepath.Glob("../../examples/config*")
+	dirs = append(dirs, "../../deploy/lab/config")
 	if len(dirs) == 0 {
 		t.Fatal("no example folder")
 	}

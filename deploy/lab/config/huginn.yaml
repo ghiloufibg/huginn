@@ -1,0 +1,18 @@
+# yaml-language-server: $schema=../../../docs/schema/huginn.schema.json
+# General settings. Reference: docs/CONFIG.md#huginnyaml
+version: 1
+
+# Environment opened by `huginn` without argument; a key of environments.yaml.
+default_env: rec
+
+# Folder holding your repositories (only needed by the manifests rule of
+# services.yaml).
+# repos_root: ~/work/repos
+
+windows:                       # keys 1…7, then 0 for the tail
+  presets: [15m, 30m, 40m, 45m, 1h, 1d, 2d]
+  tail_lines: 500
+  default: 15m
+
+logs:
+  buffer_lines: 50000          # lines kept per logs screen

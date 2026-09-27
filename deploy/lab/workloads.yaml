@@ -1,0 +1,166 @@
+# Dummy workloads for Huginn M4 tests (kind or minikube; see README.md).
+# Everything uses images loaded into the node (alpine:3.20, nginx:1.27-alpine),
+# so the cluster needs no registry access.
+apiVersion: v1
+kind: Namespace
+metadata: {name: app-rec}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: app-dev}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: loggen, namespace: app-rec}
+data: {}  # filled by up.sh from loggen.sh
+---
+# Healthy repository with a sidecar and an init container, 2 replicas.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-service
+  namespace: app-rec
+  labels: {app.kubernetes.io/part-of: payment-service, app.kubernetes.io/name: payment-service}
+spec:
+  replicas: 2
+  selector: {matchLabels: {app: payment-service}}
+  template:
+    metadata:
+      labels: {app: payment-service, app.kubernetes.io/part-of: payment-service}
+    spec:
+      initContainers:
+        - {name: istio-init, image: "alpine:3.20", imagePullPolicy: Never, command: [sh, -c, "echo iptables rules applied"]}
+      containers:
+        - name: payment-service
+          image: "alpine:3.20"
+          imagePullPolicy: Never
+          command: [sh, /scripts/loggen.sh]
+          env: [{name: APP, value: payment-service}, {name: RATE_MS, value: "300"}]
+          volumeMounts: [{name: scripts, mountPath: /scripts}]
+          readinessProbe: {exec: {command: ["true"]}, periodSeconds: 5}
+        - name: istio-proxy
+          image: "alpine:3.20"
+          imagePullPolicy: Never
+          command: [sh, -c, 'while :; do echo "[$(date -u +%FT%TZ)] \"GET /v1/payments HTTP/1.1\" 200 - via_upstream"; sleep 2; done']
+      volumes: [{name: scripts, configMap: {name: loggen}}]
+---
+# Second workload of the same repository.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-worker
+  namespace: app-rec
+  labels: {app.kubernetes.io/part-of: payment-service}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: payment-worker}}
+  template:
+    metadata: {labels: {app: payment-worker, app.kubernetes.io/part-of: payment-service}}
+    spec:
+      containers:
+        - name: payment-worker
+          image: "alpine:3.20"
+          imagePullPolicy: Never
+          command: [sh, /scripts/loggen.sh]
+          env: [{name: APP, value: payment-worker}, {name: RATE_MS, value: "1000"}]
+          volumeMounts: [{name: scripts, mountPath: /scripts}]
+      volumes: [{name: scripts, configMap: {name: loggen}}]
+---
+# CrashLoopBackOff: logs a few lines then exits 1.
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: catalog-indexer, namespace: app-rec, labels: {app.kubernetes.io/part-of: catalog-indexer}}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: catalog-indexer}}
+  template:
+    metadata: {labels: {app: catalog-indexer, app.kubernetes.io/part-of: catalog-indexer}}
+    spec:
+      containers:
+        - name: catalog-indexer
+          image: "alpine:3.20"
+          imagePullPolicy: Never
+          command: [sh, -c, 'echo "{\"@timestamp\":\"$(date -u +%FT%T.000Z)\",\"level\":\"ERROR\",\"logger_name\":\"io.gimle.catalog.Indexer\",\"message\":\"cannot connect to elasticsearch:9200\"}"; sleep 3; exit 1']
+---
+# OOMKilled: allocates past its memory limit.
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: order-orchestrator, namespace: app-rec, labels: {app.kubernetes.io/part-of: order-orchestrator}}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: order-orchestrator}}
+  template:
+    metadata: {labels: {app: order-orchestrator, app.kubernetes.io/part-of: order-orchestrator}}
+    spec:
+      containers:
+        - name: order-orchestrator
+          image: "alpine:3.20"
+          imagePullPolicy: Never
+          command: [sh, -c, 'echo "{\"level\":\"INFO\",\"message\":\"loading cache\"}"; sleep 2; head -c 200m /dev/zero | tail > /dev/null']
+          resources: {limits: {memory: 32Mi}}
+---
+# ImagePullBackOff: the image does not exist.
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: document-renderer, namespace: app-rec, labels: {app.kubernetes.io/part-of: document-renderer}}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: document-renderer}}
+  template:
+    metadata: {labels: {app: document-renderer, app.kubernetes.io/part-of: document-renderer}}
+    spec:
+      containers:
+        - {name: document-renderer, image: "registry.invalid/acme/document-renderer:v1.11.0"}
+---
+# Pending: requests more memory than the node has.
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: email-dispatcher, namespace: app-rec, labels: {app.kubernetes.io/part-of: email-dispatcher}}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: email-dispatcher}}
+  template:
+    metadata: {labels: {app: email-dispatcher, app.kubernetes.io/part-of: email-dispatcher}}
+    spec:
+      containers:
+        - name: email-dispatcher
+          image: "alpine:3.20"
+          imagePullPolicy: Never
+          command: [sleep, infinity]
+          resources: {requests: {memory: 512Gi}}
+---
+# Text logs: nginx access lines, for a regex format.
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: storefront-web, namespace: app-rec, labels: {app.kubernetes.io/part-of: storefront}}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: storefront-web}}
+  template:
+    metadata: {labels: {app: storefront-web, app.kubernetes.io/part-of: storefront}}
+    spec:
+      containers:
+        - name: nginx
+          image: "nginx:1.27-alpine"
+          imagePullPolicy: Never
+        - name: traffic
+          image: "alpine:3.20"
+          imagePullPolicy: Never
+          command: [sh, -c, 'while :; do wget -qO- http://localhost/ >/dev/null; wget -qO- http://localhost/missing >/dev/null 2>&1; sleep 1; done']
+---
+# A StatefulSet in another environment's namespace.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: {name: ledger-writer, namespace: app-dev, labels: {app.kubernetes.io/part-of: ledger-writer}}
+spec:
+  replicas: 1
+  serviceName: ledger-writer
+  selector: {matchLabels: {app: ledger-writer}}
+  template:
+    metadata: {labels: {app: ledger-writer, app.kubernetes.io/part-of: ledger-writer}}
+    spec:
+      containers:
+        - name: ledger-writer
+          image: "alpine:3.20"
+          imagePullPolicy: Never
+          command: [sh, -c, 'while :; do echo "{\"level\":\"INFO\",\"message\":\"batch written\"}"; sleep 5; done']
