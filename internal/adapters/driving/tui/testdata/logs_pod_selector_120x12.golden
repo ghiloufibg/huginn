@@ -1,12 +1,12 @@
- huginn  REC  gke_acme_europe-west1_mai…   services / payment-service / logs / pods   demo · watching · synced 19:14:02 
- Select pods of payment-service   3 pods                                                                                
+ huginn  REC  gke_acme_e…   services / payment-service / logs / pods and containers   demo · watching · synced 19:14:02 
+ Select pods and containers of payment-service   3 pods · 4 containers                                                  
                                                                                                                         
+ PODS                                                                                                                   
  [x] payment-service-5d6f4c9b8d-p3w1n  Healthy                                                                          
  [x] payment-service-7b9c8d4f6c-m8q7v  Healthy                                                                          
  [x] payment-service-7b9c8d4f6c-x4k2p  Healthy                                                                          
                                                                                                                         
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
- sort name   PODS   3 of 3 selected                                                                                     
- j/k move  space toggle  a all  / by name  enter apply  esc cancel  ? help                                              
+ CONTAINERS                                                                                                             
+ [x] payment-service                   application                                                                      
+ sort name   SELECT   3 of 3 pods · 1 of 4 containers                                                                   
+ j/k move  tab pods/containers  space toggle  a all  / by name  enter apply  esc cancel  ? help                         

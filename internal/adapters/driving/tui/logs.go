@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -63,6 +64,12 @@ type logsScreen struct {
 	podColor map[string]int
 	notice   string
 	scope    map[string]bool // selected pods; nil means all
+	// containerMode is the containers streamed (A switches: application
+	// containers, or all); containerScope the containers shown (nil: all
+	// streamed ones), chosen in the selector (S).
+	containerMode  domain.ContainerMode
+	containerScope map[string]bool
+	roles          map[string]map[string]domain.ContainerRole // pod → container → role
 	// multiContainer: some pod streams several containers, so the pod
 	// column names the container too.
 	multiContainer bool
@@ -125,6 +132,7 @@ func newLogsScreen(m *Model, repo string) *logsScreen {
 		repo: repo, window: m.opts.Window, follow: true, tail: true,
 		buf: domain.NewLogBuffer(m.opts.BufferLines), podColor: map[string]int{},
 		filter: domain.NewLogFilter(), hide: initialHide(m.opts.Columns),
+		containerMode: m.opts.ContainerMode,
 	}).withColumns(m.opts.LogColumns, m.opts.Columns)
 }
 
@@ -152,7 +160,7 @@ func (l *logsScreen) open(m *Model) tea.Cmd {
 	ctx, cancel := context.WithCancel(m.opts.Context)
 	l.cancel = cancel
 	gen, sessions := l.gen, m.opts.Sessions
-	q := ports.LogQuery{Env: domain.Env(m.env.Name), Repo: l.repo, Window: l.window, Follow: l.follow, Previous: l.previous}
+	q := ports.LogQuery{Env: domain.Env(m.env.Name), Repo: l.repo, Window: l.window, Follow: l.follow, Previous: l.previous, Containers: l.containerMode}
 	return func() tea.Msg {
 		ch, err := sessions.Open(ctx, q)
 		return logStartedMsg{screen: l, gen: gen, ch: ch, err: err}
@@ -231,7 +239,9 @@ func (l *logsScreen) apply(b ports.LogBatch, now time.Time) {
 	if b.Pods != nil {
 		l.pods = b.Pods
 		l.multiContainer, l.containerWidth = false, 0
+		l.roles = make(map[string]map[string]domain.ContainerRole, len(b.Pods))
 		for _, p := range b.Pods {
+			l.roles[p.Pod.Name] = p.Roles
 			l.multiContainer = l.multiContainer || len(p.Containers) > 1
 			for _, c := range p.Containers {
 				l.containerWidth = max(l.containerWidth, len(c))
@@ -309,7 +319,7 @@ func (l *logsScreen) ingest(entries []domain.LogEntry) {
 	for _, e := range entries {
 		l.noteFormat(e.Format)
 		seq := l.buf.Append(e)
-		if !l.inScope(e.Pod) || l.dirty {
+		if !l.entryInScope(&e) || l.dirty {
 			continue
 		}
 		if l.needsFullSelect() {
@@ -356,6 +366,43 @@ func (l *logsScreen) evict() {
 
 func (l *logsScreen) inScope(pod string) bool { return l.scope == nil || l.scope[pod] }
 
+// entryInScope applies the pod and container selections.
+func (l *logsScreen) entryInScope(e *domain.LogEntry) bool {
+	return l.inScope(e.Pod) && (l.containerScope == nil || l.containerScope[e.Container])
+}
+
+// isSidecar tells whether a container of a pod is not an application
+// container (its lines are drawn dimmer).
+func (l *logsScreen) isSidecar(pod, container string) bool {
+	return l.roles[pod][container] != domain.RoleApp
+}
+
+// setContainerMode switches the streamed containers and reopens.
+func (l *logsScreen) setContainerMode(m *Model, mode domain.ContainerMode) tea.Cmd {
+	l.containerMode = mode
+	if mode == domain.ContainersApp {
+		l.containerScope = nil // sidecars are no longer streamed
+	}
+	m.flash(map[domain.ContainerMode]string{
+		domain.ContainersApp: "application containers",
+		domain.ContainersAll: "all containers (sidecars and init)",
+	}[mode])
+	return l.open(m)
+}
+
+// containersLabel describes the container selection for the status bar,
+// "" for the default.
+func (l *logsScreen) containersLabel(m *Model) string {
+	switch {
+	case len(l.containerScope) > 0:
+		names := slices.Sorted(maps.Keys(l.containerScope))
+		return "containers " + strings.Join(names, ",")
+	case l.containerMode != m.opts.ContainerMode:
+		return "containers " + l.containerMode.String()
+	}
+	return ""
+}
+
 // rebuild recomputes the rows after the scope or the filters changed,
 // keeping the cursor on the same entry when it is still shown.
 func (l *logsScreen) rebuild() {
@@ -391,7 +438,7 @@ func (l *logsScreen) rebuildFrom(keep uint64) {
 	}
 	idx := l.idxBuf[:0]
 	for i := range l.buf.Len() {
-		if l.inScope(l.buf.At(i).Pod) {
+		if l.entryInScope(l.buf.At(i)) {
 			idx = append(idx, i)
 		}
 	}
@@ -524,6 +571,12 @@ func (l *logsScreen) key(m *Model, k tea.KeyPressMsg) (bool, tea.Cmd) {
 		l.follow = !l.follow
 		m.flash(onOff("follow", l.follow))
 		return true, l.open(m)
+	case keys.Is(key, ActAllContainers):
+		mode := domain.ContainersAll
+		if l.containerMode == domain.ContainersAll {
+			mode = domain.ContainersApp
+		}
+		return true, l.setContainerMode(m, mode)
 	case keys.Is(key, ActPreviousLogs):
 		l.previous = !l.previous
 		m.flash(map[bool]string{true: "previous instance of the restarted containers", false: "current logs"}[l.previous])
@@ -588,7 +641,7 @@ func (l *logsScreen) key(m *Model, k tea.KeyPressMsg) (bool, tea.Cmd) {
 		l.cycleScope()
 		m.flash("scope " + l.scopeLabel())
 	case keys.Is(key, ActPodSelector):
-		return true, m.push(newPodSelector(l))
+		return true, m.push(newPodSelector(m, l))
 	case keys.Is(key, ActOpen):
 		if e, ok := l.entryAt(l.displayCursor()); ok {
 			return true, m.push(newZoomScreen(l, e.Seq))
@@ -810,11 +863,17 @@ func (l *logsScreen) renderRows(m *Model, e *domain.LogEntry, row viewRow, w int
 	var b strings.Builder
 	b.WriteString(" ")
 	if id := l.podLabel(e.Pod); id != "" {
-		if l.multiContainer && e.Container != "" {
-			// Two application containers in one pod: say which wrote it.
-			id += "/" + padRight(e.Container, l.containerWidth)
-		}
 		b.WriteString(m.podInk(l.podColor[e.Pod]).paint(id))
+		if l.multiContainer && e.Container != "" {
+			// Several containers in one pod: say which wrote it, sidecars
+			// dimmer.
+			name := "/" + padRight(e.Container, l.containerWidth)
+			if l.isSidecar(e.Pod, e.Container) {
+				b.WriteString(m.dim().paint(name))
+			} else {
+				b.WriteString(m.podInk(l.podColor[e.Pod]).paint(name))
+			}
+		}
 		b.WriteByte(' ')
 	}
 	filtering := l.filter.Active()
@@ -1052,6 +1111,9 @@ func (l *logsScreen) statusLeft(m *Model) string {
 		window = "whole instance" // the window does not apply
 	}
 	fields := []string{window, scope, "levels " + levelsLabel(l.filter.Levels)}
+	if c := l.containersLabel(m); c != "" {
+		fields = append(fields[:2], append([]string{c}, fields[2:]...)...)
+	}
 	if f := l.filterSummary(); f != "" {
 		fields = append(fields, f)
 	}
@@ -1108,7 +1170,7 @@ func (l *logsScreen) fullHints(m *Model) []hint {
 		m.h(ActAllLevels, "all"), m.pair(ActNextError, ActPrevError, "error"), m.h(ActOpen, "zoom"),
 		m.h(ActFollow, "follow"), m.h(ActPause, "pause"), m.h(ActWindowNext, "window"), m.h(ActWindowPick, "windows"),
 		{m.label(ActWindow1) + "…" + m.label(ActWindow7) + " " + m.label(ActWindowTail), "15m…2d tail"},
-		m.h(ActPodScope, "pods"), m.h(ActPodSelector, "select pods"), m.h(ActCycleColumns, "hide next column"), m.h(ActColumns, "columns"),
+		m.h(ActPodScope, "pods"), m.h(ActPodSelector, "select pods/containers"), m.h(ActAllContainers, "all containers"), m.h(ActCycleColumns, "hide next column"), m.h(ActColumns, "columns"),
 		m.h(ActPreviousLogs, "previous instance"), m.h(ActFocus, "focus"), m.h(ActResetDisplay, "reset display"), m.h(ActTimestamps, "time format"), m.h(ActOrder, "order"), m.h(ActWrap, "wrap"), m.h(ActFullscreen, "fullscreen"),
 		m.h(ActBack, "back"), m.h(ActKeyBar, "keys"), m.h(ActHelp, "help"),
 	}

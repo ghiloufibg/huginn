@@ -17,4 +17,4 @@
                                                                                                                                                                 
  key bar full   LIVE   2 errors · 1 warning  ·  15m  ·  all pods  ·  levels all  ·  oldest first  ·  9/9 lines  ·  buffer 0%  ·  dropped 0                      
  / filter  x filter/highlight  n/N match  X context  l levels  e errors  w warn+  a all  >/< error  enter zoom  f follow  space pause  t window  T windows      
- 1…7 0 15m…2d tail  tab pods  S select pods  c hide next column  C columns  P previous instance  z focus  R reset display  ctrl+t time format  o order  ? help  
+ 1…7 0 15m…2d tail  tab pods  S select pods/containers  A all containers  c hide next column  C columns  P previous instance  z focus  R reset display  ? help  

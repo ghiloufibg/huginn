@@ -7,7 +7,7 @@
  DEGRADED/PENDING 2                                                                                                                 │ WARNINGS                                                                              
  billing-gateway         2    1/3  Degraded            7    9m  v3.9.2            47m  1 of 3 replicas available                    │   30s  BackOff (x87)                                                                  
  email-dispatcher        1    1/2  Pending             0     -  v1.6.9             8m  1 pod pending: 0/6 nodes are available: 6 In…│     Back-off restarting failed container app in pod catalog-indexer-7d4b9c-6kq2x      
- ROLLING 2                                                                                                                          │ HIDDEN                                                                                
+ ROLLING 2                                                                                                                          │ SIDECARS                                                                              
  ledger-writer           1    2/2  Progressing         3   26m  a41c9e2           26m  rollout a41c9e2: 0/2 updated                 │   istio-proxy                                                                         
  notification-worker     1    2/3  Progressing         1    3h  v1.7.9→v1.8.0      3h  rollout v1.7.9→v1.8.0: 0/3 updated           │                                                                                       
  HEALTHY 7                                                                                                                          │                                                                                       

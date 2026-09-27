@@ -8,7 +8,7 @@
  PODS       m8q7v  Healthy  1/1 ready   1 restart  gke-main-pool-2-9c1f  12d                                            
             x4k2p  Healthy  1/1 ready  0 restarts  gke-main-pool-2-9c1f  12d                                            
  WARNINGS   ⠋ reading events of m8q7v                                                                                   
- HIDDEN     istio-init, istio-proxy, vault-agent                                                                        
+ SIDECARS   istio-init, istio-proxy, vault-agent                                                                        
                                                                                                                         
                                                                                                                         
                                                                                                                         

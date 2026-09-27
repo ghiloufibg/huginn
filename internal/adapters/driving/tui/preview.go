@@ -173,7 +173,7 @@ func (p *preview) render(m *Model, svc domain.ServiceSummary, w, h int) string {
 		{"WORKLOADS", p.workloads(m, svc)},
 		{"PODS", p.pods(m, svc, now)},
 		{"WARNINGS", p.warnings(m, now, stackWrap(w))},
-		{"HIDDEN", p.hidden(m, svc)},
+		{"SIDECARS", p.hidden(m, svc)},
 	}
 	alloc := make([]int, len(sections))
 	avail := h - 1

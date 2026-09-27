@@ -73,7 +73,7 @@ func TestPreviewFollowsCursorAndReadsEventsOnRest(t *testing.T) {
 		t.Fatalf("%d reads, want 1", events.calls)
 	}
 	out = ansi.Strip(render(m, 160, 30))
-	for _, want := range []string{"WORKLOADS  Deployment catalog-indexer  0/2 ready", "PODS       6kq2x  CrashLoopBackOff", "WARNINGS    30s  BackOff  Back-off restarting failed container app", "(x87)", "HIDDEN     istio-proxy"} {
+	for _, want := range []string{"WORKLOADS  Deployment catalog-indexer  0/2 ready", "PODS       6kq2x  CrashLoopBackOff", "WARNINGS    30s  BackOff  Back-off restarting failed container app", "(x87)", "SIDECARS   istio-proxy"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("preview misses %q:\n%s", want, out)
 		}

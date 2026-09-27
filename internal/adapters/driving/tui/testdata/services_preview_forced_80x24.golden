@@ -17,7 +17,7 @@
    6kq2x  CrashLoopBackOff  0/1 ready  23 restarts  last: Error exit 1, 4m ago  
  WARNINGS                                                                       
    ⠋ reading events of 6kq2x                                                    
- HIDDEN                                                                         
+ SIDECARS                                                                       
    istio-proxy                                                                  
                                                                                 
  preview on   SERVICES   14 repos + 1 without repo · 3 failing · 2 degraded/pe… 

@@ -304,6 +304,10 @@ func (s *servicesScreen) cells(r domain.ServiceSummary, now time.Time, t Theme, 
 	name := cell{text: r.Repo, style: t.Bold}
 	if r.Unassigned {
 		name = cell{text: r.Repo + " (no repo)", style: t.Dim}
+		if len(r.WorkloadStates) > 0 && r.WorkloadStates[0].Standalone {
+			// a pod group no workload owns: say what it is
+			name.text = r.Repo + " (" + string(r.WorkloadStates[0].Ref.Kind) + ")"
+		}
 	}
 	status := cell{text: r.Status.String(), style: t.statusStyle(r.Status)}
 	if s.changes.recent(r.Repo, now) {
