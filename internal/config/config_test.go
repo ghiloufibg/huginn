@@ -199,3 +199,20 @@ func TestSchemas(t *testing.T) {
 		t.Fatalf("schemas: %d %v", len(s), err)
 	}
 }
+
+func TestContainersModeAndStandalonePods(t *testing.T) {
+	c, msg := load(t, valid())
+	if msg != "" || c.Containers.DefaultMode != "" || !c.Services.ShowStandalone() {
+		t.Fatalf("defaults: %q %+v", msg, c.Services)
+	}
+	fs := valid()
+	fs["containers.yaml"] = &fstest.MapFile{Data: []byte("version: 1\ndefault_mode: all\n")}
+	fs["services.yaml"] = &fstest.MapFile{Data: []byte("version: 1\nresolve: [labels]\nlabel_keys: [app]\nstandalone_pods: false\n")}
+	c, msg = load(t, fs)
+	if msg != "" || c.Containers.DefaultMode != "all" || c.Services.ShowStandalone() {
+		t.Fatalf("set: %q %+v %+v", msg, c.Containers, c.Services)
+	}
+	fs["containers.yaml"] = &fstest.MapFile{Data: []byte("version: 1\ndefault_mode: sidecars\n")}
+	_, msg = load(t, fs)
+	wantErrors(t, msg, "containers.yaml", "default_mode")
+}

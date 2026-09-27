@@ -138,6 +138,15 @@ func Build(o cli.Options, e Env, log *slog.Logger) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
+	mode, err := domain.ParseContainerMode(c.Containers.DefaultMode)
+	if err != nil {
+		return nil, err
+	}
+	if o.Containers != "" {
+		if mode, err = domain.ParseContainerMode(o.Containers); err != nil {
+			return nil, fmt.Errorf("--containers: %w", err)
+		}
+	}
 	if o.Since != "" {
 		if window, err = domain.ParseTimeWindow(o.Since, w.TailLines); err != nil {
 			return nil, fmt.Errorf("--since: %w", err)
@@ -180,7 +189,7 @@ func Build(o cli.Options, e Env, log *slog.Logger) (*App, error) {
 			Sessions: newLogSessions(c, sc, cluster, clk, filter, lp.decoders, log),
 			Events:   newPodEvents(sc, cluster),
 			Layouts:  lp.layouts, Layout: lp.fallback, Columns: lp.columns,
-			Windows: windows(c), Window: window,
+			Windows: windows(c), Window: window, ContainerMode: mode,
 			BufferLines: c.Huginn.Logs.BufferLines, KeyBar: c.UI.KeyBar, LogColumns: c.UI.LogColumns,
 		},
 	}, nil

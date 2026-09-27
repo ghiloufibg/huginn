@@ -96,7 +96,12 @@ type Services struct {
 	LabelKeys []string      `yaml:"label_keys" doc:"Workload labels or annotations whose value is the repository name (rule labels)."`
 	Manifests Manifests     `yaml:"manifests" doc:"Where to find an environment's Kubernetes manifests in a repository (rule manifests)."`
 	Explicit  []RepoMapping `yaml:"explicit" doc:"Repositories and their workloads, listed by hand (rule explicit)."`
+	// StandalonePods is nil when not set: shown by default.
+	StandalonePods *bool `yaml:"standalone_pods" doc:"List the pods no known workload owns (a bare pod, a Job made by hand, pods of an unknown controller) as their own rows, grouped by owner. Default true."`
 }
+
+// ShowStandalone reports whether standalone pods are listed (default yes).
+func (s Services) ShowStandalone() bool { return s.StandalonePods == nil || *s.StandalonePods }
 
 // Manifests configures manifest scanning.
 type Manifests struct {
@@ -120,10 +125,11 @@ type WorkloadRef struct {
 
 // Containers is containers.yaml: which containers are sidecars.
 type Containers struct {
-	Version    int      `yaml:"version" doc:"Structure version of this file; must be 1." required:"true"`
-	Hide       []string `yaml:"hide" doc:"Containers hidden from the logs screen (sidecars): a name hides that container and name-*; an image name (last path element without tag, e.g. proxyv2) hides containers running it."`
-	AlwaysShow []string `yaml:"always_show" doc:"Container names always shown, even if matched by hide."`
-	ShowInit   bool     `yaml:"show_init" doc:"Show init containers too."`
+	Version     int      `yaml:"version" doc:"Structure version of this file; must be 1." required:"true"`
+	Hide        []string `yaml:"hide" doc:"Sidecars: containers not followed in app mode, nor counted in restarts, readiness and version. A name matches that container and name-*; an image name (last path element without tag, e.g. proxyv2) matches containers running it."`
+	AlwaysShow  []string `yaml:"always_show" doc:"Container names always shown, even if matched by hide."`
+	ShowInit    bool     `yaml:"show_init" doc:"Treat init containers as application containers."`
+	DefaultMode string   `yaml:"default_mode" doc:"Containers the logs screen opens on: app (application containers, the ones not matched by hide) or all (sidecars and init containers too). Key A switches during a session. Default app." enum:"app,all"`
 }
 
 // UI is ui.yaml: personal display choices.

@@ -16,6 +16,7 @@ type Options struct {
 	EnvArg, EnvFlag string
 	Repo            string
 	Since           string
+	Containers      string
 	ConfigPath      string
 	Demo            bool
 	Theme           string
@@ -54,6 +55,7 @@ func NewRootCommand(h Handlers, version string) *cobra.Command {
 	f.StringVarP(&o.EnvFlag, "env", "e", "", "environment to open: a name of environments.yaml")
 	f.StringVar(&o.Repo, "repo", "", "open the logs of this repository directly")
 	f.StringVar(&o.Since, "since", "", "initial time window, e.g. 15m, 1h, 2d or tail")
+	f.StringVar(&o.Containers, "containers", "", "containers the logs open on: app (application) or all (sidecars too); default from containers.yaml")
 	f.StringVar(&o.ConfigPath, "config", "", "config folder (default: $HUGINN_CONFIG, else <user config dir>/huginn); see docs/CONFIG.md")
 	f.BoolVar(&o.Demo, "demo", false, "use a synthetic in-memory cluster and, without --config, the embedded example folder")
 	f.StringVar(&o.Theme, "theme", "", "color theme: light, accessible, classic or none (NO_COLOR forces none)")

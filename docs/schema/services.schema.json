@@ -93,6 +93,10 @@
       },
       "type": "array"
     },
+    "standalone_pods": {
+      "description": "List the pods no known workload owns (a bare pod, a Job made by hand, pods of an unknown controller) as their own rows, grouped by owner. Default true.",
+      "type": "boolean"
+    },
     "version": {
       "description": "Structure version of this file; must be 1.",
       "type": "integer"

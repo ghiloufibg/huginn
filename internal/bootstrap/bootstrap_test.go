@@ -9,6 +9,7 @@ import (
 
 	"github.com/ghiloufibg/huginn/internal/adapters/driving/cli"
 	"github.com/ghiloufibg/huginn/internal/config"
+	"github.com/ghiloufibg/huginn/internal/core/domain"
 	"github.com/ghiloufibg/huginn/internal/core/ports"
 	"github.com/ghiloufibg/huginn/internal/diag"
 )
@@ -156,4 +157,14 @@ func TestMainReportsErrors(t *testing.T) {
 func scopeOf(a *App) ports.Scope {
 	e := a.Config.Environments.ByName[a.Env.String()]
 	return ports.Scope{Env: a.Env, Context: e.Context, Namespaces: e.Namespaces}
+}
+
+func TestContainersFlag(t *testing.T) {
+	app, err := Build(cli.Options{Demo: true, Containers: "all"}, noFiles(), diag.Discard())
+	if err != nil || app.UI.ContainerMode != domain.ContainersAll {
+		t.Fatalf("--containers all: %v", err)
+	}
+	if _, err := Build(cli.Options{Demo: true, Containers: "sidecars"}, noFiles(), diag.Discard()); err == nil || !strings.Contains(err.Error(), "--containers") {
+		t.Fatalf("bad value: %v", err)
+	}
 }

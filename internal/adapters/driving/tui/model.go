@@ -44,6 +44,9 @@ type Options struct {
 	// Window is the initial one.
 	Windows []domain.TimeWindow
 	Window  domain.TimeWindow
+	// ContainerMode is the containers a logs screen opens on (key A
+	// switches).
+	ContainerMode domain.ContainerMode
 	// BufferLines bounds the entries kept per logs view.
 	BufferLines int
 	// Events reads a pod's recent events for the services preview; nil

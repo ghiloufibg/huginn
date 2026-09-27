@@ -137,7 +137,8 @@ func logParts(c *config.Config) (logging, []config.Problem) {
 
 func newLogSessions(c *config.Config, sc app.ScopeFunc, cluster Cluster, clock ports.Clock, filter domain.ContainerFilter, dec ports.LogDecoders, log *slog.Logger) *app.LogSessions {
 	return &app.LogSessions{
-		Cluster: cluster, Logs: cluster, Resolver: resolverChain(c, log), Scopes: sc,
+		Standalone: c.Services.ShowStandalone(),
+		Cluster:    cluster, Logs: cluster, Resolver: resolverChain(c, log), Scopes: sc,
 		Filter: filter, Decoders: dec, Clock: clock, Log: log, MaxHistory: c.Huginn.Logs.BufferLines,
 	}
 }

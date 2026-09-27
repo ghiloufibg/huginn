@@ -98,6 +98,6 @@ func namespaceFrom(ctx context.Context, secrets ports.SecretsProvider, ref strin
 func newCatalog(c *config.Config, sc app.ScopeFunc, cluster ports.ClusterClient, clock ports.Clock, filter domain.ContainerFilter, log *slog.Logger) *app.Catalog {
 	return &app.Catalog{
 		Cluster: cluster, Resolver: resolverChain(c, log), Scopes: sc,
-		Filter: filter, Clock: clock, Log: log,
+		Filter: filter, Clock: clock, Log: log, Standalone: c.Services.ShowStandalone(),
 	}
 }

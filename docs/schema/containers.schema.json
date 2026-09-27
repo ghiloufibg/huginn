@@ -9,15 +9,23 @@
       },
       "type": "array"
     },
+    "default_mode": {
+      "description": "Containers the logs screen opens on: app (application containers, the ones not matched by hide) or all (sidecars and init containers too). Key A switches during a session. Default app.",
+      "enum": [
+        "app",
+        "all"
+      ],
+      "type": "string"
+    },
     "hide": {
-      "description": "Containers hidden from the logs screen (sidecars): a name hides that container and name-*; an image name (last path element without tag, e.g. proxyv2) hides containers running it.",
+      "description": "Sidecars: containers not followed in app mode, nor counted in restarts, readiness and version. A name matches that container and name-*; an image name (last path element without tag, e.g. proxyv2) matches containers running it.",
       "items": {
         "type": "string"
       },
       "type": "array"
     },
     "show_init": {
-      "description": "Show init containers too.",
+      "description": "Treat init containers as application containers.",
       "type": "boolean"
     },
     "version": {
