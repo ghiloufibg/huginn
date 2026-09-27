@@ -790,12 +790,13 @@ func (l *logsScreen) podStrip(m *Model, w int) string {
 	}
 	parts := []string{t.Dim.Render(" pods ") + t.Chip.Render(scope)}
 	for _, p := range l.pods {
-		st := domain.PodStatus(p.Pod)
-		desc := st.String()
+		desc, st := podLabel(p.Pod)
 		style := t.statusStyle(st)
 		switch {
 		case p.Terminated:
 			desc, style = "terminated", t.Dim
+		case p.Pod.Phase == domain.PodSucceeded || p.Pod.Deleted:
+			style = t.Dim
 		case errors.Is(p.Err, domain.ErrNoPrevious):
 			desc, style = "no previous instance", t.Dim
 		case errors.Is(p.Err, domain.ErrNotStarted): // its logs come back when it runs
@@ -804,7 +805,7 @@ func (l *logsScreen) podStrip(m *Model, w int) string {
 			desc, style = "no logs: "+errKind(p.Err), t.Warn
 		}
 		extra := ""
-		if n := p.Pod.Restarts(); n > 0 {
+		if n := domain.PodRestarts(p.Pod, m.opts.Filter); n > 0 {
 			extra += fmt.Sprintf(" %s", plural(n, "restart"))
 		}
 		if app, ok := m.opts.Filter.PrimaryApp(p.Pod); ok {
@@ -825,6 +826,15 @@ func (l *logsScreen) podStrip(m *Model, w int) string {
 // waitingReason is why the app containers of a pod do not run, in the
 // runtime's words (CrashLoopBackOff, ImagePullBackOff, ContainerCreating).
 func waitingReason(m *Model, p domain.Pod, st domain.ServiceStatus) string {
+	for _, c := range p.Containers { // an init container that fails blocks the rest
+		if c.Init && !domain.InitDone(c) && c.State != domain.ContainerRunning && c.Restarts > 0 {
+			reason := c.Reason
+			if c.State == domain.ContainerTerminated || reason == "" {
+				reason = "failing"
+			}
+			return "init " + c.Name + " " + reason
+		}
+	}
 	for _, c := range m.opts.Filter.AppContainers(p) {
 		if c.State != domain.ContainerRunning && c.Reason != "" {
 			return c.Reason

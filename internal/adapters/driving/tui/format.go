@@ -108,8 +108,31 @@ func plural(n int, what string) string {
 // podShortID is the random suffix of a pod name (m8q7v), enough to tell
 // the pods of one workload apart.
 func podShortID(pod string) string {
-	if i := strings.LastIndex(pod, "-"); i >= 0 {
-		return pod[i+1:]
+	i := strings.LastIndex(pod, "-")
+	if i < 0 {
+		return pod
+	}
+	id := pod[i+1:]
+	if strings.Trim(id, "0123456789") != "" {
+		return id // random suffix (Deployment, Job, DaemonSet)
+	}
+	// An ordinal (StatefulSet): "0" alone is ambiguous; keep the last word
+	// of the name, "writer-0" for "ledger-writer-0".
+	if j := strings.LastIndex(pod[:i], "-"); j >= 0 {
+		return pod[j+1:]
 	}
 	return pod
+}
+
+// podLabel is how a pod's state reads in the preview and the pod strip:
+// its status, or what is happening to it.
+func podLabel(p domain.Pod) (string, domain.ServiceStatus) {
+	st := domain.PodStatus(p)
+	switch {
+	case p.Deleted:
+		return "terminating", st
+	case p.Phase == domain.PodSucceeded:
+		return "completed", st
+	}
+	return st.String(), st
 }

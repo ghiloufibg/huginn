@@ -28,6 +28,9 @@ type tailer struct {
 	// running has no stream to follow until then.
 	running atomic.Bool
 	wake    chan struct{}
+	// done: the container will not run again (a completed init
+	// container, a finished Job pod); the end of its stream is final.
+	done atomic.Bool
 }
 
 // waitFallback bounds the wait for a container change, in case the pod
@@ -48,6 +51,14 @@ func (t *tailer) observe(p domain.Pod) {
 	prev, had := containerOf(t.pod, t.container)
 	t.pod = p
 	t.running.Store(now)
+	done := ok && c.State == domain.ContainerTerminated &&
+		(domain.InitDone(c) || p.Phase == domain.PodSucceeded || p.Phase == domain.PodFailed)
+	if done && !t.done.Swap(true) { // a tailer waiting for a restart can stop
+		select {
+		case t.wake <- struct{}{}:
+		default:
+		}
+	}
 	// Only a (new) running instance has logs to follow; a crash is not
 	// news, the end of its stream already told.
 	if now && (!had || prev.State != domain.ContainerRunning || prev.Restarts != c.Restarts) {
@@ -129,12 +140,20 @@ func (t *tailer) run(ctx context.Context) {
 		if !newLast.IsZero() {
 			last = newLast
 		}
+		if err == nil && t.done.Load() {
+			t.send(ctx, tailMsg{clearErr: true})
+			return
+		}
 		// A stream ends without error when its container stops (a crash
 		// loop), and cannot start before the container does: wait for the
 		// pod watch to report a change instead of reconnecting in a loop.
 		if errors.Is(err, domain.ErrNotStarted) || (err == nil && !t.running.Load()) {
 			if !t.send(ctx, tailMsg{streamErr: fmt.Errorf("%s/%s is not running: %w", t.name, t.container, domain.ErrNotStarted)}) ||
 				!t.await(ctx) {
+				return
+			}
+			if t.done.Load() { // it finished instead of restarting
+				t.send(ctx, tailMsg{clearErr: true})
 				return
 			}
 			attempt = -1

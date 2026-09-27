@@ -269,7 +269,7 @@ func (r *session) podList() []ports.PodState {
 func (r *session) addPod(ctx context.Context, p domain.Pod, isNew bool) {
 	pctx, cancel := context.WithCancel(ctx)
 	st := &podState{PodState: ports.PodState{Pod: p, New: isNew}, cancel: cancel}
-	for _, c := range r.s.Filter.AppContainers(p) {
+	for _, c := range r.s.Filter.LogContainers(p) {
 		if r.q.Previous && c.Restarts == 0 && c.LastTermination == nil {
 			continue
 		}

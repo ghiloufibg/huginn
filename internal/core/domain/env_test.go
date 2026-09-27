@@ -15,9 +15,15 @@ func TestParseEnv(t *testing.T) {
 	}
 }
 
-func TestPodRestartsIgnoresInit(t *testing.T) {
-	p := Pod{Containers: []Container{{Restarts: 2}, {Restarts: 3, Init: true}, {Restarts: 1}}}
+func TestPodRestartsIgnoresCompletedInit(t *testing.T) {
+	done := Container{Restarts: 3, Init: true, State: ContainerTerminated, Reason: "Completed"}
+	p := Pod{Containers: []Container{{Restarts: 2}, done, {Restarts: 1}}}
 	if p.Restarts() != 3 {
 		t.Fatalf("got %d", p.Restarts())
+	}
+	failing := Container{Restarts: 4, Init: true, State: ContainerTerminated, Reason: "Error"}
+	p.Containers[1] = failing
+	if p.Restarts() != 7 {
+		t.Fatalf("failing init: got %d", p.Restarts())
 	}
 }

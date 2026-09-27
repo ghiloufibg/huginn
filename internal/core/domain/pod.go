@@ -29,6 +29,10 @@ type Pod struct {
 	// OwnerName is the name of the controlling workload (the ReplicaSet's
 	// owner for Deployments), when known.
 	OwnerName string
+	// Revision identifies the pod template the pod was made from; pods of
+	// a workload with different revisions mean a rollout, even when the
+	// image did not change (a restart).
+	Revision string
 	// Reason and Message explain a pod-level problem, e.g. Unschedulable /
 	// "0/6 nodes are available: 6 Insufficient memory."
 	Reason, Message string
@@ -75,11 +79,12 @@ type Container struct {
 	Resources       Resources
 }
 
-// Restarts returns the total restart count across non-init containers.
+// Restarts returns the total restart count across containers; an init
+// container counts while it keeps failing, not once it completed.
 func (p Pod) Restarts() int {
 	n := 0
 	for _, c := range p.Containers {
-		if !c.Init {
+		if !InitDone(c) {
 			n += c.Restarts
 		}
 	}

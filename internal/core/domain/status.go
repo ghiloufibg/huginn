@@ -13,8 +13,10 @@ var imagePullReasons = []string{"ImagePullBackOff", "ErrImagePull", "InvalidImag
 
 // PodStatus returns the health of one pod. Precedence, worst first
 // (docs/DECISIONS.md D-024):
-//  1. a container waiting in CrashLoopBackOff: CrashLoopBackOff, or
-//     OOMKilled when its last termination was an OOM kill;
+//  0. a pod that ran to completion (a Job's): Healthy;
+//  1. a container waiting in CrashLoopBackOff, or an init container that
+//     failed: CrashLoopBackOff, or OOMKilled when its last termination was
+//     an OOM kill;
 //  2. a container terminated by OOMKilled: OOMKilled;
 //  3. a container unable to pull its image: ImagePullBackOff;
 //  4. phase Pending: Pending;
@@ -22,9 +24,12 @@ var imagePullReasons = []string{"ImagePullBackOff", "ErrImagePull", "InvalidImag
 //  6. phase Unknown: Unknown;
 //  7. otherwise Healthy.
 func PodStatus(p Pod) ServiceStatus {
+	if p.Phase == PodSucceeded { // a finished Job: nothing is wrong
+		return StatusHealthy
+	}
 	worst := StatusHealthy
 	for _, c := range p.Containers {
-		if c.Init && c.State == ContainerTerminated {
+		if c.Init && InitDone(c) {
 			continue
 		}
 		worst = min(worst, containerStatus(c))
@@ -42,6 +47,11 @@ func PodStatus(p Pod) ServiceStatus {
 	return worst
 }
 
+// InitDone reports whether an init container completed successfully.
+func InitDone(c Container) bool {
+	return c.Init && c.State == ContainerTerminated && c.Reason == "Completed"
+}
+
 func containerStatus(c Container) ServiceStatus {
 	switch {
 	case c.State == ContainerWaiting && c.Reason == "CrashLoopBackOff":
@@ -51,6 +61,8 @@ func containerStatus(c Container) ServiceStatus {
 		return StatusCrashLoopBackOff
 	case c.State == ContainerTerminated && c.Reason == "OOMKilled":
 		return StatusOOMKilled
+	case c.Init && c.State == ContainerTerminated: // failed: its restart is a crash loop
+		return StatusCrashLoopBackOff
 	case c.State == ContainerWaiting && slices.Contains(imagePullReasons, c.Reason):
 		return StatusImagePullBackOff
 	case !c.Init && !c.Ready:
@@ -84,7 +96,7 @@ func Summarize(repo string, workloads []Workload, pods []Pod, f ContainerFilter)
 			st = StatusProgressing
 		}
 		s.Status = min(s.Status, st)
-		for _, c := range f.AppContainers(p) {
+		for _, c := range append(f.AppContainers(p), failedInits(p)...) {
 			s.Restarts += c.Restarts
 			if c.LastTermination != nil && c.LastTermination.At.After(s.LastRestart) {
 				s.LastRestart = c.LastTermination.At
@@ -94,7 +106,7 @@ func Summarize(repo string, workloads []Workload, pods []Pod, f ContainerFilter)
 	switch {
 	case progressing:
 		s.Status = min(s.Status, StatusProgressing)
-	case s.DesiredPods == 0:
+	case s.DesiredPods == 0 && !allCronJobs(workloads): // an idle CronJob is not scaled to 0
 		s.Status = min(s.Status, StatusUnknown)
 	case s.ReadyPods < s.DesiredPods && s.Status == StatusHealthy:
 		// Missing replicas no pod explains (a pending or crashing pod
@@ -107,21 +119,58 @@ func Summarize(repo string, workloads []Workload, pods []Pod, f ContainerFilter)
 	return s
 }
 
+// failedInits returns the init containers of p that restarted without
+// completing: their restarts are the pod's problem.
+func failedInits(p Pod) []Container {
+	var out []Container
+	for _, c := range p.Containers {
+		if c.Init && !InitDone(c) && c.Restarts > 0 {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// PodRestarts counts the restarts of p's application containers and of
+// its init containers that keep failing.
+func PodRestarts(p Pod, f ContainerFilter) int {
+	n := 0
+	for _, c := range append(f.AppContainers(p), failedInits(p)...) {
+		n += c.Restarts
+	}
+	return n
+}
+
+func allCronJobs(ws []Workload) bool {
+	for _, w := range ws {
+		if w.Ref.Kind != KindCronJob {
+			return false
+		}
+	}
+	return len(ws) > 0
+}
+
 // WorkloadVersion returns the app image tag of workload's pods, "old→new"
-// when two versions run side by side during a rollout.
+// when two versions run side by side during a rollout, and "tag (restart)"
+// when the rollout keeps the image (a restart: the pods differ only by
+// their revision).
 func WorkloadVersion(workload string, pods []Pod, f ContainerFilter) string {
 	type seen struct {
 		tag     string
 		created time.Time
 	}
 	var tags []seen
+	revisions := map[string]bool{}
 	for _, p := range pods {
-		if p.OwnerName != workload {
+		if p.OwnerName != workload || p.Deleted {
 			continue
 		}
 		c, ok := f.PrimaryApp(p)
 		if !ok {
 			continue
+		}
+		if p.Revision != "" {
+			revisions[p.Revision] = true
 		}
 		tag := ImageTag(c.Image)
 		i := slices.IndexFunc(tags, func(s seen) bool { return s.tag == tag })
@@ -135,6 +184,9 @@ func WorkloadVersion(workload string, pods []Pod, f ContainerFilter) string {
 	names := make([]string, len(tags))
 	for i, t := range tags {
 		names[i] = t.tag
+	}
+	if len(tags) == 1 && len(revisions) > 1 {
+		return tags[0].tag + " (restart)"
 	}
 	return strings.Join(names, "→")
 }

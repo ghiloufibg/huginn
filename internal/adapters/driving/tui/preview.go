@@ -230,6 +230,9 @@ func (p *preview) workloads(m *Model, svc domain.ServiceSummary) []string {
 	for _, w := range svc.WorkloadStates {
 		line := fmt.Sprintf("%s %s  %d/%d ready  %d/%d updated", w.Ref.Kind, t.Bold.Render(w.Ref.Name),
 			w.ReadyReplicas, w.DesiredReplicas, w.UpdatedReplicas, w.DesiredReplicas)
+		if w.Ref.Kind == domain.KindCronJob { // no replicas: its running jobs
+			line = fmt.Sprintf("%s %s  %s", w.Ref.Kind, t.Bold.Render(w.Ref.Name), plural(w.DesiredReplicas, "active job"))
+		}
 		if v := domain.WorkloadVersion(w.Ref.Name, svc.Pods, m.opts.Filter); v != "" {
 			line += "  " + v
 		}
@@ -250,12 +253,11 @@ func (p *preview) pods(m *Model, svc domain.ServiceSummary, now time.Time) []str
 	var rows []podRow
 	var wid [6]int
 	for _, pod := range svc.Pods {
-		r := podRow{id: podShortID(pod.Name), st: domain.PodStatus(pod), node: pod.Node, age: since(now, pod.Created)}
-		r.status = r.st.String()
-		ready, restarts := 0, 0
+		r := podRow{id: podShortID(pod.Name), node: pod.Node, age: since(now, pod.Created)}
+		r.status, r.st = podLabel(pod)
+		ready, restarts := 0, domain.PodRestarts(pod, m.opts.Filter)
 		apps := m.opts.Filter.AppContainers(pod)
 		for _, c := range apps {
-			restarts += c.Restarts
 			if c.Ready {
 				ready++
 			}

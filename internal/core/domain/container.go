@@ -50,6 +50,20 @@ func (f ContainerFilter) AppContainers(p Pod) []Container {
 	return out
 }
 
+// LogContainers returns the containers whose logs matter for p: its
+// application containers and, while the pod is blocked by it, an init
+// container that ran and did not complete (its output says why).
+func (f ContainerFilter) LogContainers(p Pod) []Container {
+	out := f.AppContainers(p)
+	for _, c := range p.Containers {
+		if c.Init && !InitDone(c) && (c.Restarts > 0 || c.State != ContainerWaiting) &&
+			!slices.ContainsFunc(out, func(o Container) bool { return o.Name == c.Name }) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
 // PrimaryApp returns the main application container of p: the one named
 // like its workload, else the first application container.
 func (f ContainerFilter) PrimaryApp(p Pod) (Container, bool) {

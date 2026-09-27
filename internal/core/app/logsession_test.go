@@ -453,3 +453,34 @@ func TestStreamErrorIsReported(t *testing.T) {
 		t.Errorf("the same error was noticed %d times", n)
 	}
 }
+
+// E4: the stream of a finished Job pod ends for good: no "waiting", no
+// reconnection.
+func TestCompletedPodStreamEnds(t *testing.T) {
+	f := newFixture(t)
+	f.s.Backoff = []time.Duration{time.Second}
+	r, cancel := f.open(t, ports.LogQuery{Follow: true})
+	defer cancel()
+	r.until(10*time.Millisecond, func() bool { return r.history && f.logs.Following("ns", "api-1", "api") == 1 })
+	done := podWithSidecar("api-1", t0.Add(-2*time.Hour))
+	done.Phase = domain.PodSucceeded
+	done.Containers[0] = domain.Container{Name: "api", State: domain.ContainerTerminated, Reason: "Completed"}
+	f.cluster.PutPod(done)
+	r.until(10*time.Millisecond, func() bool {
+		return slices.ContainsFunc(r.pods, func(p ports.PodState) bool { return p.Pod.Phase == domain.PodSucceeded })
+	})
+	f.logs.Close("ns", "api-1", "api")
+	for range 90 {
+		f.clock.Advance(time.Second)
+		time.Sleep(time.Millisecond)
+	}
+	r.until(10*time.Millisecond, func() bool { return true })
+	for _, p := range r.pods {
+		if p.Pod.Name == "api-1" && p.Err != nil {
+			t.Fatalf("finished pod has error %v", p.Err)
+		}
+	}
+	if n := f.logs.Following("ns", "api-1", "api"); n != 0 {
+		t.Fatalf("%d streams on a finished container", n)
+	}
+}

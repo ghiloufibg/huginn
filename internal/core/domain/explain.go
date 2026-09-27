@@ -142,7 +142,7 @@ func Explain(s ServiceSummary, f ContainerFilter, now time.Time) string {
 func worstContainer(pods []Pod, st ServiceStatus) (Container, bool) {
 	for _, p := range pods {
 		for _, c := range p.Containers {
-			if (!c.Init || c.State != ContainerTerminated) && containerStatus(c) == st {
+			if !InitDone(c) && containerStatus(c) == st {
 				return c, true
 			}
 		}

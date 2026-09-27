@@ -20,6 +20,7 @@ func toPod(env domain.Env, p *corev1.Pod) domain.Pod {
 		Phase: domain.PodPhase(p.Status.Phase), Node: p.Spec.NodeName,
 		Created: p.CreationTimestamp.Time, Deleted: p.DeletionTimestamp != nil,
 		OwnerName: ownerName(p), Reason: p.Status.Reason, Message: p.Status.Message,
+		Revision: revision(p.Labels),
 	}
 	if p.Status.StartTime != nil {
 		out.Started = p.Status.StartTime.Time
@@ -78,6 +79,16 @@ func resources(r corev1.ResourceRequirements) domain.Resources {
 		CPURequest: q(r.Requests, corev1.ResourceCPU), CPULimit: q(r.Limits, corev1.ResourceCPU),
 		MemoryRequest: q(r.Requests, corev1.ResourceMemory), MemoryLimit: q(r.Limits, corev1.ResourceMemory),
 	}
+}
+
+// revision is the pod template revision the controller put on the pod:
+// pod-template-hash for Deployments, controller-revision-hash for
+// StatefulSets and DaemonSets.
+func revision(l map[string]string) string {
+	if h := l[appsv1.DefaultDeploymentUniqueLabelKey]; h != "" {
+		return h
+	}
+	return l[appsv1.ControllerRevisionHashLabelKey]
 }
 
 // jobSuffix is the scheduled-time suffix the CronJob controller appends to
