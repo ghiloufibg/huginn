@@ -1,0 +1,206 @@
+# Extra workloads for end-to-end passes (docs/plan/M4-e2e-pass2.md): edge cases
+# beyond workloads.yaml. kubectl --context kind-huginn apply -f deploy/lab/extra.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: bulk-emitter, namespace: app-rec, labels: {app.kubernetes.io/part-of: bulk-emitter}}
+spec:
+  replicas: 2
+  selector: {matchLabels: {app: bulk-emitter}}
+  template:
+    metadata: {labels: {app: bulk-emitter, app.kubernetes.io/part-of: bulk-emitter}}
+    spec:
+      containers:
+        - name: bulk-emitter
+          image: alpine:3.20
+          command: [sh, -c]
+          args:
+            - |
+              i=0
+              while true; do
+                j=0
+                while [ $j -lt 50 ]; do
+                  i=$((i+1)); j=$((j+1))
+                  echo "{\"@timestamp\":\"$(date -u +%FT%T.000Z)\",\"level\":\"INFO\",\"logger_name\":\"io.gimle.bulk.Emitter\",\"thread_name\":\"main\",\"message\":\"event $i\"}"
+                done
+                sleep 0.1
+              done
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: edge-lines, namespace: app-rec, labels: {app.kubernetes.io/part-of: edge-lines}}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: edge-lines}}
+  template:
+    metadata: {labels: {app: edge-lines, app.kubernetes.io/part-of: edge-lines}}
+    spec:
+      containers:
+        - name: edge-lines
+          image: alpine:3.20
+          command: [sh, -c]
+          args:
+            - |
+              big=$(head -c 40000 /dev/zero | tr '\0' 'a')
+              while true; do
+                echo "plain text line without json"
+                printf '\033[31mred ansi\033[0m and \033[1mbold\033[0m escape codes\n'
+                echo "{\"level\":\"WARN\",\"message\":\"unicode: é à ü 日本語 🚀 emoji\"}"
+                echo "{\"level\":\"ERROR\",\"message\":\"no timestamp field\",\"stack_trace\":\"java.lang.IllegalStateException: boom\n\tat a.B.c(B.java:1)\n\tat a.B.d(B.java:2)\"}"
+                echo "{\"level\":\"INFO\",\"message\":\"big $big\"}"
+                printf 'tab\tseparated\tfields\r\n'
+                echo "{\"level\":\"INFO\",\"message\":\"truncated json"
+                echo ""
+                echo "{\"level\":\"DEBUG\",\"@timestamp\":\"not-a-date\",\"message\":\"bad timestamp\"}"
+                echo "{\"level\":\"INFO\",\"@timestamp\":\"2020-01-01T00:00:00.000Z\",\"message\":\"timestamp in the past\"}"
+                head -c 1100000 /dev/zero | tr '\0' 'z'; echo
+                sleep 5
+              done
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: multi-app, namespace: app-rec, labels: {app.kubernetes.io/part-of: multi-app}}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: multi-app}}
+  template:
+    metadata: {labels: {app: multi-app, app.kubernetes.io/part-of: multi-app}}
+    spec:
+      containers:
+        - name: api
+          image: alpine:3.20
+          command: [sh, -c, 'while true; do echo "{\"level\":\"INFO\",\"message\":\"api tick\"}"; sleep 2; done']
+        - name: worker
+          image: alpine:3.20
+          command: [sh, -c, 'while true; do echo "{\"level\":\"INFO\",\"message\":\"worker tick\"}"; sleep 3; done']
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata: {name: nightly-export, namespace: app-rec, labels: {app.kubernetes.io/part-of: nightly-export}}
+spec:
+  schedule: "* * * * *"
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      template:
+        metadata: {labels: {app: nightly-export, app.kubernetes.io/part-of: nightly-export}}
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: export
+              image: alpine:3.20
+              command: [sh, -c, 'echo "{\"level\":\"INFO\",\"message\":\"export start\"}"; sleep 10; echo "{\"level\":\"INFO\",\"message\":\"export done\"}"']
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata: {name: node-agent, namespace: app-rec, labels: {app.kubernetes.io/part-of: node-agent}}
+spec:
+  selector: {matchLabels: {app: node-agent}}
+  template:
+    metadata: {labels: {app: node-agent, app.kubernetes.io/part-of: node-agent}}
+    spec:
+      containers:
+        - name: agent
+          image: alpine:3.20
+          command: [sh, -c, 'while true; do echo "agent heartbeat"; sleep 4; done']
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: scaled-zero, namespace: app-rec, labels: {app.kubernetes.io/part-of: scaled-zero}}
+spec:
+  replicas: 0
+  selector: {matchLabels: {app: scaled-zero}}
+  template:
+    metadata: {labels: {app: scaled-zero, app.kubernetes.io/part-of: scaled-zero}}
+    spec:
+      containers: [{name: app, image: alpine:3.20, command: [sleep, "3600"]}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: init-fail, namespace: app-rec, labels: {app.kubernetes.io/part-of: init-fail}}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: init-fail}}
+  template:
+    metadata: {labels: {app: init-fail, app.kubernetes.io/part-of: init-fail}}
+    spec:
+      initContainers:
+        - {name: migrate, image: alpine:3.20, command: [sh, -c, 'echo "migration failed: relation users does not exist"; exit 3']}
+      containers: [{name: app, image: alpine:3.20, command: [sleep, "3600"]}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: never-ready, namespace: app-rec, labels: {app.kubernetes.io/part-of: never-ready}}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: never-ready}}
+  template:
+    metadata: {labels: {app: never-ready, app.kubernetes.io/part-of: never-ready}}
+    spec:
+      containers:
+        - name: app
+          image: alpine:3.20
+          command: [sh, -c, 'while true; do echo "{\"level\":\"INFO\",\"message\":\"waiting for db\"}"; sleep 5; done']
+          readinessProbe: {exec: {command: ["false"]}, periodSeconds: 5}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: silent, namespace: app-rec, labels: {app.kubernetes.io/part-of: silent}}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: silent}}
+  template:
+    metadata: {labels: {app: silent, app.kubernetes.io/part-of: silent}}
+    spec:
+      containers: [{name: app, image: alpine:3.20, command: [sleep, "36000"]}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: slow-stop, namespace: app-rec, labels: {app.kubernetes.io/part-of: slow-stop}}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: slow-stop}}
+  template:
+    metadata: {labels: {app: slow-stop, app.kubernetes.io/part-of: slow-stop}}
+    spec:
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: app
+          image: alpine:3.20
+          command: [sh, -c, 'trap "echo {\"level\":\"WARN\",\"message\":\"SIGTERM received, draining\"}; sleep 40; echo {\"level\":\"INFO\",\"message\":\"drained\"}; exit 0" TERM; while true; do echo "{\"level\":\"INFO\",\"message\":\"serving\"}"; sleep 2 & wait $!; done']
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: unlabelled, namespace: app-rec}
+spec:
+  replicas: 1
+  selector: {matchLabels: {run: unlabelled}}
+  template:
+    metadata: {labels: {run: unlabelled}}
+    spec:
+      containers: [{name: app, image: alpine:3.20, command: [sh, -c, 'while true; do echo unlabelled; sleep 5; done']}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: esc-inject, namespace: app-rec, labels: {app.kubernetes.io/part-of: esc-inject}}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: esc-inject}}
+  template:
+    metadata: {labels: {app: esc-inject, app.kubernetes.io/part-of: esc-inject}}
+    spec:
+      containers:
+        - name: app
+          image: alpine:3.20
+          command: [sh, -c]
+          args:
+            - |
+              while true; do
+                printf 'before\033[2J\033[Hafter clear screen\n'
+                printf '\033]0;PWNED-TITLE\007title change\n'
+                printf '\033]52;c;ZWNobyBwd25lZA==\007clipboard write attempt\n'
+                printf '\033[5A\033[10Cmove cursor up\n'
+                printf '\033]8;;https://evil.example\033\\click me\033]8;;\033\\ hyperlink\n'
+                printf 'backspace\b\b\b\bXXXX\n'
+                sleep 5
+              done
