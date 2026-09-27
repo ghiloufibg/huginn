@@ -22,12 +22,8 @@ huginn --config deploy/lab/config rec
 | app-dev | `ledger-writer` (StatefulSet) | Another environment |
 
 - **Rollout:** `kubectl -n app-rec rollout restart deploy/payment-service` plays one.
-- **Read-only identity:** `rbac.yaml` creates `huginn-reader`, limited to `app-rec`. Create its context with:
-
-```sh
-kubectl config set-credentials huginn-reader --token="$(kubectl -n app-rec create token huginn-reader --duration=24h)"
-kubectl config set-context huginn-restricted --cluster=kind-huginn --user=huginn-reader
-```
+- **Read-only identity:** `rbac.yaml` creates `huginn-reader`, limited to `app-rec`; `up.sh` adds its kubeconfig context `huginn-restricted` (a 24 h token: run `up.sh` again to renew it). The environment `restricted` of the lab config uses it: `app-dev` is forbidden, `app-rec` works.
+- **Tests:** `HUGINN_LAB=1 go test ./internal/adapters/driven/kubernetes` runs the adapter's contract suites against the lab; `deploy/lab/e2e.sh` drives the real binary in a terminal (tmux) and checks the screens. CI runs both (job `lab`).
 
 ## Sandboxes and CI runners
 

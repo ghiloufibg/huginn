@@ -44,7 +44,7 @@ func newTailer(r *session, p domain.Pod, container string) *tailer {
 // tailer when a new instance runs.
 func (t *tailer) observe(p domain.Pod) {
 	c, ok := containerOf(p, t.container)
-	now := ok && c.State == domain.ContainerRunning
+	now := ok && c.State == domain.ContainerRunning && !p.Deleted // a terminating pod's stream ends for good
 	prev, had := containerOf(t.pod, t.container)
 	t.pod = p
 	t.running.Store(now)

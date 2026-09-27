@@ -70,3 +70,32 @@ jobs:
         with:
           go-version: "1.26.x"
       - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+  lab:
+    name: lab (kind, end to end)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+      - name: install kind and tmux
+        run: |
+          go install sigs.k8s.io/kind@v0.33.0
+          command -v tmux || sudo apt-get install -y tmux
+      - name: start the lab
+        run: KIND_IMAGE=kindest/node:v1.37.0 deploy/lab/up.sh
+      - name: wait for the workloads
+        run: |
+          kubectl --context kind-huginn -n app-rec rollout status deploy/payment-service --timeout=180s
+          # the contract suite needs a crash-looping container with a previous instance
+          for i in $(seq 60); do
+            n=$(kubectl --context kind-huginn -n app-rec get pod -l app=catalog-indexer -o jsonpath='{.items[0].status.containerStatuses[0].restartCount}')
+            [ "${n:-0}" -ge 1 ] && break; sleep 3
+          done
+          kubectl --context kind-huginn get pods -A
+      - name: adapter contract suites against the lab
+        run: HUGINN_LAB=1 go test -count=1 -v -run Lab ./internal/adapters/driven/kubernetes
+      - name: end to end in a terminal
+        run: make build && deploy/lab/e2e.sh

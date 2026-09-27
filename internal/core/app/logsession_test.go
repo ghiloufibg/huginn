@@ -390,3 +390,19 @@ func TestHistoryIsCappedToTheNewestLinesOfAllContainers(t *testing.T) {
 		t.Fatalf("a capped history must say so, not report retention: %v", r.notices)
 	}
 }
+
+// A terminating pod's stream ends for good: not running, so no
+// "reconnecting" while the rollout deletes it.
+func TestTerminatingPodIsNotRunning(t *testing.T) {
+	p := podWithSidecar("api-1", t0)
+	tl := &tailer{container: "api", pod: p, wake: make(chan struct{}, 1)}
+	tl.observe(p)
+	if !tl.running.Load() {
+		t.Fatal("running container")
+	}
+	p.Deleted = true
+	tl.observe(p)
+	if tl.running.Load() {
+		t.Fatal("terminating pod counted as running")
+	}
+}

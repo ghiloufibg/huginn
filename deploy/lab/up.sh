@@ -24,5 +24,9 @@ fi
 kubectl --context "$CONTEXT" apply -f workloads.yaml -f rbac.yaml
 kubectl --context "$CONTEXT" -n app-rec create configmap loggen --from-file=loggen.sh --dry-run=client -o yaml | kubectl --context "$CONTEXT" apply -f -
 kubectl --context "$CONTEXT" -n app-rec rollout restart deploy/payment-service deploy/payment-worker >/dev/null
+# The read-only identity of rbac.yaml, as the context huginn-restricted.
+CLUSTER=$(kubectl config view -o jsonpath="{.contexts[?(@.name==\"$CONTEXT\")].context.cluster}")
+kubectl config set-credentials huginn-reader --token="$(kubectl --context "$CONTEXT" -n app-rec create token huginn-reader --duration=24h)" >/dev/null
+kubectl config set-context huginn-restricted --cluster="$CLUSTER" --user=huginn-reader >/dev/null
 echo
 echo "Lab ready (context $CONTEXT). Try: huginn --config deploy/lab/config rec"
