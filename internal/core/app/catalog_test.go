@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -163,6 +164,21 @@ func TestCatalogDoesNotRetryPermanentErrors(t *testing.T) {
 	}
 	if n := fc.watches.Load(); n != 1 {
 		t.Fatalf("%d watches, want 1 (no retry)", n)
+	}
+}
+
+// E8: an incomplete namespace is said so.
+func TestCatalogWarnings(t *testing.T) {
+	clock := portstest.NewFakeClock(t0)
+	fc := portstest.NewFakeCluster()
+	fc.AddWorkload(deployment("ns", "api", "shop", 1, 1))
+	fc.Warnings = map[string]string{"ns": "cronjobs not readable in ns"}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ch, _ := newCatalog(fc, clock, "ns").Watch(ctx, domain.Env("rec"))
+	s := next(t, ch, clock, func(s ports.CatalogSnapshot) bool { return len(s.Services) == 1 })
+	if !slices.Equal(s.Warnings, []string{"cronjobs not readable in ns"}) || s.Services[0].Repo != "shop" {
+		t.Fatalf("warnings %v", s.Warnings)
 	}
 }
 

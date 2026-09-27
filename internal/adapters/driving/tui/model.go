@@ -435,7 +435,7 @@ func (m *Model) connection(bar lipgloss.Style) string {
 		return src + t.Bad.Inherit(bar).Render("error: "+errKind(m.snap.Err)) + bar.Render(" · retrying")
 	default:
 		state := "watching"
-		if !m.snap.Synced {
+		if !m.snap.Synced || len(m.snap.Warnings) > 0 {
 			state = "partial"
 		}
 		return src + bar.Render(state+" · synced "+m.snap.UpdatedAt.In(time.Local).Format("15:04:05"))

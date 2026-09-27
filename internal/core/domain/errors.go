@@ -30,3 +30,16 @@ var ErrNoPrevious = fmt.Errorf("no previous instance: %w", ErrNotFound)
 func Permanent(err error) bool {
 	return errors.Is(err, ErrConfig) || errors.Is(err, ErrNotImplemented)
 }
+
+// KindError returns an error that reads as msg and is the given kind for
+// errors.Is: the kind is shown on its own ("unauthorized"), so repeating
+// it in the message would say it twice.
+func KindError(kind error, msg string) error { return kindError{msg: msg, kind: kind} }
+
+type kindError struct {
+	msg  string
+	kind error
+}
+
+func (e kindError) Error() string { return e.msg }
+func (e kindError) Unwrap() error { return e.kind }

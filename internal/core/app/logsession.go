@@ -72,9 +72,22 @@ func (s *LogSessions) Open(ctx context.Context, q ports.LogQuery) (<-chan ports.
 }
 
 func (s *LogSessions) workloadsOf(ctx context.Context, scope ports.Scope, q ports.LogQuery) ([]domain.Workload, error) {
-	all, err := s.Cluster.ListWorkloads(ctx, scope)
-	if err != nil {
-		return nil, err
+	// Namespace by namespace: one namespace the user cannot read must not
+	// hide the repository's workloads in the others.
+	var all []domain.Workload
+	var nsErr error
+	for _, ns := range scope.Namespaces {
+		sc := scope
+		sc.Namespaces = []string{ns}
+		ws, err := s.Cluster.ListWorkloads(ctx, sc)
+		if err != nil {
+			nsErr = errors.Join(nsErr, err)
+			continue
+		}
+		all = append(all, ws...)
+	}
+	if all == nil && nsErr != nil {
+		return nil, nsErr
 	}
 	repos, rest, err := s.Resolver.Resolve(ctx, q.Env, all)
 	if err != nil {
@@ -98,6 +111,9 @@ func (s *LogSessions) workloadsOf(ctx context.Context, scope ports.Scope, q port
 		}
 	}
 	if len(out) == 0 {
+		if nsErr != nil { // perhaps in the namespace that could not be read
+			return nil, nsErr
+		}
 		return nil, fmt.Errorf("repository %q in %s: %w", q.Repo, q.Env, domain.ErrNotFound)
 	}
 	return out, nil
@@ -308,10 +324,18 @@ func (r *session) handle(ctx context.Context, m tailMsg) {
 	case m.notice != "":
 		r.pending.Notices = append(r.pending.Notices, ports.LogNotice{Pod: m.pod, Text: m.notice})
 	case m.streamErr != nil || m.clearErr:
-		if p := r.pods[m.pod]; p != nil && !errors.Is(p.Err, m.streamErr) {
-			p.Err = m.streamErr
-			r.podsChanged = true
+		p := r.pods[m.pod]
+		if p == nil || errors.Is(p.Err, m.streamErr) {
+			return
 		}
+		if m.streamErr != nil && !errors.Is(m.streamErr, domain.ErrNotStarted) && (p.Err == nil || p.Err.Error() != m.streamErr.Error()) {
+			// Say why, once per distinct error: the pod strip only
+			// shows its kind.
+			r.s.logger().Warn("log stream failed", "pod", m.pod, "container", m.container, "err", m.streamErr)
+			r.pending.Notices = append(r.pending.Notices, ports.LogNotice{Pod: m.pod, Text: m.pod + ": " + m.streamErr.Error()})
+		}
+		p.Err = m.streamErr
+		r.podsChanged = true
 	}
 }
 

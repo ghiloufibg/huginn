@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -109,27 +111,47 @@ func namespaces(scope ports.Scope) ([]string, error) {
 
 // readableKinds lists each workload kind once in ns (limit 1) and keeps
 // those the user may read. A developer often reads Deployments but not
-// CronJobs: only when no kind is readable is the namespace an error.
-func (c *Client) readableKinds(ctx context.Context, cs API, ns string) ([]workloadKind, error) {
+// CronJobs: only when no kind is readable is the namespace an error. It
+// also returns the kinds skipped, and fails with ErrNotFound when the
+// namespace is empty because it does not exist.
+func (c *Client) readableKinds(ctx context.Context, cs API, ns string) ([]workloadKind, []string, error) {
 	var ok []workloadKind
+	var skipped []string
 	var firstErr error
+	empty := true
 	for _, k := range workloadKinds {
-		_, err := k.list(ctx, cs, ns, metav1.ListOptions{Limit: 1})
+		list, err := k.list(ctx, cs, ns, metav1.ListOptions{Limit: 1})
 		switch {
 		case err == nil:
 			ok = append(ok, k)
-		case firstErr == nil:
-			firstErr = err
-		}
-		if err != nil && !isForbidden(err) {
-			return nil, namespaced(ns, err)
+			empty = empty && len(k.items(list)) == 0
+		case isForbidden(err):
+			skipped = append(skipped, kindPlural(k.kind))
+			if firstErr == nil {
+				firstErr = err
+			}
+		default:
+			return nil, nil, namespaced(ns, err)
 		}
 	}
 	if len(ok) == 0 {
-		return nil, namespaced(ns, firstErr)
+		return nil, nil, namespaced(ns, firstErr)
 	}
-	return ok, nil
+	if empty && namespaceMissing(ctx, cs, ns) {
+		return nil, nil, domain.KindError(domain.ErrNotFound, fmt.Sprintf("namespace %s does not exist", ns))
+	}
+	return ok, skipped, nil
 }
+
+// namespaceMissing tells whether ns is known not to exist. Reading a
+// namespace needs a cluster-wide permission a developer often lacks: then
+// nothing is known and the namespace is taken as existing.
+func namespaceMissing(ctx context.Context, cs API, ns string) bool {
+	_, err := cs.CoreV1().Namespaces().Get(ctx, ns, metav1.GetOptions{})
+	return apierrors.IsNotFound(err)
+}
+
+func kindPlural(k domain.WorkloadKind) string { return strings.ToLower(string(k)) + "s" }
 
 func isForbidden(err error) bool { return errors.Is(mapErr(err), domain.ErrForbidden) }
 
@@ -145,7 +167,7 @@ func (c *Client) ListWorkloads(ctx context.Context, scope ports.Scope) ([]domain
 	}
 	var out []domain.Workload
 	for _, ns := range nss {
-		kinds, err := c.readableKinds(ctx, cs, ns)
+		kinds, _, err := c.readableKinds(ctx, cs, ns)
 		if err != nil {
 			return nil, err
 		}
@@ -211,10 +233,14 @@ func (c *Client) WatchWorkloads(ctx context.Context, scope ports.Scope) (<-chan 
 		return nil, err
 	}
 	var sources []informerSource
+	var first []ports.WorkloadEvent
 	for _, ns := range nss {
-		kinds, err := c.readableKinds(ctx, cs, ns)
+		kinds, skipped, err := c.readableKinds(ctx, cs, ns)
 		if err != nil {
 			return nil, err
+		}
+		if len(skipped) > 0 {
+			first = append(first, ports.WorkloadEvent{Warning: fmt.Sprintf("%s not readable in %s", strings.Join(skipped, ", "), ns)})
 		}
 		for _, k := range kinds {
 			sources = append(sources, informerSource{
@@ -226,12 +252,12 @@ func (c *Client) WatchWorkloads(ctx context.Context, scope ports.Scope) (<-chan 
 					WatchFuncWithContext: func(ctx context.Context, o metav1.ListOptions) (watch.Interface, error) {
 						return k.watch(ctx, cs, ns, o)
 					},
-				}, cs),
+				}, noWatchList{}),
 			})
 		}
 	}
 	env := scope.Env
-	return run(ctx, sources, func(o any, deleted bool) (ports.WorkloadEvent, bool) {
+	return run(ctx, sources, first, func(o any, deleted bool) (ports.WorkloadEvent, bool) {
 		for _, k := range workloadKinds {
 			if w, ok := k.convert(env, asObject(o)); ok {
 				return ports.WorkloadEvent{Deleted: deleted, Workload: w}, true
@@ -264,11 +290,11 @@ func (c *Client) WatchPods(ctx context.Context, scope ports.Scope, sel ports.Sel
 					o.LabelSelector = ls
 					return cs.CoreV1().Pods(ns).Watch(ctx, o)
 				},
-			}, cs),
+			}, noWatchList{}),
 		})
 	}
 	env := scope.Env
-	return run(ctx, sources, func(o any, deleted bool) (domain.PodEvent, bool) {
+	return run(ctx, sources, nil, func(o any, deleted bool) (domain.PodEvent, bool) {
 		p, ok := asObject(o).(*corev1.Pod)
 		if !ok {
 			return domain.PodEvent{}, false
@@ -296,12 +322,26 @@ func asObject(o any) runtime.Object {
 	return r
 }
 
+// noWatchList makes the informers list then watch, instead of first
+// trying the watch-list mode: many API servers still refuse it, which
+// costs a failed request per informer (D-034).
+type noWatchList struct{}
+
+func (noWatchList) IsWatchListSemanticsUnSupported() bool { return true }
+
 // run starts one informer per source and forwards their notifications to
-// the returned channel, converted by conv: the initial state as additions
-// (conv's result with Added set by the caller's type), then changes. The
-// channel is closed once ctx is cancelled and every informer has stopped.
-func run[E any](ctx context.Context, sources []informerSource, conv func(o any, deleted bool) (E, bool)) <-chan E {
-	out := make(chan E, 64)
+// the returned channel, converted by conv: first the events of first, then
+// the initial state as additions, then changes. Informers reconnect by
+// themselves after a broken watch; when a new list fails because the
+// cluster cannot be reached or refuses the credentials, the whole watch
+// ends, so the caller sees it and reports it. The channel is closed once
+// ctx is cancelled (or the watch ended) and every informer has stopped.
+func run[E any](parent context.Context, sources []informerSource, first []E, conv func(o any, deleted bool) (E, bool)) <-chan E {
+	ctx, cancel := context.WithCancel(parent)
+	out := make(chan E, 64+len(first))
+	for _, ev := range first {
+		out <- ev
+	}
 	var (
 		mu     sync.RWMutex
 		closed bool
@@ -330,11 +370,19 @@ func run[E any](ctx context.Context, sources []informerSource, conv func(o any, 
 		UpdateFunc: func(_, o any) { send(o, false, false) },
 		DeleteFunc: func(o any) { send(o, true, false) },
 	}
+	onError := func(ctx context.Context, r *cache.Reflector, err error) {
+		if watchBroken(err) {
+			cancel()
+			return
+		}
+		cache.DefaultWatchErrorHandler(ctx, r, err)
+	}
 	for _, s := range sources {
 		inf := cache.NewSharedIndexInformer(s.lw, s.example, 0, cache.Indexers{})
 		if _, err := inf.AddEventHandler(handler); err != nil {
 			continue
 		}
+		_ = inf.SetWatchErrorHandlerWithContext(onError)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -350,6 +398,16 @@ func run[E any](ctx context.Context, sources []informerSource, conv func(o any, 
 		mu.Unlock()
 	}()
 	return out
+}
+
+// watchBroken tells whether an informer's list failed for a reason its own
+// retries would hide: the cluster is unreachable or refuses the user.
+func watchBroken(err error) bool {
+	switch kindOf(err) {
+	case domain.ErrUnreachable, domain.ErrUnauthorized, domain.ErrForbidden:
+		return true
+	}
+	return false
 }
 
 // setAdded marks the first notification of an object as an addition.

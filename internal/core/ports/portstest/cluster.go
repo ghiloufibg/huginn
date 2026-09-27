@@ -20,6 +20,8 @@ type FakeCluster struct {
 	Err error
 	// NamespaceErr makes calls whose scope includes a namespace fail.
 	NamespaceErr map[string]error
+	// Warnings are sent first by the workload watch of a namespace.
+	Warnings map[string]string
 }
 
 type podSub struct {
@@ -143,7 +145,12 @@ func (f *FakeCluster) WatchWorkloads(ctx context.Context, scope ports.Scope) (<-
 	if err != nil {
 		return nil, err
 	}
-	ch := make(chan ports.WorkloadEvent, len(ws))
+	ch := make(chan ports.WorkloadEvent, len(ws)+len(scope.Namespaces))
+	for _, ns := range scope.Namespaces {
+		if w := f.Warnings[ns]; w != "" {
+			ch <- ports.WorkloadEvent{Warning: w}
+		}
+	}
 	for _, w := range ws {
 		ch <- ports.WorkloadEvent{Workload: w}
 	}

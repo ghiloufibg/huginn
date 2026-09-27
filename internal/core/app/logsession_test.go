@@ -406,3 +406,50 @@ func TestTerminatingPodIsNotRunning(t *testing.T) {
 		t.Fatal("terminating pod counted as running")
 	}
 }
+
+// E1: one namespace the user cannot read must not block the logs of a
+// repository that lives in another.
+func TestForbiddenNamespaceDoesNotBlockLogs(t *testing.T) {
+	f := newFixture(t)
+	f.cluster.NamespaceErr = map[string]error{"ns2": domain.ErrForbidden}
+	f.s.Scopes = scopes("ns", "ns2")
+	r, cancel := f.open(t, ports.LogQuery{})
+	defer cancel()
+	r.until(10*time.Millisecond, func() bool { return r.history })
+	if !slices.Contains(r.entries, "a1") {
+		t.Fatalf("entries %v", r.entries)
+	}
+	f.s.Scopes = scopes("ns2")
+	ctx := context.Background()
+	if _, err := f.s.Open(ctx, ports.LogQuery{Env: "rec", Repo: "shop"}); !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("repository only in a forbidden namespace: %v", err)
+	}
+}
+
+// E9: a stream error is logged and shown once as a notice with its text.
+func TestStreamErrorIsReported(t *testing.T) {
+	f := newFixture(t)
+	f.s.Backoff = []time.Duration{time.Second}
+	r, cancel := f.open(t, ports.LogQuery{Follow: true})
+	defer cancel()
+	r.until(10*time.Millisecond, func() bool { return r.history && f.logs.Following("ns", "api-1", "api") == 1 })
+	f.logs.SetErr(errors.New("http2: client connection lost"))
+	f.logs.Close("ns", "api-1", "api")
+	r.until(20*time.Millisecond, func() bool {
+		return slices.ContainsFunc(r.notices, func(n string) bool { return strings.Contains(n, "http2: client connection lost") })
+	})
+	n := 0
+	for range 20 {
+		f.clock.Advance(time.Second)
+		time.Sleep(time.Millisecond)
+	}
+	r.until(10*time.Millisecond, func() bool { return true })
+	for _, x := range r.notices {
+		if strings.Contains(x, "http2") {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("the same error was noticed %d times", n)
+	}
+}

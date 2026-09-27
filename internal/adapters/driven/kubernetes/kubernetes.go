@@ -15,7 +15,11 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
+	"os"
+	"strings"
 	"sync"
+	"time"
 
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	appsv1client "k8s.io/client-go/kubernetes/typed/apps/v1"
@@ -96,17 +100,23 @@ func (c *Client) clientset(context string) (API, error) {
 // then ~/.kube/config) for one context.
 func fromKubeconfig(context, userAgent string) (API, error) {
 	rules := clientcmd.NewDefaultClientConfigLoadingRules()
+	name := context
+	if name == "" {
+		name = "(current context)"
+	}
+	if !anyExists(rules.GetLoadingPrecedence()) {
+		return nil, domain.KindError(domain.ErrConfig, fmt.Sprintf("no kubeconfig found (looked for %s)", strings.Join(rules.GetLoadingPrecedence(), ", ")))
+	}
 	overrides := &clientcmd.ConfigOverrides{CurrentContext: context}
 	cfg, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(rules, overrides).ClientConfig()
 	if err != nil {
-		name := context
-		if name == "" {
-			name = "(current context)"
-		}
-		return nil, fmt.Errorf("kube context %s: %v: %w", name, err, domain.ErrConfig)
+		return nil, domain.KindError(domain.ErrConfig, fmt.Sprintf("kube context %s: %v", name, err))
 	}
 	cfg.UserAgent = userAgent
 	cfg.QPS, cfg.Burst = 20, 40 // one watch per namespace plus log streams
+	// Fail fast when the cluster cannot be reached (the default waits for
+	// the system's TCP timeout, about 30 s); streams are not limited.
+	cfg.Dial = (&net.Dialer{Timeout: dialTimeout, KeepAlive: 30 * time.Second}).DialContext
 	var cs clients
 	if cs.core, err = corev1client.NewForConfig(cfg); err == nil {
 		if cs.apps, err = appsv1client.NewForConfig(cfg); err == nil {
@@ -114,9 +124,20 @@ func fromKubeconfig(context, userAgent string) (API, error) {
 		}
 	}
 	if err != nil {
-		return nil, fmt.Errorf("kube context %s: %v: %w", context, err, domain.ErrConfig)
+		return nil, domain.KindError(domain.ErrConfig, fmt.Sprintf("kube context %s: %v", name, err))
 	}
 	return cs, nil
+}
+
+const dialTimeout = 10 * time.Second
+
+func anyExists(paths []string) bool {
+	for _, p := range paths {
+		if _, err := os.Stat(p); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 var klogOnce sync.Once

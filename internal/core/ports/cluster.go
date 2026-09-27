@@ -32,6 +32,10 @@ func (s Selector) Matches(labels map[string]string) bool {
 type WorkloadEvent struct {
 	Deleted  bool
 	Workload domain.Workload
+	// Warning, when set, is not a workload: it says that the watch of this
+	// namespace is incomplete (e.g. "cronjobs not readable"). It comes
+	// before the workloads.
+	Warning string
 }
 
 // ClusterClient reads workload and pod state. It is strictly read-only.

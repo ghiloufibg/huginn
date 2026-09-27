@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -20,9 +21,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/watch"
 	k8s "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
+	"k8s.io/client-go/tools/cache"
 
 	"github.com/ghiloufibg/huginn/internal/core/domain"
 	"github.com/ghiloufibg/huginn/internal/core/ports"
@@ -243,9 +246,11 @@ func TestErrorMapping(t *testing.T) {
 		{apierrors.NewBadRequest(`previous terminated container "app" in pod "api-1" not found`), domain.ErrNotFound},
 		{apierrors.NewServiceUnavailable("down"), domain.ErrUnreachable},
 		{&net.OpError{Op: "dial", Err: errors.New("connection refused")}, domain.ErrUnreachable},
+		{errors.New(`an error on the server ("unable to decode an event from the watch stream: http2: client connection lost")`), domain.ErrUnreachable},
+		{errors.New("read tcp 10.0.0.1:443: i/o timeout"), domain.ErrUnreachable},
 	}
 	for _, c := range cases {
-		if got := mapErr(c.err); !errors.Is(got, c.want) || !strings.Contains(got.Error(), c.err.Error()) {
+		if got := mapErr(c.err); !errors.Is(got, c.want) || got.Error() != c.err.Error() {
 			t.Errorf("mapErr(%v) = %v, want %v", c.err, got, c.want)
 		}
 	}
@@ -255,10 +260,20 @@ func TestErrorMapping(t *testing.T) {
 }
 
 func TestUnknownContextIsAConfigError(t *testing.T) {
-	t.Setenv("KUBECONFIG", t.TempDir()+"/none")
+	dir := t.TempDir()
+	t.Setenv("KUBECONFIG", dir+"/none")
+	_, err := New(Options{UserAgent: "huginn/test"}).ListPods(context.Background(), ports.Scope{Env: "rec", Context: "x", Namespaces: []string{ns}}, nil)
+	if !errors.Is(err, domain.ErrConfig) || !strings.Contains(err.Error(), "no kubeconfig found") || !strings.Contains(err.Error(), "none") {
+		t.Fatalf("missing kubeconfig: %v", err)
+	}
+	cfg := dir + "/config"
+	if err := os.WriteFile(cfg, []byte("apiVersion: v1\nkind: Config\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("KUBECONFIG", cfg)
 	c := New(Options{UserAgent: "huginn/test"})
-	_, err := c.ListPods(context.Background(), ports.Scope{Env: "rec", Context: "nope", Namespaces: []string{ns}}, nil)
-	if !errors.Is(err, domain.ErrConfig) || !domain.Permanent(err) || !strings.Contains(err.Error(), "nope") {
+	_, err = c.ListPods(context.Background(), ports.Scope{Env: "rec", Context: "nope", Namespaces: []string{ns}}, nil)
+	if !errors.Is(err, domain.ErrConfig) || !domain.Permanent(err) || !strings.Contains(err.Error(), "nope") || strings.HasSuffix(err.Error(), "configuration") {
 		t.Fatalf("err = %v", err)
 	}
 	_, err = client(fixture()).ListPods(context.Background(), ports.Scope{Env: "rec"}, nil)
@@ -490,5 +505,70 @@ func TestKubeletNoLogsIsNotFound(t *testing.T) {
 	}
 	if n != 0 || !errors.Is(st.Err(), domain.ErrNotFound) {
 		t.Fatalf("%d lines, err %v", n, st.Err())
+	}
+}
+
+// E10: a namespace that does not exist is not an empty one.
+func TestMissingNamespace(t *testing.T) {
+	cs := fake.NewClientset()
+	_, err := client(cs).WatchWorkloads(context.Background(), ports.Scope{Env: "rec", Namespaces: []string{"app-rce"}})
+	if !errors.Is(err, domain.ErrNotFound) || !strings.Contains(err.Error(), "app-rce does not exist") {
+		t.Fatalf("err = %v", err)
+	}
+	cs = fake.NewClientset(&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "empty"}})
+	if _, err := client(cs).ListWorkloads(context.Background(), ports.Scope{Env: "rec", Namespaces: []string{"empty"}}); err != nil {
+		t.Fatalf("an empty namespace is fine: %v", err)
+	}
+	cs = fake.NewClientset()
+	forbid(cs, "get", "namespaces") // no cluster-wide read: assume it exists
+	if _, err := client(cs).ListWorkloads(context.Background(), ports.Scope{Env: "rec", Namespaces: []string{"app-rce"}}); err != nil {
+		t.Fatalf("unknown existence: %v", err)
+	}
+}
+
+// E8: kinds skipped for lack of permission are announced before the workloads.
+func TestSkippedKindsAreAnnounced(t *testing.T) {
+	cs := fixture()
+	forbid(cs, "list", "cronjobs")
+	forbid(cs, "list", "daemonsets")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ch, err := client(cs).WatchWorkloads(ctx, scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ev := <-ch
+	if ev.Warning != "daemonsets, cronjobs not readable in app-rec" {
+		t.Fatalf("first event %+v", ev)
+	}
+	if ev := <-ch; ev.Workload.Ref.Name != "api" {
+		t.Fatalf("then the workloads: %+v", ev)
+	}
+}
+
+// E2: a list failing because the cluster is unreachable ends the watch,
+// so the caller reports it (the informers would retry silently); an
+// expired resource version does not.
+func TestUnreachableEndsTheWatch(t *testing.T) {
+	failing := func(err error) informerSource {
+		return informerSource{example: &corev1.Pod{}, lw: cache.ToListWatcherWithWatchListSemantics(&cache.ListWatch{
+			ListWithContextFunc: func(context.Context, metav1.ListOptions) (runtime.Object, error) { return nil, err },
+			WatchFuncWithContext: func(context.Context, metav1.ListOptions) (watch.Interface, error) {
+				return nil, err
+			},
+		}, noWatchList{})}
+	}
+	conv := func(any, bool) (int, bool) { return 0, false }
+	ch := run(context.Background(), []informerSource{failing(&net.OpError{Op: "dial", Err: errors.New("i/o timeout")})}, nil, conv)
+	select {
+	case _, ok := <-ch:
+		if ok {
+			t.Fatal("unexpected event")
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("watch still open after an unreachable list")
+	}
+	if !watchBroken(apierrors.NewUnauthorized("expired")) || watchBroken(apierrors.NewResourceExpired("too old")) {
+		t.Error("watchBroken")
 	}
 }

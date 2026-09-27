@@ -3,7 +3,6 @@ package kubernetes
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net"
 	"strings"
 
@@ -22,7 +21,7 @@ func mapErr(err error) error {
 	if kind == nil {
 		return err
 	}
-	return fmt.Errorf("%v: %w", err, kind)
+	return domain.KindError(kind, err.Error())
 }
 
 func kindOf(err error) error {
@@ -40,9 +39,21 @@ func kindOf(err error) error {
 	case apierrors.IsBadRequest(err) && strings.Contains(msg, "previous terminated container"):
 		return domain.ErrNotFound // no previous instance
 	case apierrors.IsTimeout(err), apierrors.IsServerTimeout(err), apierrors.IsServiceUnavailable(err),
-		apierrors.IsTooManyRequests(err), apierrors.IsInternalError(err), errors.As(err, &netErr),
-		strings.Contains(msg, "connection refused"), strings.Contains(msg, "no such host"):
+		apierrors.IsTooManyRequests(err), apierrors.IsInternalError(err), errors.As(err, &netErr):
 		return domain.ErrUnreachable
 	}
+	for _, s := range networkFailures {
+		if strings.Contains(msg, s) {
+			return domain.ErrUnreachable
+		}
+	}
 	return nil
+}
+
+// networkFailures are messages of connections that broke (the HTTP/2
+// transport and the watch decoder wrap them in plain errors).
+var networkFailures = []string{
+	"connection refused", "no such host", "connection reset", "broken pipe", "i/o timeout",
+	"http2: client connection lost", "unable to decode an event from the watch stream",
+	"TLS handshake timeout", "use of closed network connection", "unexpected EOF",
 }

@@ -20,6 +20,9 @@ type CatalogSnapshot struct {
 	// NamespaceErrs holds the namespaces that cannot be watched and why;
 	// other namespaces are unaffected.
 	NamespaceErrs map[string]error
+	// Warnings says where the view is incomplete although the watch works
+	// (e.g. "cronjobs not readable in app-rec"), sorted.
+	Warnings []string
 	// Err is set when nothing can be watched at all.
 	Err error
 }

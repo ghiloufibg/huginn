@@ -23,6 +23,14 @@ type FakeLogSource struct {
 	lines    map[string][]domain.RawLine
 	previous map[string][]domain.RawLine
 	live     map[string][]chan domain.RawLine
+	err      error
+}
+
+// SetErr makes every new stream fail with err (nil clears it).
+func (s *FakeLogSource) SetErr(err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.err = err
 }
 
 // NewFakeLogSource returns an empty source using clock for Since windows.
@@ -70,6 +78,10 @@ func (st *stream) Err() error {
 // Stream implements ports.LogSource.
 func (s *FakeLogSource) Stream(ctx context.Context, req ports.LogRequest) (ports.LogStream, error) {
 	s.mu.Lock()
+	if s.err != nil {
+		defer s.mu.Unlock()
+		return nil, s.err
+	}
 	k := key(req.Namespace, req.Pod, req.Container)
 	src, ok := s.lines[k]
 	if req.Previous {

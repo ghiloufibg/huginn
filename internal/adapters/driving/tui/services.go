@@ -367,6 +367,7 @@ func (s *servicesScreen) statusLeft(m *Model) string {
 		slices.Sort(nss)
 		parts = append(parts, "namespace "+strings.Join(nss, ", "))
 	}
+	parts = append(parts, m.snap.Warnings...)
 	return chip + bar.Render(strings.Join(parts, "  ·  "))
 }
 

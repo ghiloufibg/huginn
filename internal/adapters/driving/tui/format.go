@@ -51,7 +51,7 @@ func errKind(err error) string {
 func errAdvice(err error) string {
 	switch {
 	case domain.Permanent(err):
-		return "fix the configuration (environments.yaml, kubeconfig) and restart huginn"
+		return "fix the configuration (environments.yaml, kubeconfig)"
 	case errors.Is(err, domain.ErrUnauthorized):
 		return "log in again (on GKE: gcloud auth login) · retrying automatically"
 	}

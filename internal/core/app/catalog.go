@@ -165,6 +165,7 @@ type state struct {
 	pods      map[string]domain.Pod      // namespace/name
 	nsErr     map[string]error
 	connected map[string]bool
+	warnings  map[string][]string // by namespace
 }
 
 func key(ns, name string) string { return ns + "/" + name }
@@ -177,7 +178,13 @@ func (s *state) apply(m feedMsg) {
 	case m.reset:
 		s.dropNamespace(m.ns)
 		delete(s.nsErr, m.ns)
+		delete(s.warnings, m.ns)
 		s.connected[m.ns] = true
+	case m.workload != nil && m.workload.Warning != "":
+		if s.warnings == nil {
+			s.warnings = map[string][]string{}
+		}
+		s.warnings[m.ns] = append(s.warnings[m.ns], m.workload.Warning)
 	case m.workload != nil:
 		w := m.workload.Workload
 		if m.workload.Deleted {
@@ -217,7 +224,7 @@ func (c *Catalog) loop(ctx context.Context, env domain.Env, namespaces []string,
 		default:
 		}
 	})
-	st := &state{workloads: map[string]domain.Workload{}, pods: map[string]domain.Pod{}, nsErr: map[string]error{}, connected: map[string]bool{}}
+	st := &state{workloads: map[string]domain.Workload{}, pods: map[string]domain.Pod{}, nsErr: map[string]error{}, connected: map[string]bool{}, warnings: map[string][]string{}}
 	coalesce := c.Coalesce
 	if coalesce <= 0 {
 		coalesce = 100 * time.Millisecond
@@ -268,6 +275,7 @@ func (c *Catalog) snapshot(ctx context.Context, env domain.Env, namespaces []str
 		if !st.connected[ns] {
 			snap.Synced = false
 		}
+		snap.Warnings = append(snap.Warnings, st.warnings[ns]...)
 	}
 	if len(st.nsErr) == len(namespaces) {
 		snap.Err = firstErr(st.nsErr, namespaces)
