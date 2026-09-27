@@ -41,4 +41,8 @@ type Workload struct {
 	// Selector is the label selector of the workload's pods.
 	Selector map[string]string
 	Created  time.Time
+	// Standalone marks a group of pods that no known workload claims
+	// (StandaloneWorkloads): its pods are found by owner or name, not by
+	// selector.
+	Standalone bool
 }

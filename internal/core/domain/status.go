@@ -106,7 +106,7 @@ func Summarize(repo string, workloads []Workload, pods []Pod, f ContainerFilter)
 	switch {
 	case progressing:
 		s.Status = min(s.Status, StatusProgressing)
-	case s.DesiredPods == 0 && !allCronJobs(workloads): // an idle CronJob is not scaled to 0
+	case s.DesiredPods == 0 && !idleIsNormal(workloads): // an idle CronJob or a finished Job is not scaled to 0
 		s.Status = min(s.Status, StatusUnknown)
 	case s.ReadyPods < s.DesiredPods && s.Status == StatusHealthy:
 		// Missing replicas no pod explains (a pending or crashing pod
@@ -141,9 +141,11 @@ func PodRestarts(p Pod, f ContainerFilter) int {
 	return n
 }
 
-func allCronJobs(ws []Workload) bool {
+// idleIsNormal tells whether workloads without running pods are expected
+// to be so: CronJobs between runs, standalone groups that finished.
+func idleIsNormal(ws []Workload) bool {
 	for _, w := range ws {
-		if w.Ref.Kind != KindCronJob {
+		if w.Ref.Kind != KindCronJob && !w.Standalone {
 			return false
 		}
 	}

@@ -27,8 +27,11 @@ type Pod struct {
 	Deleted    bool
 	Containers []Container
 	// OwnerName is the name of the controlling workload (the ReplicaSet's
-	// owner for Deployments), when known.
+	// owner for Deployments), when known; OwnerKind its kind
+	// ("Deployment", "Job", "Rollout"…), empty for a bare pod or when the
+	// source does not say.
 	OwnerName string
+	OwnerKind string
 	// Revision identifies the pod template the pod was made from; pods of
 	// a workload with different revisions mean a rollout, even when the
 	// image did not change (a restart).
