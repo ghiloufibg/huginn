@@ -11,13 +11,16 @@ Huginn.
    `examples/`. In VS Code, a multi-root workspace works.
 2. Build Huginn once (`make build`) so the agent can validate the folder with
    `bin/huginn`.
-3. Copy everything under the line below into Copilot Chat in **agent** mode.
+3. Make sure your kubeconfig has a context for every environment, production
+   included (`gcloud container clusters get-credentials …`), and that you are
+   logged in (`gcloud auth login`). The agent checks its work against the live
+   clusters with read-only `kubectl` commands.
+4. Copy everything under the line below into Copilot Chat in **agent** mode.
    You can also save it as `.github/prompts/huginn-config.prompt.md` in your
    workspace and run it with `/huginn-config`. Replace `<OUTPUT_DIR>` first,
    for example `~/work/huginn-config`.
-4. Review the generated `README.md`, especially its TODO list, then run
-   `huginn --config <OUTPUT_DIR>` against a **non-production** environment
-   first.
+5. Review the generated `README.md`, especially its TODO list and cluster
+   check table, then run `huginn --config <OUTPUT_DIR> <env>`.
 
 ---
 
@@ -35,7 +38,12 @@ about them comes from this folder. Write it to `<OUTPUT_DIR>`.
 - **Worked examples:** `examples/config/` (Spring Boot JSON), `examples/config-node/`
   (pino), `examples/config-nginx/` (regex plus a second JSON format). Start from
   the closest one.
-- **My applications:** every other repository in the workspace.
+- **My applications:** every other repository in the workspace. They say what
+  is *meant* to run.
+- **The live clusters:** every environment, production included, through
+  read-only `kubectl` (see the rules below). They say what *actually* runs and
+  what the containers *actually* print. When a repository and a cluster
+  disagree, the cluster wins; note the difference in the README.
 
 ## Hard rules
 
@@ -61,6 +69,24 @@ about them comes from this folder. Write it to `<OUTPUT_DIR>`.
    API), not what a log shipper stores. Fields added downstream by Fluent Bit,
    Datadog, Cloud Logging and similar are not in the lines Huginn sees. Map the
    fields the **application itself** writes.
+7. **`kubectl` is allowed on every environment, production included, with
+   read-only commands only:** `get`, `describe`, `logs`, `top`, `api-resources`,
+   `auth can-i`, `config get-contexts`, `config current-context`,
+   `config view --minify`.
+   - Never run a command that changes anything: `apply`, `create`, `edit`,
+     `patch`, `delete`, `scale`, `rollout restart|undo`, `label`, `annotate`,
+     `set`, `cordon`, `drain`, `taint`.
+   - Never open a session into a pod: `exec`, `attach`, `cp`, `port-forward`,
+     `debug`, `proxy`.
+   - Never read Secrets (`get secret`, `describe secret`, `-o yaml` of a
+     Secret).
+   - Never run `kubectl config use-context` or `set-context`: they change my
+     current context. Pass `--context <ctx>` and `-n <ns>` on every command.
+   - Keep log reads small: `--tail 50` at most per container.
+8. **Real log lines stay out of the files unredacted.** You may read as many
+   as you need to get the mapping right. When you put an example line in a
+   comment, replace personal data, ids, emails, IPs, tokens and business
+   values with placeholders.
 
 ## Discovery: what to look for, file by file
 
@@ -76,8 +102,8 @@ Make one pass over all repositories and take notes, then write the files.
   from least to most critical.
 - **Contexts:** look for `gcloud container clusters get-credentials <cluster>
   --region|--zone <location> --project <project>` in CI or scripts. The GKE
-  kube context is then `gke_<project>_<location>_<cluster>`. If you cannot find
-  it, write a TODO so I can fill it in from `kubectl config get-contexts`.
+  kube context is then `gke_<project>_<location>_<cluster>`. Confirm it exists
+  with `kubectl config get-contexts -o name`.
 - **Namespaces:** `namespace:` in `kustomization.yaml`, `metadata.namespace`,
   Helm `--namespace` / `-n` flags, Argo CD `destination.namespace`. When the
   namespace comes from a sops-encrypted dotenv file, use
@@ -152,9 +178,8 @@ Then, for each format:
   accepts the repository and container wins. Name the files `10-<name>.yaml`,
   `20-<name>.yaml`, … and end with one catch-all format without `match`, named
   to sort last.
-- At the top of each format file, add a comment with **one realistic example
-  line** reconstructed from the configuration, as the examples do. Mark it
-  `# reconstructed, not copied from a real log`.
+- At the top of each format file, add a comment with **one example line**
+  taken from `kubectl logs` and redacted (rule 8), as the examples do.
 
 ### `layouts/` (drawing lines)
 
@@ -186,13 +211,41 @@ Optional. Personal preferences; skip it unless I asked for something.
      cases, so check the message, not the code.
 2. Check that each format's `pattern` (for regex formats) matches its example
    line, and that each JSON example line contains the mapped keys.
-3. **Optional, only if I confirm it and only on a non-production environment:**
-   compare with the cluster using read-only commands:
-   `kubectl get deploy,sts,ds,cronjob -n <ns> --show-labels`,
-   `kubectl get pod <pod> -n <ns> -o jsonpath='{.spec.containers[*].name}'`,
-   `kubectl logs <pod> -n <ns> -c <container> --tail 3`. Do not run any other
-   kubectl verb. Do not paste real log lines into the folder; they may contain
-   personal data.
+3. **Cluster check (required, on every environment, production included).**
+   Use only the commands allowed by rule 7, with `--context` and `-n` on each.
+   Fix the folder after each step.
+   1. **Access:** every `context` exists (`kubectl config get-contexts -o name`).
+      For every namespace, `kubectl auth can-i list pods` and
+      `kubectl auth can-i get pods --subresource=log` answer `yes`. A `no` is a
+      TODO for me, not something to work around.
+   2. **Workloads → repositories:**
+      `kubectl get deploy,sts,ds,cronjob --show-labels` (and
+      `-o jsonpath='{.items[*].metadata.annotations}'` when `label_keys` may
+      use annotations). Every workload must resolve to the intended repository
+      through `services.yaml`'s rules. List the ones that don't and fix them
+      with `explicit` entries or another label key.
+   3. **Standalone pods:** `kubectl get pods --show-labels` and each pod's
+      `metadata.ownerReferences`. Find the bare pods, hand-made Jobs and
+      controllers other than the four workload kinds, and decide whether
+      `standalone_pods` should stay on.
+   4. **Containers:** for one running pod of each workload,
+      `kubectl get pod <pod> -o jsonpath='{.spec.initContainers[*].name} | {.spec.containers[*].name} | {.spec.containers[*].image}'`.
+      Every non-application container, injected ones included, is matched by
+      `hide`. No application container is matched by `hide`, unless it is in
+      `always_show`.
+   5. **Formats:** for each application container and each non-hidden
+      sidecar, `kubectl logs <pod> -c <container> --tail 50`. Also check a
+      crashing pod with `--previous` if there is one: startup and crash output
+      often differ. Check that:
+      - the first matching format file is the intended one;
+      - every mapped key is present in the lines;
+      - `time` is RFC 3339 or epoch seconds/milliseconds (otherwise map
+        another key or leave it out);
+      - every level value is a known spelling or is listed in `levels`;
+      - multi-line output (stack traces, banners) is understood.
+   6. Environments must not differ silently. If production logs differ from
+      staging (another profile, another encoder), write a format with a
+      `match` for it, or explain in the README why one format covers both.
 
 ## Deliverables
 
@@ -206,10 +259,15 @@ In `<OUTPUT_DIR>`:
     layout used, workloads found.
   - **Decisions:** why `labels` or `explicit`, why each sidecar is hidden, how
     formats are ordered.
-  - **TODO (verify):** every guessed value, with the exact command to confirm
-    it (`kubectl config get-contexts`, `kubectl logs … --tail 1`, …).
+  - **Cluster check:** a table per environment: context and access result,
+    workloads found / resolved to a repository / unresolved, sidecars seen,
+    and for each format the containers and number of lines it was checked
+    against.
+  - **TODO (verify):** what the cluster check could not settle (a namespace
+    I cannot read, a workload with no running pod…), with the exact command
+    to confirm it.
   - **Run:** `huginn --config <OUTPUT_DIR> <default_env>`.
 
 Finally, give me a short summary: the environments and repositories covered,
-the formats and layouts created, the number of TODOs, and the result of the
-validation run.
+the formats and layouts created, the cluster check result per environment,
+the number of TODOs, and the result of the validation run.
