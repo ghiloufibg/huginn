@@ -175,7 +175,7 @@ explicit:
 | `explicit[].workloads[].name` | string | yes | | Workload name. |
 | `explicit[].workloads[].namespace` | string | | first namespace of the environment | |
 | `explicit[].workloads[].kind` | `Deployment`, `StatefulSet`, `DaemonSet`, `CronJob` | | `Deployment` | |
-| `standalone_pods` | bool | | `true` | List the pods that no known workload owns as rows of their own, grouped by owner: a bare pod (`debug-shell (Pod)`), a Job made by hand (`migrate (Job)`), pods of a ReplicaSet whose Deployment is gone or of a controller Huginn does not know (`canary (Rollout)`). They go through the rules above with their pods' labels, so a debug pod labelled like an application joins its repository. Set `false` on clusters full of finished one-off Jobs. |
+| `standalone_pods` | bool | | `true` | List the pods that no known workload owns as rows of their own, grouped by owner: a bare pod (`debug-shell (Pod)`), a Job made by hand (`migrate (Job)`), pods of a ReplicaSet whose Deployment is gone or of a controller Huginn does not know (`canary (Rollout)`). When shown this way, they go through the rules above with their pods' labels, so a debug pod labelled like an application joins its repository. Set `false` to not show them at all (e.g. on clusters full of finished one-off Jobs); a labelled orphaned pod then does not join its repository either, since it is never turned into a row to begin with. |
 
 The `manifests` rule is accepted and validated, but it is read only from milestone M4 (the real cluster connection). Until then, use `labels` or `explicit`.
 

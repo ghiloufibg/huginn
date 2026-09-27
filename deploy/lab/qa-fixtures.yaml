@@ -1,0 +1,56 @@
+# QA-session-only fixtures (deploy/lab/QA-SESSION.md §0.1): states not covered
+# by workloads.yaml/extra.yaml. Apply after those two:
+#   kubectl --context minikube apply -f deploy/lab/qa-fixtures.yaml
+#
+# The Job (migrate-once) and the mid-session Deployment (orphan-source is
+# orphaned by hand, see below) are created live per the QA session's Phase
+# instructions rather than declared here, since the interesting part is the
+# live transition, not a resting state:
+#   kubectl -n app-rec create job migrate-once --image=alpine:3.20 -- sh -c 'echo migrating; sleep 5'
+#
+# orphan-source below is a Deployment intended to be orphaned during the
+# session:
+#   kubectl -n app-rec delete deployment orphan-source --cascade=orphan
+# which leaves its ReplicaSet (and Pod) running with no owning Deployment.
+# NOTE: this does NOT produce a "WITHOUT REPO" standalone row grouped by an
+# unrecognized owner kind, because the ReplicaSet still carries the pod's
+# pod-template-hash label; ownerOf() (internal/adapters/driven/kubernetes/
+# convert.go) uses that label to infer "Deployment: orphan-source" from the
+# pod alone, regardless of whether the Deployment object still exists, and
+# services.yaml's label resolver then still claims it via app.kubernetes.io/
+# part-of. This fixture is still useful for Phase J (resilience): it proves
+# repo pruning is driven by "does any pod still exist", not by "does the
+# owning Deployment still exist" (see QA-REPORT.md's Phase J write-up).
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: orphan-source, namespace: app-rec, labels: {app.kubernetes.io/part-of: orphan-source}}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: orphan-source}}
+  template:
+    metadata: {labels: {app: orphan-source, app.kubernetes.io/part-of: orphan-source}}
+    spec:
+      containers:
+        - {name: app, image: alpine:3.20, command: [sh, -c, 'while true; do echo orphan-source alive; sleep 5; done']}
+---
+# qa-standalone-rs is a bare ReplicaSet, never owned by a Deployment: its
+# pods get no pod-template-hash label, so ownerOf() cannot infer a
+# Deployment name and reports the owner as-is (kind ReplicaSet, name
+# qa-standalone-rs). Its pod template deliberately carries no resolver
+# label key (app.kubernetes.io/part-of, app.kubernetes.io/name, app — see
+# services.yaml), so the label resolver cannot claim it either. This is
+# what actually exercises "a standalone row grouped by an owner kind
+# Huginn does not special-case" (docs/CONFIG.md standalone_pods, D-038):
+# it should render on the services screen as an unassigned/standalone row
+# named "qa-standalone-rs (ReplicaSet)", not as a normal repo.
+apiVersion: apps/v1
+kind: ReplicaSet
+metadata: {name: qa-standalone-rs, namespace: app-rec}
+spec:
+  replicas: 1
+  selector: {matchLabels: {component: qa-standalone-rs}}
+  template:
+    metadata: {labels: {component: qa-standalone-rs}}
+    spec:
+      containers:
+        - {name: app, image: alpine:3.20, command: [sh, -c, 'while true; do echo qa-standalone-rs alive; sleep 5; done']}
