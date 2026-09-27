@@ -429,6 +429,9 @@ func (m *Model) connection(bar lipgloss.Style) string {
 	case m.snap == nil || m.resyncing:
 		return src + bar.Render(m.spinner()+" connecting")
 	case m.snap.Err != nil:
+		if domain.Permanent(m.snap.Err) {
+			return src + t.Bad.Inherit(bar).Render("error: "+errKind(m.snap.Err))
+		}
 		return src + t.Bad.Inherit(bar).Render("error: "+errKind(m.snap.Err)) + bar.Render(" · retrying")
 	default:
 		state := "watching"

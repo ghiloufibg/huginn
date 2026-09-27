@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -783,6 +784,8 @@ func (l *logsScreen) podStrip(m *Model, w int) string {
 		switch {
 		case p.Terminated:
 			desc, style = "terminated", t.Dim
+		case errors.Is(p.Err, domain.ErrNotStarted): // its logs come back when it runs
+			desc = "waiting: " + st.String()
 		case p.Err != nil:
 			desc, style = "no logs: "+errKind(p.Err), t.Warn
 		}

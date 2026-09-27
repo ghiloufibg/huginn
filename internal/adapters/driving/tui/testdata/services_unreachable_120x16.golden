@@ -7,7 +7,7 @@
                                                                                                                         
                                                       unauthorized                                                      
                                                                                                                         
-                                     retrying automatically · press r to retry now                                      
+                log in again (on GKE: gcloud auth login) · retrying automatically · press r to retry now                
                                                                                                                         
                                                                                                                         
                                                                                                                         

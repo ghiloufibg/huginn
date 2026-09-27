@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -131,6 +133,34 @@ func TestCatalogReportsErrorAndRecovers(t *testing.T) {
 	}
 	fc.SetErr(nil)
 	next(t, ch, clock, func(s ports.CatalogSnapshot) bool { return s.Err == nil && len(s.Services) == 1 && s.Synced })
+}
+
+// countingCluster counts the workload watches opened.
+type countingCluster struct {
+	*portstest.FakeCluster
+	watches atomic.Int32
+}
+
+func (c *countingCluster) WatchWorkloads(ctx context.Context, s ports.Scope) (<-chan ports.WorkloadEvent, error) {
+	c.watches.Add(1)
+	return c.FakeCluster.WatchWorkloads(ctx, s)
+}
+
+func TestCatalogDoesNotRetryPermanentErrors(t *testing.T) {
+	clock := portstest.NewFakeClock(t0)
+	fc := &countingCluster{FakeCluster: portstest.NewFakeCluster()}
+	fc.SetErr(fmt.Errorf("kube context nope: %w", domain.ErrConfig))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ch, _ := newCatalog(fc, clock, "ns").Watch(ctx, domain.Env("rec"))
+	next(t, ch, clock, func(s ports.CatalogSnapshot) bool { return errors.Is(s.Err, domain.ErrConfig) })
+	for range 20 {
+		clock.Advance(time.Minute)
+		time.Sleep(time.Millisecond)
+	}
+	if n := fc.watches.Load(); n != 1 {
+		t.Fatalf("%d watches, want 1 (no retry)", n)
+	}
 }
 
 func TestCatalogUnknownEnv(t *testing.T) {

@@ -109,11 +109,29 @@ func (s *LogSessions) podsOf(ctx context.Context, scope ports.Scope, ws []domain
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, pods...)
+		for _, p := range pods {
+			if ownedBy(p, ws) && !slices.ContainsFunc(out, func(o domain.Pod) bool { return o.Name == p.Name && o.Namespace == p.Namespace }) {
+				out = append(out, p)
+			}
+		}
 	}
 	slices.SortFunc(out, func(a, b domain.Pod) int { return strings.Compare(a.Name, b.Name) })
 	return out, nil
 }
+
+// ownedBy tells whether a pod belongs to one of the workloads: selectors
+// can overlap (a CronJob without labels selects everything), so a pod
+// that names its owner must name one of them.
+func ownedBy(p domain.Pod, ws []domain.Workload) bool {
+	if p.OwnerName == "" {
+		return true
+	}
+	return slices.ContainsFunc(ws, func(w domain.Workload) bool {
+		return w.Ref.Name == p.OwnerName && w.Ref.Namespace == p.Namespace
+	})
+}
+
+func (r *session) owned(p domain.Pod) bool { return ownedBy(p, r.workloads) }
 
 func (s *LogSessions) logger() *slog.Logger {
 	if s.Log != nil {
@@ -139,7 +157,8 @@ type tailMsg struct {
 
 type podState struct {
 	ports.PodState
-	cancel context.CancelFunc
+	cancel  context.CancelFunc
+	tailers []*tailer
 }
 
 type session struct {
@@ -234,7 +253,8 @@ func (r *session) addPod(ctx context.Context, p domain.Pod, isNew bool) {
 		if !isNew {
 			r.awaiting++
 		}
-		t := &tailer{s: r.s, q: r.q, scope: r.scope, pod: p, container: c.Name, msgs: r.msgs}
+		t := newTailer(r, p, c.Name)
+		st.tailers = append(st.tailers, t)
 		go t.run(pctx)
 	}
 	r.pods[p.Name] = st
@@ -285,6 +305,9 @@ func (r *session) handle(ctx context.Context, m tailMsg) {
 }
 
 func (r *session) handlePod(ctx context.Context, ev domain.PodEvent) {
+	if !r.owned(ev.Pod) {
+		return
+	}
 	p, known := r.pods[ev.Pod.Name]
 	switch {
 	case ev.Type == domain.PodDeleted && known:
@@ -295,6 +318,9 @@ func (r *session) handlePod(ctx context.Context, ev domain.PodEvent) {
 		r.addPod(ctx, ev.Pod, true)
 	case known && !p.Terminated:
 		p.Pod = ev.Pod
+		for _, t := range p.tailers {
+			t.observe(ev.Pod)
+		}
 		r.podsChanged = true
 	}
 }

@@ -25,7 +25,7 @@ import (
 // Exit codes.
 const (
 	ExitError  = 1 // runtime error
-	ExitConfig = 2 // the config folder is missing or invalid
+	ExitConfig = 2 // the config folder is missing or invalid, or no terminal to run in
 )
 
 // Main runs Huginn with the given arguments and returns the exit code.
@@ -40,7 +40,7 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "huginn:", err)
 		var ce *config.Error
 		var nc noConfigError
-		if errors.As(err, &ce) || errors.As(err, &nc) {
+		if errors.As(err, &ce) || errors.As(err, &nc) || errors.Is(err, tui.ErrNoTerminal) {
 			return ExitConfig
 		}
 		return ExitError

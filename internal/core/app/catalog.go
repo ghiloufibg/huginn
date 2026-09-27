@@ -87,6 +87,10 @@ func (c *Catalog) feed(ctx context.Context, ns string, scope ports.Scope, msgs c
 			err = fmt.Errorf("watch of namespace %q ended: %w", ns, domain.ErrUnreachable)
 		}
 		c.logger().Warn("namespace watch failed", "namespace", ns, "err", err)
+		if domain.Permanent(err) { // retrying cannot fix the setup
+			send(feedMsg{ns: ns, err: err})
+			return
+		}
 		if !send(feedMsg{ns: ns, err: err}) || !c.sleep(ctx, c.backoff(attempt)) {
 			return
 		}

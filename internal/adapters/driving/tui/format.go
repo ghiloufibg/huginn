@@ -35,9 +35,25 @@ func errKind(err error) string {
 		return "not found"
 	case errors.Is(err, domain.ErrNotImplemented):
 		return "not available"
+	case errors.Is(err, domain.ErrConfig):
+		return "configuration error"
+	case errors.Is(err, domain.ErrNotStarted):
+		return "not started"
 	default:
 		return "error"
 	}
+}
+
+// errAdvice tells what to do about a cluster error: permanent errors are
+// not retried, so the user must act.
+func errAdvice(err error) string {
+	switch {
+	case domain.Permanent(err):
+		return "fix the configuration (environments.yaml, kubeconfig) and restart huginn"
+	case errors.Is(err, domain.ErrUnauthorized):
+		return "log in again (on GKE: gcloud auth login) · retrying automatically"
+	}
+	return "retrying automatically"
 }
 
 // statusCounts summarizes rows for the status bar.

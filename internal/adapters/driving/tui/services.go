@@ -227,7 +227,7 @@ func (s *servicesScreen) view(m *Model, w, h int) string {
 		return centered(t.Key.Render(m.spinner())+t.Dim.Render(" connecting to "+m.env.Name), w, h)
 	case m.snap.Err != nil && len(m.snap.Services) == 0:
 		return centered(t.Bad.Render("Cannot reach "+m.env.Name+": "+errKind(m.snap.Err))+"\n\n"+
-			t.Dim.Render(m.snap.Err.Error())+"\n\n"+t.Dim.Render("retrying automatically · press ")+
+			t.Dim.Render(m.snap.Err.Error())+"\n\n"+t.Dim.Render(errAdvice(m.snap.Err)+" · press ")+
 			t.Key.Render(m.label(ActRefresh))+t.Dim.Render(" to retry now"), w, h)
 	}
 	rows := s.rows(m)

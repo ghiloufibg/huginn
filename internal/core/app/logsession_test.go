@@ -215,6 +215,71 @@ func TestResumeWithSecondPrecisionSource(t *testing.T) {
 	}
 }
 
+// TestCrashLoopWaitsForRestart reproduces B3: the follow stream of a
+// crash-looping container ends without error; the tailer must wait for the
+// pod watch to show a new instance, not reconnect in a loop.
+func TestCrashLoopWaitsForRestart(t *testing.T) {
+	f := newFixture(t)
+	f.s.Backoff = []time.Duration{time.Second}
+	r, cancel := f.open(t, ports.LogQuery{Follow: true})
+	defer cancel()
+	r.until(10*time.Millisecond, func() bool { return r.history && f.logs.Following("ns", "api-1", "api") == 1 })
+
+	crashed := podWithSidecar("api-1", t0.Add(-2*time.Hour))
+	crashed.Containers[0] = domain.Container{Name: "api", State: domain.ContainerWaiting, Reason: "CrashLoopBackOff", Restarts: 1}
+	f.cluster.PutPod(crashed)
+	podErr := func() error {
+		for _, p := range r.pods {
+			if p.Pod.Name == "api-1" {
+				return p.Err
+			}
+		}
+		return nil
+	}
+	r.until(10*time.Millisecond, func() bool {
+		return r.pods != nil && podErr() == nil && r.pods[0].Pod.Containers[0].Reason == "CrashLoopBackOff"
+	})
+	f.logs.Close("ns", "api-1", "api")
+	r.until(10*time.Millisecond, func() bool { return errors.Is(podErr(), domain.ErrNotStarted) })
+	for range 30 { // well past the backoff: no reconnection
+		f.clock.Advance(time.Second)
+		time.Sleep(time.Millisecond)
+	}
+	if n := f.logs.Following("ns", "api-1", "api"); n != 0 {
+		t.Fatalf("%d streams while the container waits", n)
+	}
+	if slices.Contains(r.notices, "reconnecting to api-1/api") {
+		t.Error("a waiting container is not a connection problem")
+	}
+
+	restarted := podWithSidecar("api-1", t0.Add(-2*time.Hour))
+	restarted.Containers[0].Restarts = 2
+	f.cluster.PutPod(restarted)
+	r.until(10*time.Millisecond, func() bool { return f.logs.Following("ns", "api-1", "api") == 1 && podErr() == nil })
+}
+
+// TestPodsOfOtherOwnersIgnored: selectors can overlap; a pod that names
+// another owner is not the repository's, even when its labels match.
+func TestPodsOfOtherOwnersIgnored(t *testing.T) {
+	f := newFixture(t)
+	other := podWithSidecar("batch-1", t0.Add(-time.Hour))
+	other.OwnerName = "nightly-batch"
+	f.cluster.PutPod(other)
+	r, cancel := f.open(t, ports.LogQuery{Follow: true})
+	defer cancel()
+	r.until(10*time.Millisecond, func() bool { return r.history && len(r.pods) > 0 })
+	late := podWithSidecar("batch-2", t0)
+	late.OwnerName = "nightly-batch"
+	f.cluster.PutPod(late)
+	f.cluster.PutPod(podWithSidecar("api-3", t0))
+	r.until(10*time.Millisecond, func() bool { return len(r.pods) == 3 })
+	for _, p := range r.pods {
+		if strings.HasPrefix(p.Pod.Name, "batch") {
+			t.Errorf("pod %s of another owner streamed", p.Pod.Name)
+		}
+	}
+}
+
 func TestSkipResumed(t *testing.T) {
 	since := t0.Add(500 * time.Millisecond)
 	seen := map[string]bool{"x": true}
