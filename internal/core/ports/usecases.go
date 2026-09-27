@@ -69,9 +69,13 @@ type LogNotice struct {
 }
 
 // LogBatch is what a log session delivers, at most about 30 times a
-// second. Entries are ordered by time and never reordered afterwards.
+// second. Entries are ordered by domain.LogEntry.OrderTime and follow the
+// entries of earlier batches; Late entries belong before some of them.
 type LogBatch struct {
 	Entries []domain.LogEntry
+	// Late are entries older than entries already delivered (a stream
+	// recovered after an outage): the view places them by time.
+	Late []domain.LogEntry
 	// Pods is the full pod list when it changed, nil otherwise.
 	Pods []PodState
 	// Notices are new messages since the previous batch.

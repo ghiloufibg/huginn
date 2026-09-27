@@ -244,7 +244,7 @@ func (r *session) loop(ctx context.Context, initial []domain.Pod) {
 }
 
 func (r *session) hasPending() bool {
-	return len(r.pending.Entries) > 0 || len(r.pending.Notices) > 0 || r.pending.HistoryDone || r.podsChanged
+	return len(r.pending.Entries) > 0 || len(r.pending.Late) > 0 || len(r.pending.Notices) > 0 || r.pending.HistoryDone || r.podsChanged
 }
 
 // batch returns the pending batch, with the pod list if it changed.
@@ -426,7 +426,7 @@ func (r *session) finishHistory() {
 	slices.SortStableFunc(entries, compareEntries)
 	r.pending.Entries = append(r.pending.Entries, entries...)
 	if n := len(entries); n > 0 {
-		r.committed = entries[n-1].Time
+		r.committed = entries[n-1].OrderTime()
 	}
 	r.history, r.historySent = nil, true
 	r.pending.HistoryDone = true
@@ -446,21 +446,29 @@ func (r *session) commit(all bool) {
 	cutoff := r.s.Clock.Now().Add(-window)
 	slices.SortStableFunc(r.reorder, compareEntries)
 	n := 0
-	for n < len(r.reorder) && (all || !r.reorder[n].Time.After(cutoff) || r.reorder[n].Time.Before(r.committed)) {
+	for n < len(r.reorder) && (all || !r.reorder[n].OrderTime().After(cutoff) || r.reorder[n].OrderTime().Before(r.committed)) {
 		n++
 	}
 	if n == 0 {
 		return
 	}
-	r.pending.Entries = append(r.pending.Entries, r.reorder[:n]...)
-	if last := r.reorder[n-1].Time; last.After(r.committed) {
+	for _, e := range r.reorder[:n] {
+		// Older than what the view already has (a stream that recovered
+		// after an outage delivers what it missed): the view inserts it.
+		if e.OrderTime().Before(r.committed) {
+			r.pending.Late = append(r.pending.Late, e)
+			continue
+		}
+		r.pending.Entries = append(r.pending.Entries, e)
+	}
+	if last := r.reorder[n-1].OrderTime(); last.After(r.committed) {
 		r.committed = last
 	}
 	r.reorder = slices.Delete(r.reorder, 0, n)
 }
 
 func compareEntries(a, b domain.LogEntry) int {
-	if c := a.Time.Compare(b.Time); c != 0 {
+	if c := a.OrderTime().Compare(b.OrderTime()); c != 0 {
 		return c
 	}
 	return strings.Compare(a.Pod, b.Pod)

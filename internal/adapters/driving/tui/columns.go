@@ -201,7 +201,7 @@ func (l *logsScreen) columnsLabel(m *Model, width int) string {
 	if l.podID != podIDNone {
 		shown = append(shown, "pod")
 	}
-	for _, c := range m.opts.Columns {
+	for _, c := range l.viewColumns(m) {
 		if !hide.Has(c.Name) {
 			shown = append(shown, c.Name)
 		}
@@ -217,7 +217,7 @@ func newColumnsPicker(l *logsScreen) *columnsPicker { return &columnsPicker{logs
 func (p *columnsPicker) update(m *Model, k tea.KeyPressMsg) tea.Cmd {
 	l := p.logs
 	key := k.String()
-	for _, c := range m.opts.Columns {
+	for _, c := range l.viewColumns(m) {
 		if c.Key != "" && key == c.Key {
 			l.toggleColumn(m, c.Name)
 			return nil
@@ -227,7 +227,7 @@ func (p *columnsPicker) update(m *Model, k tea.KeyPressMsg) tea.Cmd {
 	case key == "p":
 		l.togglePod(m)
 	case key == "z":
-		for _, c := range m.opts.Columns {
+		for _, c := range l.viewColumns(m) {
 			l.hide = l.hide.With(c.Name)
 		}
 		l.podID, l.manualColumns, l.focus, l.cycling = podIDNone, true, false, false
@@ -253,7 +253,7 @@ func (p *columnsPicker) view(m *Model) string {
 		return "[ ]"
 	}
 	lines := []string{" " + t.Key.Render("p") + "  " + box(l.podID != podIDNone) + " pod"}
-	for _, c := range m.opts.Columns {
+	for _, c := range l.viewColumns(m) {
 		key := t.Key.Render(c.Key)
 		if c.Key == "" {
 			key = " "
@@ -268,7 +268,7 @@ func (p *columnsPicker) view(m *Model) string {
 		" "+t.Key.Render("z")+"  message only", " "+t.Key.Render("r")+"  reset to defaults")
 	if !l.manualColumns {
 		var auto []string
-		for _, c := range m.opts.Columns {
+		for _, c := range l.viewColumns(m) {
 			if c.HideBelow > 0 {
 				auto = append(auto, fmt.Sprintf("%s below %d", c.Name, c.HideBelow))
 			}
@@ -290,7 +290,7 @@ func (p *columnsPicker) view(m *Model) string {
 
 func (p *columnsPicker) hints(m *Model) []hint {
 	hs := []hint{{"p", "pod"}}
-	for _, c := range m.opts.Columns {
+	for _, c := range p.logs.viewColumns(m) {
 		if c.Key != "" {
 			hs = append(hs, hint{c.Key, c.Name})
 		}
@@ -315,4 +315,33 @@ func (l *logsScreen) withColumns(shown []string, cols []ports.ColumnSpec) *logsS
 	}
 	l.manualColumns = true
 	return l
+}
+
+// viewColumns are the optional columns of the layouts drawing the entries
+// in view (all of them before the first entry): an nginx view does not
+// offer the thread of a JSON layout.
+func (l *logsScreen) viewColumns(m *Model) []ports.ColumnSpec {
+	if len(l.formats) == 0 {
+		return m.opts.Columns
+	}
+	names := map[string]bool{}
+	for f := range l.formats {
+		lay := m.opts.Layout
+		if x, ok := m.opts.Layouts[f]; ok {
+			lay = x
+		}
+		if lay == nil {
+			return m.opts.Columns
+		}
+		for _, c := range lay.Columns() {
+			names[c.Name] = true
+		}
+	}
+	out := make([]ports.ColumnSpec, 0, len(names))
+	for _, c := range m.opts.Columns {
+		if names[c.Name] {
+			out = append(out, c)
+		}
+	}
+	return out
 }

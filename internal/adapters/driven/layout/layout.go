@@ -220,7 +220,7 @@ func formatTime(t time.Time, o ports.RenderOptions, layout string) string {
 	}
 	switch o.Timestamps {
 	case ports.TimestampUTC:
-		s := t.UTC().Format(layout)
+		s := withDate(t.UTC(), o.Now.UTC(), layout, t.UTC().Format(layout))
 		if !hasZone(layout) {
 			s += "Z"
 		}
@@ -232,8 +232,29 @@ func formatTime(t time.Time, o ports.RenderOptions, layout string) string {
 	case ports.TimestampNone:
 		return ""
 	default:
-		return t.In(loc).Format(layout)
+		return withDate(t.In(loc), o.Now.In(loc), layout, t.In(loc).Format(layout))
 	}
+}
+
+// withDate prefixes the date when a time-only layout would hide that the
+// entry is from another day than now (an old line, a wrong clock).
+func withDate(t, now time.Time, layout, s string) string {
+	if now.IsZero() || hasDate(layout) {
+		return s
+	}
+	if ty, tm, td := t.Date(); ty == now.Year() && tm == now.Month() && td == now.Day() {
+		return s
+	}
+	return t.Format("2006-01-02 ") + s
+}
+
+func hasDate(layout string) bool {
+	for _, d := range []string{"2006", "06", "Jan", "01", "02", "_2"} {
+		if strings.Contains(strings.ReplaceAll(layout, "05", ""), d) {
+			return true
+		}
+	}
+	return false
 }
 
 func hasZone(layout string) bool {

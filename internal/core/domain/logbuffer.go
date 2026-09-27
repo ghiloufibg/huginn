@@ -1,5 +1,7 @@
 package domain
 
+import "slices"
+
 // LogBuffer is a bounded ring buffer of log entries. When full, appending
 // evicts the oldest entry and counts it as dropped. Every entry receives a
 // sequence number, contiguous across the buffer's life, so a view can keep
@@ -62,4 +64,45 @@ func (b *LogBuffer) Index(seq uint64) (int, bool) {
 func (b *LogBuffer) Reset() {
 	clear(b.buf)
 	b.start, b.n, b.dropped = 0, 0, 0
+}
+
+// InsertLate places entries older than some held ones at their place by
+// OrderTime (a stream recovered after an outage delivers what it missed).
+// Every entry is renumbered; renumber maps a sequence number from before
+// the call to the entry's new one (false when the entry was evicted).
+// It is O(Len), for rare recoveries, not for the live path.
+func (b *LogBuffer) InsertLate(late []LogEntry) (renumber func(old uint64) (uint64, bool)) {
+	late = slices.Clone(late)
+	slices.SortStableFunc(late, func(x, y LogEntry) int { return x.OrderTime().Compare(y.OrderTime()) })
+	old := make([]LogEntry, b.n)
+	for i := range b.n {
+		old[i] = *b.At(i)
+	}
+	merged := make([]LogEntry, 0, len(old)+len(late))
+	from := make([]uint64, 0, len(old)+len(late)) // old seq, 0 for late entries
+	i, j := 0, 0
+	for i < len(old) || j < len(late) {
+		if j < len(late) && (i == len(old) || late[j].OrderTime().Before(old[i].OrderTime())) {
+			merged, from = append(merged, late[j]), append(from, 0)
+			j++
+			continue
+		}
+		merged, from = append(merged, old[i]), append(from, old[i].Seq)
+		i++
+	}
+	dropped := b.dropped
+	b.Reset()
+	b.dropped = dropped
+	moved := make(map[uint64]uint64, len(old))
+	for k, e := range merged {
+		seq := b.Append(e)
+		if from[k] != 0 {
+			moved[from[k]] = seq
+		}
+	}
+	first := b.FirstSeq()
+	return func(old uint64) (uint64, bool) {
+		seq, ok := moved[old]
+		return seq, ok && seq >= first
+	}
 }

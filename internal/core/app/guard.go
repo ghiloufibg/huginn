@@ -34,6 +34,7 @@ func safeDecode(dec ports.LogDecoder, l domain.RawLine) (e domain.LogEntry) {
 		if recover() != nil {
 			e = domain.LogEntry{Time: l.Time, Pod: l.Pod, Container: l.Container, Raw: l.Text, Message: l.Text}
 		}
+		e.Received = l.Time
 	}()
 	return dec.Decode(l)
 }

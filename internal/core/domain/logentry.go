@@ -19,8 +19,14 @@ type RawLine struct {
 // can; renderers and filters rely only on these fields.
 type LogEntry struct {
 	// Seq is a monotonically increasing number assigned on ingestion.
-	Seq       uint64
-	Time      time.Time
+	Seq uint64
+	// Time is the entry's time as the application wrote it (else the
+	// source's).
+	Time time.Time
+	// Received is when the source got the line (the kubelet's timestamp);
+	// it orders entries, since application clocks and fields can be wrong
+	// (a replayed event dated years ago stays where it was written).
+	Received  time.Time
 	Pod       string
 	Container string
 	Level     Level
@@ -92,4 +98,12 @@ func (e *LogEntry) HiddenFields() map[string]string {
 		return e.LoadHidden()
 	}
 	return e.Hidden
+}
+
+// OrderTime is the time entries are ordered by: Received, else Time.
+func (e *LogEntry) OrderTime() time.Time {
+	if !e.Received.IsZero() {
+		return e.Received
+	}
+	return e.Time
 }

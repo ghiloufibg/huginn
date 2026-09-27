@@ -1,6 +1,11 @@
 package domain
 
-import "testing"
+import (
+	"fmt"
+	"strings"
+	"testing"
+	"time"
+)
 
 func TestLogBufferWrapsAndCountsDrops(t *testing.T) {
 	b := NewLogBuffer(3)
@@ -49,5 +54,27 @@ func BenchmarkLogBufferAppend(b *testing.B) {
 	e := LogEntry{Message: "request completed", Logger: "a.b.C", Level: LevelInfo}
 	for b.Loop() {
 		buf.Append(e)
+	}
+}
+
+func TestInsertLate(t *testing.T) {
+	at := func(s int) time.Time { return time.Date(2026, 9, 27, 8, 30, s, 0, time.UTC) }
+	b := NewLogBuffer(4)
+	for _, s := range []int{1, 5, 6} {
+		b.Append(LogEntry{Received: at(s), Message: fmt.Sprint(s)})
+	}
+	renumber := b.InsertLate([]LogEntry{{Received: at(3), Message: "3"}, {Received: at(2), Message: "2"}})
+	var got []string
+	for i := range b.Len() {
+		got = append(got, b.At(i).Message)
+	}
+	if strings.Join(got, ",") != "2,3,5,6" || b.Dropped() != 1 {
+		t.Fatalf("got %v, dropped %d", got, b.Dropped())
+	}
+	if _, ok := renumber(1); ok {
+		t.Error("entry 1 was evicted")
+	}
+	if seq, ok := renumber(2); !ok || b.At(int(seq-b.FirstSeq())).Message != "5" {
+		t.Error("entry 2 (5) renumbered wrong")
 	}
 }

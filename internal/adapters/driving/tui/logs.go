@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -62,13 +63,21 @@ type logsScreen struct {
 	podColor map[string]int
 	notice   string
 	scope    map[string]bool // selected pods; nil means all
+	// multiContainer: some pod streams several containers, so the pod
+	// column names the container too.
+	multiContainer bool
+	containerWidth int
+	formats        map[string]bool // formats of the entries received (their layouts' columns are offered)
 
 	// viewport
 	cursor     int  // position in display order
 	offset     int  // first displayed position
 	tail       bool // cursor sticks to the newest line
 	paused     bool
-	frozen     int // len(view) when paused
+	frozen     int               // len(view) when paused
+	held       []domain.LogEntry // arrived while paused, not yet in the buffer
+	heldLate   []domain.LogEntry // same, for late entries
+	heldLost   int               // held entries dropped (more than the buffer holds)
 	newestTop  bool
 	wrap       bool
 	pan        int
@@ -134,6 +143,8 @@ func (l *logsScreen) open(m *Model) tea.Cmd {
 	l.gen++
 	l.buf.Reset()
 	l.rows, l.cursor, l.tail, l.paused, l.err, l.loading, l.notice = nil, 0, true, false, nil, true, ""
+	l.held, l.heldLate, l.heldLost = nil, nil, 0
+	l.formats = map[string]bool{}
 	l.levels, l.live, l.rate = [domain.LevelError + 1]int{}, false, rateMeter{}
 	if m.opts.Sessions == nil {
 		return nil
@@ -207,10 +218,96 @@ func (l *logsScreen) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 // rate.
 func (l *logsScreen) apply(b ports.LogBatch, now time.Time) {
 	if l.live {
-		l.rate.add(now, len(b.Entries))
+		l.rate.add(now, len(b.Entries)+len(b.Late))
 	}
+	if l.paused {
+		// The paused view keeps its lines: new ones wait outside the
+		// buffer, which would otherwise evict what is on screen.
+		l.hold(b.Entries, b.Late)
+	} else {
+		l.ingest(b.Entries)
+		l.mergeLate(b.Late)
+	}
+	if b.Pods != nil {
+		l.pods = b.Pods
+		l.multiContainer, l.containerWidth = false, 0
+		for _, p := range b.Pods {
+			l.multiContainer = l.multiContainer || len(p.Containers) > 1
+			for _, c := range p.Containers {
+				l.containerWidth = max(l.containerWidth, len(c))
+			}
+			if _, ok := l.podColor[p.Pod.Name]; !ok {
+				l.podColor[p.Pod.Name] = len(l.podColor)
+			}
+		}
+	}
+	if len(b.Notices) > 0 {
+		l.notice = b.Notices[len(b.Notices)-1].Text
+	}
+	if b.HistoryDone {
+		l.loading, l.live = false, true
+		releaseMemory()
+	}
+	l.evict()
+}
+
+// hold keeps entries arriving while paused, at most a buffer's worth: the
+// oldest are dropped beyond, and counted.
+func (l *logsScreen) hold(entries, late []domain.LogEntry) {
+	l.held = append(l.held, entries...)
+	l.heldLate = append(l.heldLate, late...)
+	if over := len(l.held) + len(l.heldLate) - l.buf.Cap(); over > 0 {
+		n := min(over, len(l.held))
+		l.held = append(l.held[:0], l.held[n:]...)
+		l.heldLate = l.heldLate[min(over-n, len(l.heldLate)):]
+		l.heldLost += over
+	}
+}
+
+// release adds the entries held while paused.
+func (l *logsScreen) release() {
+	entries, late := l.held, l.heldLate
+	l.held, l.heldLate = nil, nil
+	l.ingest(entries)
+	l.mergeLate(late)
+	l.evict()
+}
+
+func (l *logsScreen) noteFormat(f string) {
+	if !l.formats[f] {
+		if l.formats == nil {
+			l.formats = map[string]bool{}
+		}
+		l.formats[f] = true
+	}
+}
+
+// mergeLate places entries older than some shown ones at their place.
+func (l *logsScreen) mergeLate(late []domain.LogEntry) {
+	if len(late) == 0 {
+		return
+	}
+	var keep uint64
+	if !l.tail {
+		if e, ok := l.entryAt(l.displayCursor()); ok {
+			keep = e.Seq
+		}
+	}
+	for _, e := range late {
+		l.noteFormat(e.Format)
+	}
+	renumber := l.buf.InsertLate(late)
+	if keep != 0 {
+		keep, _ = renumber(keep)
+	}
+	l.rebuildFrom(keep)
+}
+
+// ingest appends entries to the buffer and the view.
+func (l *logsScreen) ingest(entries []domain.LogEntry) {
 	added := 0
-	for _, e := range b.Entries {
+	for _, e := range entries {
+		l.noteFormat(e.Format)
 		seq := l.buf.Append(e)
 		if !l.inScope(e.Pod) || l.dirty {
 			continue
@@ -234,22 +331,6 @@ func (l *logsScreen) apply(b ports.LogBatch, now time.Time) {
 		l.cursor += added
 		l.offset += added
 	}
-	if b.Pods != nil {
-		l.pods = b.Pods
-		for _, p := range b.Pods {
-			if _, ok := l.podColor[p.Pod.Name]; !ok {
-				l.podColor[p.Pod.Name] = len(l.podColor)
-			}
-		}
-	}
-	if len(b.Notices) > 0 {
-		l.notice = b.Notices[len(b.Notices)-1].Text
-	}
-	if b.HistoryDone {
-		l.loading, l.live = false, true
-		releaseMemory()
-	}
-	l.evict()
 }
 
 // evict drops view entries that left the buffer, keeping the cursor on
@@ -282,6 +363,30 @@ func (l *logsScreen) rebuild() {
 	if !l.tail {
 		if e, ok := l.entryAt(l.displayCursor()); ok {
 			keep = e.Seq
+		}
+	}
+	l.rebuildFrom(keep)
+}
+
+// rebuildFrom recomputes the rows, putting the cursor on the entry with
+// sequence keep (0: the tail).
+func (l *logsScreen) rebuildFrom(keep uint64) {
+	if l.paused { // a rebuild ends the pause: take what waited
+		l.paused = false
+		if l.heldLost > 0 {
+			l.notice = fmt.Sprintf("%d lines dropped while paused (more than the buffer holds)", l.heldLost)
+			l.heldLost = 0
+		}
+		entries, late := l.held, l.heldLate
+		l.held, l.heldLate = nil, nil
+		for _, e := range entries {
+			l.buf.Append(e)
+		}
+		if len(late) > 0 {
+			renumber := l.buf.InsertLate(late)
+			if keep != 0 {
+				keep, _ = renumber(keep)
+			}
 		}
 	}
 	idx := l.idxBuf[:0]
@@ -426,10 +531,18 @@ func (l *logsScreen) key(m *Model, k tea.KeyPressMsg) (bool, tea.Cmd) {
 	case keys.Is(key, ActPause):
 		l.paused = !l.paused
 		l.frozen = len(l.rows)
+		msg := "paused (new lines wait)"
 		if !l.paused {
+			lost := l.heldLost
+			l.heldLost = 0
+			l.release()
 			l.scroll(l.shown())
+			msg = "resumed"
+			if lost > 0 {
+				msg = fmt.Sprintf("resumed · %d lines dropped while paused (more than the buffer holds)", lost)
+			}
 		}
-		m.flash(map[bool]string{true: "paused (lines keep buffering)", false: "resumed"}[l.paused])
+		m.flash(msg)
 	case keys.Is(key, ActRefresh) && l.err != nil:
 		m.flash("reloading " + l.repo)
 		return true, l.open(m)
@@ -697,6 +810,10 @@ func (l *logsScreen) renderRows(m *Model, e *domain.LogEntry, row viewRow, w int
 	var b strings.Builder
 	b.WriteString(" ")
 	if id := l.podLabel(e.Pod); id != "" {
+		if l.multiContainer && e.Container != "" {
+			// Two application containers in one pod: say which wrote it.
+			id += "/" + padRight(e.Container, l.containerWidth)
+		}
 		b.WriteString(m.podInk(l.podColor[e.Pod]).paint(id))
 		b.WriteByte(' ')
 	}
@@ -709,10 +826,11 @@ func (l *logsScreen) renderRows(m *Model, e *domain.LogEntry, row viewRow, w int
 		if row.context {
 			k = m.dim()
 		}
+		text := safeText(visiblePart(s.Text, l.visibleBytes(w)))
 		if filtering && (s.Role == ports.RoleMessage || s.Role == ports.RoleLogger || s.Role == ports.RoleThread) {
-			b.WriteString(l.highlight(m, s.Text, k))
+			b.WriteString(l.highlight(m, text, k))
 		} else {
-			b.WriteString(k.paint(s.Text))
+			b.WriteString(k.paint(text))
 		}
 	}
 	line := b.String()
@@ -739,7 +857,7 @@ func (l *logsScreen) renderRows(m *Model, e *domain.LogEntry, row viewRow, w int
 		first, _, _ := strings.Cut(strings.TrimSpace(e.Stack), "\n")
 		more := strings.Count(e.Stack, "\n")
 		stack := m.ink("stack", func() lipgloss.Style { return m.opts.Theme.Stack })
-		fold := "    " + stack.paint(first) + m.dim().paint(fmt.Sprintf("   [+%d lines, enter to open]", more))
+		fold := "    " + stack.paint(safeText(first)) + m.dim().paint(fmt.Sprintf("   [+%d lines, enter to open]", more))
 		rows = append(rows, ansi.Truncate(fold, w, "…"))
 	}
 	return rows
@@ -823,6 +941,44 @@ func (l *logsScreen) podStrip(m *Model, w int) string {
 	return ansi.Truncate(strings.Join(parts, "   "), w, "…")
 }
 
+// repoGone says why no live line can come: "REMOVED" when the repository
+// left the catalog, "NO PODS" when all its pods are gone; "" otherwise.
+func (l *logsScreen) repoGone(m *Model) string {
+	if !l.live || l.previous {
+		return ""
+	}
+	if s := m.snap; s != nil && s.Synced && s.Err == nil && !slices.ContainsFunc(s.Services, func(r domain.ServiceSummary) bool { return r.Repo == l.repo }) {
+		return "REMOVED"
+	}
+	for _, p := range l.pods {
+		if !p.Terminated {
+			return ""
+		}
+	}
+	return "NO PODS"
+}
+
+// visibleBytes bounds the bytes of one segment that can reach the
+// screen: a row, or maxWrapRows rows when wrapping, from the pan offset
+// (4 bytes per cell covers any UTF-8). Longer text is cut before it is
+// highlighted and painted: a megabyte line costs no more than a row.
+func (l *logsScreen) visibleBytes(w int) int {
+	if l.wrap {
+		return maxWrapRows*w*4 + 64
+	}
+	return (l.pan+w)*4 + 64
+}
+
+func visiblePart(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n] + "…"
+}
+
 // waitingReason is why the app containers of a pod do not run, in the
 // runtime's words (CrashLoopBackOff, ImagePullBackOff, ContainerCreating).
 func waitingReason(m *Model, p domain.Pod, st domain.ServiceStatus) string {
@@ -861,13 +1017,20 @@ func (l *logsScreen) statusLeft(m *Model) string {
 		live += " " + r
 	}
 	var chip string
+	gone := l.repoGone(m)
 	switch {
 	case l.err != nil:
 		chip = t.Chip.Render("NOT LOADED")
+	case gone != "":
+		chip = t.Chip.Render(gone)
 	case l.previous:
 		chip = t.ChipPaused.Render("PREVIOUS INSTANCE")
 	case l.paused:
-		chip = t.ChipPaused.Render(fmt.Sprintf("PAUSED +%d", len(l.rows)-l.frozen))
+		waiting := fmt.Sprintf("PAUSED +%d", len(l.held)+len(l.heldLate)+l.heldLost)
+		if l.heldLost > 0 {
+			waiting += fmt.Sprintf(" (%d dropped)", l.heldLost)
+		}
+		chip = t.ChipPaused.Render(waiting)
 	case !l.follow:
 		chip = t.Chip.Render("STOPPED")
 	case !l.tail && !l.newestTop:
@@ -893,6 +1056,9 @@ func (l *logsScreen) statusLeft(m *Model) string {
 		fields = append(fields, f)
 	}
 	// Most useful first: a narrow terminal truncates the end.
+	if gone == "REMOVED" {
+		fields = append(fields, l.repo+" no longer exists in "+m.env.Name)
+	}
 	if l.notice != "" {
 		fields = append(fields, l.notice)
 	}

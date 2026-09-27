@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -84,6 +85,19 @@ func (z *zoomScreen) step(dir int) {
 	}
 }
 
+// zoomMaxBytes caps the part of one line the zoom wraps.
+const zoomMaxBytes = 64 << 10
+
+func byteSize(n int) string {
+	switch {
+	case n >= 1<<20:
+		return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
+	case n >= 1<<10:
+		return fmt.Sprintf("%d KB", n>>10)
+	}
+	return fmt.Sprintf("%d bytes", n)
+}
+
 func (z *zoomScreen) view(m *Model, w, h int) string {
 	z.height = h
 	t := m.opts.Theme
@@ -99,7 +113,21 @@ func (z *zoomScreen) view(m *Model, w, h int) string {
 	}
 	var out []string
 	for _, l := range lines {
+		l = safeText(l)
+		more := 0
+		if len(l) > zoomMaxBytes {
+			// A megabyte payload would wrap into thousands of rows at every
+			// frame: show its beginning and say how much is left.
+			cut := zoomMaxBytes
+			for cut > 0 && !utf8.RuneStart(l[cut]) {
+				cut--
+			}
+			l, more = l[:cut], len(l)-cut
+		}
 		out = append(out, strings.Split(ansi.Hardwrap(l, max(w-2, 10), true), "\n")...)
+		if more > 0 {
+			out = append(out, t.Dim.Render(fmt.Sprintf("… %s more not shown", byteSize(more))))
+		}
 	}
 	z.offset = min(z.offset, max(len(out)-h, 0))
 	return strings.Join(out[z.offset:], "\n")
