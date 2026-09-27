@@ -79,7 +79,7 @@ A service whose status changes is highlighted for a few seconds. One row per rep
 
 ## Logs screen
 
-The pod strip shows each pod's state; a container that is not running says `waiting: CrashLoopBackOff` (its logs come back when it restarts). The status bar shows the stream at a glance: `LIVE 42/s` (live lines per second), then the errors and warnings of the current view (`>` / `<` jump to them), the window, pod scope and filters. When a view is empty it says why and which key helps; after a read error, `r` reloads the logs.
+The pod strip shows each pod's state: a container that is not running says `waiting: CrashLoopBackOff` (its logs come back when it restarts), an init container that keeps failing says `waiting: init migrate …` and its output is shown, and pods read `terminating` or `completed` when so. When a pod runs several application containers, the pod column names the container (`9d5px/worker`). Lines recovered after a network outage are placed by time; lines are ordered by when the cluster received them, and a line dated another day shows its date. The status bar shows the stream at a glance: `LIVE 42/s` (live lines per second; `PAUSED +n`, `NO PODS`, `REMOVED` when the repository is gone, `NOT LOADED` after an error), then the errors and warnings of the current view (`>` / `<` jump to them), the window, pod scope and filters. When a view is empty it says why and which key helps; after a read error, `r` reloads the logs.
 
 ## Keys (logs screen)
 
@@ -89,7 +89,7 @@ The pod strip shows each pod's state; a container that is not running says `wait
 | `>` `<` | next / previous ERROR |
 | `enter` | zoom on the entry (`J`/`K` next/previous, `p` raw JSON, `enter` metadata) |
 | `f` | follow on/off |
-| `space` | pause / resume (lines keep buffering) |
+| `space` | pause / resume (the screen keeps its lines; new ones wait, up to the buffer size, and the lines dropped beyond are counted) |
 | `P` | previous instance of the restarted containers (why it crashed, OOM, exit); again for the current logs |
 | `t` / `T` / `1`…`7` / `0` | next window / window picker / 15m 30m 40m 45m 1h 1d 2d / tail (AZERTY: `&é"'(-è` / `à`) |
 | `tab` / `S` | cycle pod scope / pod selector |

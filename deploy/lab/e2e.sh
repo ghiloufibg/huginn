@@ -22,6 +22,15 @@ expect() {
   done
   echo "FAIL $1: \"$2\" not on screen:"; screen | sed 's/^/     | /'; FAIL=1
 }
+# expect_re <what> <extended regex> [timeout s]: same, with a pattern.
+expect_re() {
+  i=0
+  while [ "$i" -lt "${3:-30}" ]; do
+    if screen | grep -qE -- "$2"; then echo "ok   $1"; return 0; fi
+    sleep 1; i=$((i + 1))
+  done
+  echo "FAIL $1: /$2/ not on screen:"; screen | sed 's/^/     | /'; FAIL=1
+}
 refuse() { # refuse <what> <text>: the screen must not show text.
   if screen | grep -qF -- "$2"; then echo "FAIL $1: \"$2\" on screen"; screen | sed 's/^/     | /'; FAIL=1; else echo "ok   $1"; fi
 }
@@ -35,7 +44,7 @@ expect "crash loop shown" "catalog-indexer"
 expect "image pull failure" "ImagePullBackOff"
 expect "unschedulable pod" "Insufficient memory"
 expect "OOM kill" "OOMKilled" 120
-expect "two workloads of one repository" "payment-service      2"
+expect_re "two workloads of one repository" "payment-service +2 "
 
 echo "# logs of payment-service"
 keys / p a y m e n t Enter Enter

@@ -264,3 +264,17 @@ Status: accepted.
 - `kind.yaml` carries two patches for sandboxed hosts (`restrict_oom_score_adj`, `failCgroupV1: false`); harmless elsewhere. Images are imported with `ctr` because `kind load` fails with Docker ≥ 29 multi-platform images.
 - CI job `lab`: starts kind, runs the adapter contract suites (`HUGINN_LAB=1`) and `deploy/lab/e2e.sh`, which drives the binary in tmux and checks the screens. The script found one bug on its first run (a terminating pod showed "reconnecting").
 Status: accepted.
+
+## D-037 Fixes of the second end-to-end pass (docs/plan/M4-e2e-pass2.md)
+- **A broken cluster connection ends the watch.** client-go informers retry a failing list forever, silently. When a list fails because the cluster is unreachable or refuses the credentials, the adapter ends the watch (closes its channel); the catalog then reconnects with its own backoff and shows the error over the last known services. A 10 s dial timeout bounds the first failure.
+- **Errors carry their kind without repeating it** (`domain.KindError`): the screen shows the kind as a title and the message below.
+- **Incomplete watches are said**: kinds skipped for lack of permission come as `WorkloadEvent.Warning` and reach the status bar; an empty namespace that does not exist is `not found` when namespaces can be read.
+- **Order by reception**: entries are ordered by `LogEntry.Received` (the kubelet's timestamp), displayed with the time the application wrote. Application clocks and fields can be wrong; the kubelet's clock is the same for all lines of a node.
+- **Late lines are inserted, not appended**: after an outage a stream delivers what it missed; the session marks those lines `Late` and the view merges them into its buffer (O(n), rare). Live lines are never held back to wait for a slow stream.
+- **Pause holds new lines outside the buffer**, so the paused screen cannot be evicted; beyond a buffer's worth, held lines are dropped and counted.
+- **Init containers that block a pod are streamed** (`ContainerFilter.LogContainers`): their output is why the pod cannot start. A failed init container is a crash loop; a finished Job pod is healthy and its stream ends for good.
+- **Pod revisions** (`pod-template-hash`, `controller-revision-hash`, set by the adapter) make a restart-only rollout visible: `3.20 (restart)`.
+- **Log text is untrusted**: only colour sequences (SGR) reach the terminal; others (OSC 8 hyperlinks, titles, clipboard) are removed.
+- **Megabyte lines cost what is visible**: a segment is cut to the bytes that can reach the screen before highlighting; zoom wraps at most 64 KB of a line.
+- **Not done**: choosing a container in the pod scope (`tab`/`S` select pods); the container is shown instead. Bare pods (without a workload) stay out of the catalog.
+Status: accepted.

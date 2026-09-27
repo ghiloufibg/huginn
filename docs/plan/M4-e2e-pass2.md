@@ -1,5 +1,7 @@
 # M4 — second end-to-end pass on the lab cluster (2026-09-27)
 
+**Status: all bugs below are fixed** (commits `b5db773`, `44b7a71`, `e447388`, `706387b`; decisions in D-037). Each fix was checked on the lab again, and `deploy/lab/e2e.sh` passes. The one part left out is choosing a container in the pod scope: the pod column names the container instead (E7).
+
 **Setup:** kind lab (`deploy/lab`, Kubernetes 1.33), Huginn at `daeb6ad`, run in tmux against `kind-huginn` and the restricted identity. On top of `workloads.yaml`, `deploy/lab/extra.yaml` adds:
 - a high-rate emitter (about 690 lines/s over 2 pods);
 - edge-case lines: ANSI codes, unicode, a 40 KB line, a 1.1 MB line, broken JSON, a bad timestamp, a 2020 timestamp, CRLF;
