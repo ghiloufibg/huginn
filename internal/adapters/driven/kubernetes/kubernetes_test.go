@@ -112,6 +112,21 @@ func TestOwnerResolution(t *testing.T) {
 	if got := ownerName(p); got != "" {
 		t.Errorf("no owner: %q", got)
 	}
+	for owner, want := range map[string]string{
+		"ReplicaSet/api-7d9f":         "Deployment/api",
+		"ReplicaSet/orphan":           "ReplicaSet/orphan", // no pod-template-hash suffix
+		"Job/nightly-export-29123456": "CronJob/nightly-export",
+		"Job/one-off":                 "Job/one-off",
+		"Rollout/canary":              "Rollout/canary",
+		"StatefulSet/ledger-writer":   "StatefulSet/ledger-writer",
+	} {
+		kind, name, _ := strings.Cut(owner, "/")
+		p := pod("x", "api", "7d9f", nil)
+		p.OwnerReferences = controller(kind, name)
+		if k, n := ownerOf(p); k+"/"+n != want {
+			t.Errorf("%s: %s/%s, want %s", owner, k, n, want)
+		}
+	}
 }
 
 func TestPodConversion(t *testing.T) {

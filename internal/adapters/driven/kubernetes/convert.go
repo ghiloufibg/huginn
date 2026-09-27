@@ -19,9 +19,10 @@ func toPod(env domain.Env, p *corev1.Pod) domain.Pod {
 		Env: env, Namespace: p.Namespace, Name: p.Name, Labels: p.Labels,
 		Phase: domain.PodPhase(p.Status.Phase), Node: p.Spec.NodeName,
 		Created: p.CreationTimestamp.Time, Deleted: p.DeletionTimestamp != nil,
-		OwnerName: ownerName(p), Reason: p.Status.Reason, Message: p.Status.Message,
+		Reason: p.Status.Reason, Message: p.Status.Message,
 		Revision: revision(p.Labels),
 	}
+	out.OwnerKind, out.OwnerName = ownerOf(p)
 	if p.Status.StartTime != nil {
 		out.Started = p.Status.StartTime.Time
 	}
@@ -95,29 +96,36 @@ func revision(l map[string]string) string {
 // the names of its Jobs.
 var jobSuffix = regexp.MustCompile(`-\d+$`)
 
-// ownerName returns the workload that controls a pod. Pods of Deployments
-// are owned by a ReplicaSet named <deployment>-<pod-template-hash>, and
-// pods of CronJobs by a Job named <cronjob>-<scheduled time>: both names
-// are derived without reading the intermediate object, so no permission
-// on ReplicaSets or Jobs is needed.
-func ownerName(p *corev1.Pod) string {
+// ownerOf returns the workload that controls a pod: its kind and name.
+// Pods of Deployments are owned by a ReplicaSet named
+// <deployment>-<pod-template-hash>, and pods of CronJobs by a Job named
+// <cronjob>-<scheduled time>: both are derived without reading the
+// intermediate object, so no permission on ReplicaSets or Jobs is needed.
+// A bare pod has no owner ("", "").
+func ownerOf(p *corev1.Pod) (kind, name string) {
 	ref := metav1.GetControllerOf(p)
 	if ref == nil {
-		return ""
+		return "", ""
 	}
 	switch ref.Kind {
 	case "ReplicaSet":
 		if h := p.Labels[appsv1.DefaultDeploymentUniqueLabelKey]; h != "" {
 			if name, ok := strings.CutSuffix(ref.Name, "-"+h); ok {
-				return name
+				return string(domain.KindDeployment), name
 			}
 		}
 	case "Job":
 		if name := jobSuffix.ReplaceAllString(ref.Name, ""); name != ref.Name {
-			return name
+			return string(domain.KindCronJob), name
 		}
 	}
-	return ref.Name
+	return ref.Kind, ref.Name
+}
+
+// ownerName is the name part of ownerOf.
+func ownerName(p *corev1.Pod) string {
+	_, name := ownerOf(p)
+	return name
 }
 
 func ref(env domain.Env, kind domain.WorkloadKind, m metav1.ObjectMeta) domain.WorkloadRef {
