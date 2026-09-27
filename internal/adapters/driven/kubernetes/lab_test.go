@@ -51,17 +51,13 @@ func TestLabLogSourceContract(t *testing.T) {
 	// before exiting; instances killed by a node restart may have no log)
 	// and a running one never restarted.
 	var prev, noPrev *ports.LogRequest
-	for _, p := range labPods(t, c) {
-		for _, ct := range p.Containers {
-			req := ports.LogRequest{Scope: labScope, Namespace: p.Namespace, Pod: p.Name, Container: ct.Name}
-			switch {
-			case ct.Init:
-			case ct.LastTermination != nil && ct.LastTermination.Reason == "Error" && prev == nil:
-				prev = &req
-			case ct.Restarts == 0 && ct.State == domain.ContainerRunning && noPrev == nil:
-				noPrev = &req
-			}
+	// A young lab's crashed instance may not be readable yet (the kubelet
+	// answers "unable to retrieve container logs"): wait for one.
+	for try := 0; try < 30 && prev == nil; try++ {
+		if try > 0 {
+			time.Sleep(3 * time.Second)
 		}
+		prev, noPrev = labLogRequests(t, c)
 	}
 	if prev == nil || noPrev == nil {
 		t.Skip("the lab needs a restarted container and a running one never restarted (kubectl rollout restart deploy/payment-worker)")
@@ -69,6 +65,37 @@ func TestLabLogSourceContract(t *testing.T) {
 	portstest.RunLogSourceContract(t, func(t *testing.T) portstest.LogFixture {
 		return portstest.LogFixture{Source: c, Clock: wallClock{}, Request: *prev, NoPrevRequest: *noPrev}
 	})
+}
+
+// labLogRequests picks a crash-looping container whose previous instance
+// can be read, and a running container never restarted.
+func labLogRequests(t *testing.T, c *Client) (prev, noPrev *ports.LogRequest) {
+	for _, p := range labPods(t, c) {
+		for _, ct := range p.Containers {
+			req := ports.LogRequest{Scope: labScope, Namespace: p.Namespace, Pod: p.Name, Container: ct.Name}
+			switch {
+			case ct.Init:
+			case ct.LastTermination != nil && ct.LastTermination.Reason == "Error" && prev == nil && previousReadable(c, req):
+				prev = &req
+			case ct.Restarts == 0 && ct.State == domain.ContainerRunning && noPrev == nil:
+				noPrev = &req
+			}
+		}
+	}
+	return prev, noPrev
+}
+
+func previousReadable(c *Client, req ports.LogRequest) bool {
+	req.Previous, req.Window = true, domain.TimeWindow{Tail: 10}
+	st, err := c.Stream(context.Background(), req)
+	if err != nil {
+		return false
+	}
+	n := 0
+	for range st.Lines() {
+		n++
+	}
+	return st.Err() == nil && n > 0
 }
 
 func TestLabOwnersAndStates(t *testing.T) {
