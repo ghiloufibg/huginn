@@ -39,6 +39,7 @@ var actions = map[Action]actionInfo{
 	ActWindowTail:   {"Time and stream", "tail (last lines)"},
 	ActFollow:       {"Time and stream", "follow on/off"},
 	ActPause:        {"Time and stream", "pause / resume (keeps buffering)"},
+	ActPreviousLogs: {"Time and stream", "previous instance of the restarted containers (why it crashed), again for the current logs"},
 	ActOrder:        {"Display", "newest or oldest first"},
 	ActLevels:       {"Filter", "level picker"},
 	ActErrorsOnly:   {"Filter", "errors only"},

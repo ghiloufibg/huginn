@@ -166,3 +166,17 @@ func TestColumnCycleGolden(t *testing.T) {
 	press(m, "c", "c")
 	golden(t, "logs_cycle_all_160x16", render(m, 160, 16))
 }
+
+func TestPreviousInstanceToggle(t *testing.T) {
+	m, l := openLogs(t)
+	render(m, 160, 20)
+	press(m, "P")
+	out := render(m, 160, 20)
+	if !l.previous || !strings.Contains(out, "PREVIOUS INSTANCE") || !strings.Contains(out, "previous instance") {
+		t.Fatalf("P shows the previous instance:\n%s", out)
+	}
+	press(m, "P")
+	if l.previous || strings.Contains(render(m, 160, 20), "PREVIOUS INSTANCE") || m.flashText != "current logs" {
+		t.Fatal("P again returns to the current logs")
+	}
+}

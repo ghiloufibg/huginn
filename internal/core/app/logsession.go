@@ -60,6 +60,9 @@ func (s *LogSessions) Open(ctx context.Context, q ports.LogQuery) (<-chan ports.
 	if err != nil {
 		return nil, err
 	}
+	if q.Previous {
+		q.Follow = false
+	}
 	run := &session{
 		s: s, q: q, scope: scope, workloads: workloads, opened: s.Clock.Now(),
 		pods: map[string]*podState{}, msgs: make(chan tailMsg, 1024), out: make(chan ports.LogBatch, 16),
@@ -191,7 +194,9 @@ func (r *session) loop(ctx context.Context, initial []domain.Pod) {
 	for _, p := range initial {
 		r.addPod(ctx, p, false)
 	}
-	r.watchPods(ctx)
+	if !r.q.Previous { // a previous instance is history: no pod changes
+		r.watchPods(ctx)
+	}
 	if r.awaiting == 0 {
 		r.finishHistory()
 	}
@@ -249,6 +254,9 @@ func (r *session) addPod(ctx context.Context, p domain.Pod, isNew bool) {
 	pctx, cancel := context.WithCancel(ctx)
 	st := &podState{PodState: ports.PodState{Pod: p, New: isNew}, cancel: cancel}
 	for _, c := range r.s.Filter.AppContainers(p) {
+		if r.q.Previous && c.Restarts == 0 && c.LastTermination == nil {
+			continue
+		}
 		st.Containers = append(st.Containers, c.Name)
 		if !isNew {
 			r.awaiting++
@@ -256,6 +264,9 @@ func (r *session) addPod(ctx context.Context, p domain.Pod, isNew bool) {
 		t := newTailer(r, p, c.Name)
 		st.tailers = append(st.tailers, t)
 		go t.run(pctx)
+	}
+	if r.q.Previous && len(st.Containers) == 0 {
+		st.Err = fmt.Errorf("%s: %w", p.Name, domain.ErrNoPrevious)
 	}
 	r.pods[p.Name] = st
 	r.podsChanged = true
@@ -353,6 +364,9 @@ func (r *session) handleHistory(m tailMsg) {
 // 5 minutes and 10% of the window): usually the node rotated or dropped
 // those logs. It only states what was received.
 func (r *session) retentionNotice(m tailMsg) string {
+	if r.q.Previous {
+		return ""
+	}
 	if m.capped && !r.q.Window.IsTail() {
 		return fmt.Sprintf("%s: older lines of the window not loaded (limit %d lines per container)", m.pod, len(m.history))
 	}

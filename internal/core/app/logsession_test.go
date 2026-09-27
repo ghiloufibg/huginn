@@ -280,6 +280,31 @@ func TestPodsOfOtherOwnersIgnored(t *testing.T) {
 	}
 }
 
+func TestPreviousInstance(t *testing.T) {
+	f := newFixture(t)
+	restarted := podWithSidecar("api-1", t0.Add(-time.Hour))
+	restarted.Containers[0].Restarts = 3
+	f.cluster.PutPod(restarted)
+	f.logs.SetLines("ns", "api-1", "api", []domain.RawLine{line("api-1", t0, "current")},
+		[]domain.RawLine{line("api-1", t0.Add(-3*time.Hour), "old boot"), line("api-1", t0.Add(-2*time.Hour), "crash")})
+	r, cancel := f.open(t, ports.LogQuery{Previous: true, Follow: true})
+	defer cancel()
+	r.until(10*time.Millisecond, func() bool { return r.history && len(r.pods) == 2 })
+	// The whole previous instance, whatever the window; nothing of the
+	// current one, and no stream left open.
+	if !slices.Equal(r.entries, []string{"old boot", "crash"}) {
+		t.Fatalf("entries %v", r.entries)
+	}
+	if n := f.logs.Following("ns", "api-1", "api"); n != 0 {
+		t.Errorf("%d streams followed", n)
+	}
+	for _, p := range r.pods {
+		if p.Pod.Name == "api-2" && !errors.Is(p.Err, domain.ErrNoPrevious) {
+			t.Errorf("api-2 never restarted: err %v", p.Err)
+		}
+	}
+}
+
 func TestSkipResumed(t *testing.T) {
 	since := t0.Add(500 * time.Millisecond)
 	seen := map[string]bool{"x": true}

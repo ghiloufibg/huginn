@@ -12,6 +12,7 @@
    Time and stream                                                                                                      
      ctrl+l           follow on/off                                                                                     
      space            pause / resume (keeps buffering)                                                                  
+     P                previous instance of the restarted containers (why it crashed), again for the current logs        
      t                next time window                                                                                  
      T                pick a time window                                                                                
      1  &             window 15m                                                                                        
@@ -66,7 +67,6 @@
      !                invert (as first character; \! for a literal !)                                                   
      ctrl+a           stack another filter (AND)                                                                        
      enter / esc      keep / cancel the edit                                                                            
-                                                                                                                        
                                                                                                                         
                                                                                                                         
                                                                                                                         

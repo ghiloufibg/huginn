@@ -89,7 +89,11 @@ func (t *tailer) request() ports.LogRequest {
 	if limit <= 0 {
 		limit = 50000
 	}
-	return ports.LogRequest{Scope: t.scope, Namespace: t.ns, Pod: t.name, Container: t.container, Window: t.q.Window, Limit: limit}
+	req := ports.LogRequest{Scope: t.scope, Namespace: t.ns, Pod: t.name, Container: t.container, Window: t.q.Window, Limit: limit}
+	if t.q.Previous {
+		req.Previous, req.Window = true, domain.TimeWindow{}
+	}
+	return req
 }
 
 func (t *tailer) run(ctx context.Context) {

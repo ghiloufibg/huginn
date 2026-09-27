@@ -33,7 +33,7 @@ func helpActions(s screen) (string, []Action) {
 	case *logsScreen:
 		return "Logs", []Action{
 			ActUp, ActDown, ActPageUp, ActPageDown, ActTop, ActBottom, ActNextError, ActPrevError,
-			ActFollow, ActPause, ActWindowNext, ActWindowPick, ActWindow1, ActWindow2, ActWindow3, ActWindow4, ActWindow5, ActWindow6, ActWindow7, ActWindowTail,
+			ActFollow, ActPause, ActPreviousLogs, ActWindowNext, ActWindowPick, ActWindow1, ActWindow2, ActWindow3, ActWindow4, ActWindow5, ActWindow6, ActWindow7, ActWindowTail,
 			ActFilter, ActFilterMode, ActRegex, ActAddFilter, ActContext, ActNextMatch, ActPrevMatch, ActLevels, ActErrorsOnly, ActWarnAndError, ActAllLevels,
 			ActOpen, ActPodScope, ActPodSelector,
 			ActOrder, ActCycleColumns, ActTimestamps, ActPodID, ActColumns, ActFocus, ActResetDisplay, ActWrap, ActPanLeft, ActPanRight, ActPanLeftHalf, ActPanRightHalf, ActFullscreen,

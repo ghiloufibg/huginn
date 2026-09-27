@@ -47,6 +47,9 @@ type logsScreen struct {
 	repo   string
 	window domain.TimeWindow
 	follow bool
+	// previous shows the previous instance of the restarted containers
+	// (what explains a crash) instead of the current ones.
+	previous bool
 
 	gen     int
 	cancel  context.CancelFunc
@@ -116,7 +119,12 @@ func newLogsScreen(m *Model, repo string) *logsScreen {
 	}).withColumns(m.opts.LogColumns, m.opts.Columns)
 }
 
-func (l *logsScreen) crumbs() []string { return []string{"services", l.repo, "logs"} }
+func (l *logsScreen) crumbs() []string {
+	if l.previous {
+		return []string{"services", l.repo, "logs", "previous instance"}
+	}
+	return []string{"services", l.repo, "logs"}
+}
 
 // init opens the session.
 func (l *logsScreen) init(m *Model) tea.Cmd { return l.open(m) }
@@ -133,7 +141,7 @@ func (l *logsScreen) open(m *Model) tea.Cmd {
 	ctx, cancel := context.WithCancel(m.opts.Context)
 	l.cancel = cancel
 	gen, sessions := l.gen, m.opts.Sessions
-	q := ports.LogQuery{Env: domain.Env(m.env.Name), Repo: l.repo, Window: l.window, Follow: l.follow}
+	q := ports.LogQuery{Env: domain.Env(m.env.Name), Repo: l.repo, Window: l.window, Follow: l.follow, Previous: l.previous}
 	return func() tea.Msg {
 		ch, err := sessions.Open(ctx, q)
 		return logStartedMsg{screen: l, gen: gen, ch: ch, err: err}
@@ -410,6 +418,10 @@ func (l *logsScreen) key(m *Model, k tea.KeyPressMsg) (bool, tea.Cmd) {
 	case keys.Is(key, ActFollow):
 		l.follow = !l.follow
 		m.flash(onOff("follow", l.follow))
+		return true, l.open(m)
+	case keys.Is(key, ActPreviousLogs):
+		l.previous = !l.previous
+		m.flash(map[bool]string{true: "previous instance of the restarted containers", false: "current logs"}[l.previous])
 		return true, l.open(m)
 	case keys.Is(key, ActPause):
 		l.paused = !l.paused
@@ -784,6 +796,8 @@ func (l *logsScreen) podStrip(m *Model, w int) string {
 		switch {
 		case p.Terminated:
 			desc, style = "terminated", t.Dim
+		case errors.Is(p.Err, domain.ErrNoPrevious):
+			desc, style = "no previous instance", t.Dim
 		case errors.Is(p.Err, domain.ErrNotStarted): // its logs come back when it runs
 			desc = "waiting: " + st.String()
 		case p.Err != nil:
@@ -827,6 +841,8 @@ func (l *logsScreen) statusLeft(m *Model) string {
 	}
 	var chip string
 	switch {
+	case l.previous:
+		chip = t.ChipPaused.Render("PREVIOUS INSTANCE")
 	case l.paused:
 		chip = t.ChipPaused.Render(fmt.Sprintf("PAUSED +%d", len(l.rows)-l.frozen))
 	case !l.follow:
@@ -845,7 +861,11 @@ func (l *logsScreen) statusLeft(m *Model) string {
 	if l.newestTop {
 		order = "newest first"
 	}
-	fields := []string{l.window.Label(), scope, "levels " + levelsLabel(l.filter.Levels)}
+	window := l.window.Label()
+	if l.previous {
+		window = "whole instance" // the window does not apply
+	}
+	fields := []string{window, scope, "levels " + levelsLabel(l.filter.Levels)}
 	if f := l.filterSummary(); f != "" {
 		fields = append(fields, f)
 	}
@@ -900,7 +920,7 @@ func (l *logsScreen) fullHints(m *Model) []hint {
 		m.h(ActFollow, "follow"), m.h(ActPause, "pause"), m.h(ActWindowNext, "window"), m.h(ActWindowPick, "windows"),
 		{m.label(ActWindow1) + "…" + m.label(ActWindow7) + " " + m.label(ActWindowTail), "15m…2d tail"},
 		m.h(ActPodScope, "pods"), m.h(ActPodSelector, "select pods"), m.h(ActCycleColumns, "hide next column"), m.h(ActColumns, "columns"),
-		m.h(ActFocus, "focus"), m.h(ActResetDisplay, "reset display"), m.h(ActTimestamps, "time format"), m.h(ActOrder, "order"), m.h(ActWrap, "wrap"), m.h(ActFullscreen, "fullscreen"),
+		m.h(ActPreviousLogs, "previous instance"), m.h(ActFocus, "focus"), m.h(ActResetDisplay, "reset display"), m.h(ActTimestamps, "time format"), m.h(ActOrder, "order"), m.h(ActWrap, "wrap"), m.h(ActFullscreen, "fullscreen"),
 		m.h(ActBack, "back"), m.h(ActKeyBar, "keys"), m.h(ActHelp, "help"),
 	}
 }

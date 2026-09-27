@@ -1,6 +1,9 @@
 package domain
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 // Error kinds that adapters map their failures to, so the UI can show an
 // actionable message without inspecting library errors. Use errors.Is.
@@ -18,6 +21,10 @@ var (
 	// unreadable kubeconfig). Retrying cannot help; the user must fix it.
 	ErrConfig = errors.New("configuration")
 )
+
+// ErrNoPrevious marks a container that never restarted: it has no previous
+// instance to read logs from. It is a kind of ErrNotFound.
+var ErrNoPrevious = fmt.Errorf("no previous instance: %w", ErrNotFound)
 
 // Permanent reports errors that retrying cannot fix.
 func Permanent(err error) bool {
