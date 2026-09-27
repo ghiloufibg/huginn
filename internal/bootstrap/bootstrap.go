@@ -151,7 +151,7 @@ func Build(o cli.Options, e Env, log *slog.Logger) (*App, error) {
 		return nil, err
 	}
 	clk := clock.New()
-	cluster, err := factory(c, clk)
+	cluster, err := factory(c, clk, log)
 	if err != nil {
 		return nil, err
 	}
