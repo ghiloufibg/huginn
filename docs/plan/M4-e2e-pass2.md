@@ -47,6 +47,7 @@ Failures were injected with `docker pause`, `iptables` DROP on the API port, a b
 | E20 | With `KUBECONFIG` pointing to a missing file, the message says the context does not exist, not that no kubeconfig was found. |
 | E21 | The logs error view cuts long errors instead of wrapping them, and its chip still says `LIVE`. |
 | E22 | The columns picker of a JSON (spring layout) view lists `status`, `bytes` and `client` from the nginx access layout. |
+| E24 | **(fixed)** Found by the CI lab job (Kubernetes 1.37): when a container's log file is gone, the kubelet answers `200` with the text `unable to retrieve container logs for containerd://…`, which Huginn showed as a log line. The adapter now turns it into `not found`. |
 | E23 | Known from the plan: B7, a restart-only rollout, is still invisible in the version column. |
 
 ### Not bugs, or out of scope (noted)

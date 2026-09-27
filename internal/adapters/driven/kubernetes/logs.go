@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -21,6 +22,10 @@ import (
 const MaxLineBytes = 1 << 20
 
 const truncatedMark = " … [truncated]"
+
+// kubeletNoLogs starts the text the kubelet returns, as log content, for a
+// container whose logs it cannot read any more.
+const kubeletNoLogs = "unable to retrieve container logs for "
 
 // Stream reads the logs of one container with the kubelet's timestamps.
 func (c *Client) Stream(ctx context.Context, req ports.LogRequest) (ports.LogStream, error) {
@@ -75,6 +80,12 @@ func (s *stream) read(ctx context.Context, rc io.ReadCloser, req ports.LogReques
 		text, err := readLine(r)
 		if len(text) > 0 || err == nil {
 			l := splitTimestamp(text)
+			if l.Time.IsZero() && strings.HasPrefix(l.Text, kubeletNoLogs) {
+				// The kubelet answers 200 with this text when the
+				// container's log file is gone (container removed).
+				s.err = fmt.Errorf("%s/%s: logs no longer on the node (%s): %w", req.Pod, req.Container, l.Text, domain.ErrNotFound)
+				return
+			}
 			l.Pod, l.Container = req.Pod, req.Container
 			select {
 			case s.ch <- l:

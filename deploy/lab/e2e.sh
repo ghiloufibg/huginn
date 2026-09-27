@@ -50,12 +50,18 @@ expect "waiting container is not an error" "waiting:"
 refuse "no reconnect loop" "reconnecting"
 keys P
 expect "previous instance" "PREVIOUS INSTANCE"
-expect "previous instance lines" "elasticsearch"
+# A young lab may not have a readable previous instance yet: reload a few times.
+for i in 1 2 3 4 5 6; do screen | grep -qF elasticsearch && break; keys P P; sleep 5; done
+expect "previous instance lines" "elasticsearch" 5
+refuse "kubelet error text is not a log line" "unable to retrieve container logs"
 
-echo "# rollout seen live"
+echo "# rollout seen live (a new pod in the logs of the repository)"
 keys P Escape Escape
+keys / p a y m e n t Enter Enter
+expect "logs reopened" "PaymentController"
 kubectl --context kind-huginn -n app-rec rollout restart deploy/payment-worker >/dev/null
-expect "rollout in progress" "Progressing" 60
+expect "new pod of the rollout" " new" 60
+keys Escape Escape
 
 echo "# restricted identity: one namespace forbidden, the other works"
 start restricted

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"slices"
 	"strings"
@@ -478,3 +479,16 @@ func TestEventsMerged(t *testing.T) {
 }
 
 var _ API = k8s.Interface(nil)
+
+func TestKubeletNoLogsIsNotFound(t *testing.T) {
+	st := &stream{ch: make(chan domain.RawLine, 4)}
+	body := io.NopCloser(strings.NewReader("unable to retrieve container logs for containerd://0572\n"))
+	st.read(context.Background(), body, ports.LogRequest{Pod: "p", Container: "c"})
+	var n int
+	for range st.Lines() {
+		n++
+	}
+	if n != 0 || !errors.Is(st.Err(), domain.ErrNotFound) {
+		t.Fatalf("%d lines, err %v", n, st.Err())
+	}
+}
