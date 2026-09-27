@@ -71,6 +71,12 @@ echo "# crash loop: waiting, previous instance"
 keys / c a t a l o g Enter Enter
 expect "waiting container is not an error" "waiting:"
 refuse "no reconnect loop" "reconnecting"
+# The lab must first have a readable crashed instance (a young cluster's
+# kubelet may not have one yet): wait for it with kubectl, not Huginn.
+for i in $(seq 40); do
+  kubectl --context kind-huginn -n app-rec logs deploy/catalog-indexer --previous 2>/dev/null | grep -q elasticsearch && break
+  sleep 3
+done
 keys P
 expect "previous instance" "PREVIOUS INSTANCE"
 # A young lab may not have a readable previous instance yet: reload a few times.
@@ -82,6 +88,8 @@ echo "# rollout seen live (a new pod in the logs of the repository)"
 keys P Escape Escape
 keys / p a y m e n t Enter Enter
 expect "logs reopened" "PaymentController"
+# up.sh restarts it too: let that rollout end first, or the two overlap.
+kubectl --context kind-huginn -n app-rec rollout status deploy/payment-worker --timeout=180s >/dev/null
 kubectl --context kind-huginn -n app-rec rollout restart deploy/payment-worker >/dev/null
 expect "new pod of the rollout" " new" 60
 keys Escape Escape

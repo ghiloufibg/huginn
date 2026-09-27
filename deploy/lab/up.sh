@@ -21,7 +21,13 @@ else
   CONTEXT=kind-huginn
 fi
 
-kubectl --context "$CONTEXT" apply -f workloads.yaml -f rbac.yaml
+# A new namespace gets its default ServiceAccount a moment after creation;
+# until then a bare pod (debug-shell) is refused: retry.
+for i in 1 2 3 4 5 6 7 8 9 10; do
+  if kubectl --context "$CONTEXT" apply -f workloads.yaml -f rbac.yaml; then break; fi
+  [ "$i" = 10 ] && exit 1
+  sleep 3
+done
 kubectl --context "$CONTEXT" -n app-rec create configmap loggen --from-file=loggen.sh --dry-run=client -o yaml | kubectl --context "$CONTEXT" apply -f -
 kubectl --context "$CONTEXT" -n app-rec rollout restart deploy/payment-service deploy/payment-worker >/dev/null
 # The read-only identity of rbac.yaml, as the context huginn-restricted.
