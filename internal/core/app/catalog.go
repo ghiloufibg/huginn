@@ -30,6 +30,9 @@ type Catalog struct {
 	// repeats (default 1s, 2s, 5s, 10s, 30s).
 	Backoff []time.Duration
 	Log     *slog.Logger
+	// Standalone lists the pods no known workload claims, grouped by
+	// owner (domain.StandaloneWorkloads).
+	Standalone bool
 }
 
 var defaultBackoff = []time.Duration{time.Second, 2 * time.Second, 5 * time.Second, 10 * time.Second, 30 * time.Second}
@@ -170,6 +173,10 @@ type state struct {
 
 func key(ns, name string) string { return ns + "/" + name }
 
+// refKey identifies a workload (a standalone group may share a name with
+// a workload of another kind); the environment is the catalog's.
+func refKey(r domain.WorkloadRef) domain.WorkloadRef { r.Env = ""; return r }
+
 func (s *state) apply(m feedMsg) {
 	switch {
 	case m.err != nil:
@@ -287,20 +294,23 @@ func (c *Catalog) snapshot(ctx context.Context, env domain.Env, namespaces []str
 	slices.SortFunc(ws, func(a, b domain.Workload) int {
 		return strings.Compare(key(a.Ref.Namespace, a.Ref.Name), key(b.Ref.Namespace, b.Ref.Name))
 	})
+	idx := indexPods(st.pods)
+	if c.Standalone {
+		ws = append(ws, domain.StandaloneWorkloads(ws, idx.all)...)
+	}
 	repos, rest, err := c.Resolver.Resolve(ctx, env, ws)
 	if err != nil {
 		snap.Err = errors.Join(snap.Err, fmt.Errorf("resolve repositories: %w", err))
 		return snap
 	}
-	byKey := make(map[string]domain.Workload, len(ws))
+	byKey := make(map[domain.WorkloadRef]domain.Workload, len(ws))
 	for _, w := range ws {
-		byKey[key(w.Ref.Namespace, w.Ref.Name)] = w
+		byKey[refKey(w.Ref)] = w
 	}
-	idx := indexPods(st.pods)
 	for _, r := range repos {
 		var rws []domain.Workload
 		for _, ref := range r.Workloads {
-			rws = append(rws, byKey[key(ref.Namespace, ref.Name)])
+			rws = append(rws, byKey[refKey(ref)])
 		}
 		snap.Services = append(snap.Services, domain.Summarize(r.Name, rws, idx.podsOf(rws), c.Filter))
 	}
@@ -322,11 +332,13 @@ func (c *Catalog) snapshot(ctx context.Context, env domain.Env, namespaces []str
 type podIndex struct {
 	byOwner map[string][]domain.Pod // namespace/owner
 	unowned map[string][]domain.Pod // namespace
+	all     []domain.Pod
 }
 
 func indexPods(pods map[string]domain.Pod) podIndex {
-	idx := podIndex{byOwner: map[string][]domain.Pod{}, unowned: map[string][]domain.Pod{}}
+	idx := podIndex{byOwner: map[string][]domain.Pod{}, unowned: map[string][]domain.Pod{}, all: make([]domain.Pod, 0, len(pods))}
 	for _, p := range pods {
+		idx.all = append(idx.all, p)
 		if p.OwnerName == "" {
 			idx.unowned[p.Namespace] = append(idx.unowned[p.Namespace], p)
 			continue
@@ -337,21 +349,23 @@ func indexPods(pods map[string]domain.Pod) podIndex {
 	return idx
 }
 
-// podsOf returns the pods of the workloads, ordered by name.
+// podsOf returns the pods of the workloads (domain.Workload.Owns), ordered
+// by name. Candidates come from the index: pods naming the workload as
+// owner, and pods without owner (matched by selector, or by name for a
+// standalone bare pod).
 func (idx podIndex) podsOf(ws []domain.Workload) []domain.Pod {
 	var out []domain.Pod
 	for _, w := range ws {
-		sel := ports.Selector(w.Selector)
 		for _, p := range idx.byOwner[key(w.Ref.Namespace, w.Ref.Name)] {
-			if sel.Matches(p.Labels) {
+			if w.Owns(p) {
 				out = append(out, p)
 			}
 		}
-		if len(sel) == 0 {
+		if len(w.Selector) == 0 && !(w.Standalone && w.Ref.Kind == domain.KindPod) {
 			continue
 		}
 		for _, p := range idx.unowned[w.Ref.Namespace] {
-			if sel.Matches(p.Labels) {
+			if w.Owns(p) {
 				out = append(out, p)
 			}
 		}

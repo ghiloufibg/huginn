@@ -44,6 +44,9 @@ type LogSessions struct {
 	// 10s, 30s; the last repeats).
 	Backoff []time.Duration
 	Log     *slog.Logger
+	// Standalone lets a repository be made of standalone pods (pods no
+	// known workload claims), as the catalog lists them.
+	Standalone bool
 }
 
 // Open implements ports.LogSession.
@@ -85,6 +88,14 @@ func (s *LogSessions) workloadsOf(ctx context.Context, scope ports.Scope, q port
 			continue
 		}
 		all = append(all, ws...)
+		if s.Standalone {
+			pods, err := s.Cluster.ListPods(ctx, sc, nil)
+			if err != nil {
+				nsErr = errors.Join(nsErr, err)
+				continue
+			}
+			all = append(all, domain.StandaloneWorkloads(ws, pods)...)
+		}
 	}
 	if all == nil && nsErr != nil {
 		return nil, nsErr
@@ -106,7 +117,7 @@ func (s *LogSessions) workloadsOf(ctx context.Context, scope ports.Scope, q port
 	}
 	var out []domain.Workload
 	for _, w := range all {
-		if slices.Contains(refs, w.Ref) {
+		if slices.ContainsFunc(refs, func(r domain.WorkloadRef) bool { return sameRef(r, w.Ref) }) {
 			out = append(out, w)
 		}
 	}
@@ -124,7 +135,11 @@ func (s *LogSessions) podsOf(ctx context.Context, scope ports.Scope, ws []domain
 	for _, w := range ws {
 		sc := scope
 		sc.Namespaces = []string{w.Ref.Namespace}
-		pods, err := s.Cluster.ListPods(ctx, sc, ports.Selector(w.Selector))
+		sel := ports.Selector(w.Selector)
+		if w.Standalone {
+			sel = nil // found by owner or name
+		}
+		pods, err := s.Cluster.ListPods(ctx, sc, sel)
 		if err != nil {
 			return nil, err
 		}
@@ -138,16 +153,17 @@ func (s *LogSessions) podsOf(ctx context.Context, scope ports.Scope, ws []domain
 	return out, nil
 }
 
-// ownedBy tells whether a pod belongs to one of the workloads: selectors
-// can overlap (a CronJob without labels selects everything), so a pod
-// that names its owner must name one of them.
+// ownedBy tells whether a pod belongs to one of the workloads
+// (domain.Workload.Owns): selectors can overlap (a CronJob without labels
+// selects everything), so a pod that names its owner must name one of them.
 func ownedBy(p domain.Pod, ws []domain.Workload) bool {
-	if p.OwnerName == "" {
-		return true
-	}
-	return slices.ContainsFunc(ws, func(w domain.Workload) bool {
-		return w.Ref.Name == p.OwnerName && w.Ref.Namespace == p.Namespace
-	})
+	return slices.ContainsFunc(ws, func(w domain.Workload) bool { return w.Owns(p) })
+}
+
+// sameRef compares workload references, ignoring the environment.
+func sameRef(a, b domain.WorkloadRef) bool {
+	a.Env, b.Env = "", ""
+	return a == b
 }
 
 func (r *session) owned(p domain.Pod) bool { return ownedBy(p, r.workloads) }
@@ -269,11 +285,15 @@ func (r *session) podList() []ports.PodState {
 func (r *session) addPod(ctx context.Context, p domain.Pod, isNew bool) {
 	pctx, cancel := context.WithCancel(ctx)
 	st := &podState{PodState: ports.PodState{Pod: p, New: isNew}, cancel: cancel}
-	for _, c := range r.s.Filter.LogContainers(p) {
+	for _, c := range r.s.Filter.StreamContainers(p, r.q.Containers) {
 		if r.q.Previous && c.Restarts == 0 && c.LastTermination == nil {
 			continue
 		}
 		st.Containers = append(st.Containers, c.Name)
+		if st.Roles == nil {
+			st.Roles = map[string]domain.ContainerRole{}
+		}
+		st.Roles[c.Name] = r.s.Filter.Role(p, c)
 		if !isNew {
 			r.awaiting++
 		}

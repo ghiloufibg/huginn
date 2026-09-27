@@ -43,6 +43,9 @@ type LogQuery struct {
 	Repo   string
 	Window domain.TimeWindow
 	Follow bool
+	// Containers says which containers of the pods are followed:
+	// application containers (default) or all of them.
+	Containers domain.ContainerMode
 	// Previous reads the previous instance of the containers that
 	// restarted (what explains a crash), whole up to the history limit;
 	// Window and Follow do not apply.
@@ -52,8 +55,9 @@ type LogQuery struct {
 // PodState is a pod of a log session as the pod strip shows it.
 type PodState struct {
 	Pod domain.Pod
-	// Containers are the application containers streamed.
+	// Containers are the containers streamed, and Roles what each is.
 	Containers []string
+	Roles      map[string]domain.ContainerRole
 	// New marks a pod that appeared during the session (a rollout).
 	New bool
 	// Terminated marks a pod that disappeared; its lines are kept.

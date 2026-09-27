@@ -54,8 +54,10 @@ func TestStandaloneWorkloads(t *testing.T) {
 }
 
 func TestFinishedStandaloneJobIsHealthy(t *testing.T) {
-	p := Pod{Namespace: "ns", Name: "once-1", OwnerName: "once", OwnerKind: "Job", Phase: PodSucceeded,
-		Containers: []Container{{Name: "c", State: ContainerTerminated, Reason: "Completed"}}}
+	p := Pod{
+		Namespace: "ns", Name: "once-1", OwnerName: "once", OwnerKind: "Job", Phase: PodSucceeded,
+		Containers: []Container{{Name: "c", State: ContainerTerminated, Reason: "Completed"}},
+	}
 	ws := StandaloneWorkloads(nil, []Pod{p})
 	if s := Summarize("once", ws, []Pod{p}, ContainerFilter{}); s.Status != StatusHealthy {
 		t.Fatalf("status %v", s.Status)
