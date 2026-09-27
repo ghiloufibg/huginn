@@ -458,6 +458,8 @@ huginn: the config folder ~/work/acme-huginn has 5 errors (see docs/CONFIG.md):
 
 ## 11. Your folder in 15 minutes
 
+To have a coding agent (such as GitHub Copilot) draft the folder from your repositories, use the prompt in [`docs/prompts/copilot-config-folder.md`](prompts/copilot-config-folder.md), then check its result with the steps below.
+
 1. **Copy the closest example**: `cp -r examples/config ~/work/acme-huginn`, or `config-node`, or `config-nginx`.
 2. **Environments**: in `environments.yaml`, put your kube contexts (`kubectl config get-contexts`) and namespaces, then set `default_env` in `huginn.yaml`.
 3. **Repositories**: look at a workload's labels (`kubectl get deploy <name> --show-labels`). If one of them names the repository, put its key in `label_keys` of `services.yaml`. Otherwise use an `explicit` list.
