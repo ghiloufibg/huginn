@@ -40,15 +40,16 @@ func TestDecryptionFailure(t *testing.T) {
 	p := &Provider{Run: func(context.Context, string, ...string) ([]byte, error) {
 		return nil, errors.New("failed to get the data key")
 	}}
-	_, err := p.Get(context.Background(), ports.SecretRef{Source: "/abs/config.env", Key: "K"})
-	if !errors.Is(err, domain.ErrSecretsAccess) || !strings.Contains(err.Error(), "data key") || !strings.Contains(err.Error(), "/abs/config.env") {
+	file := filepath.Join(t.TempDir(), "config.env") // absolute on every OS
+	_, err := p.Get(context.Background(), ports.SecretRef{Source: file, Key: "K"})
+	if !errors.Is(err, domain.ErrSecretsAccess) || !strings.Contains(err.Error(), "data key") || !strings.Contains(err.Error(), file) {
 		t.Fatalf("err = %v", err)
 	}
 }
 
 func TestSopsNotInstalled(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
-	_, err := (&Provider{}).Get(context.Background(), ports.SecretRef{Source: "/x.env", Key: "K"})
+	_, err := (&Provider{}).Get(context.Background(), ports.SecretRef{Source: filepath.Join(t.TempDir(), "x.env"), Key: "K"})
 	if !errors.Is(err, domain.ErrSecretsAccess) || !strings.Contains(err.Error(), "not installed") {
 		t.Fatalf("err = %v", err)
 	}
