@@ -238,3 +238,29 @@ Status: accepted.
   - **literal dotted keys**: a key with a literal dot next to a consumed field (`level.x` beside `level`) stays visible (it was wrongly dropped).
   - Keys that flatten to the same dotted path (`"."` and an empty key under an empty key) remain ambiguous in both implementations and are not compared.
 Status: accepted.
+
+## D-034 Kubernetes adapter: client-go, informers per namespace, events on demand
+- **client-go**, typed clients for the three API groups Huginn reads (core, apps, batch) instead of the full clientset: the binary grows from 8.8 MB to 42 MB (51 MB with the full clientset). `kubectl` is about 50 MB. Accepted: it is the reference client (exec auth plugins such as `gke-gcloud-auth-plugin`, proxies, retries), and a hand-written REST client would re-implement watches badly.
+- **Read-only by construction**: only get, list, watch and `pods/log`. A test drives every method on a fake clientset and fails on any other verb.
+- **One clientset per kube context**, from the standard loading rules; an unknown context is `ErrConfig`, a permanent error (D-035).
+- **Informers per namespace** for pods and for each workload kind, never cluster-wide (D-004). Before a watch starts, each kind is listed once (limit 1): kinds the user cannot read are skipped (a narrow role often lacks CronJobs), and a namespace where none is readable is `ErrForbidden` for that namespace only.
+- **Owners without extra reads**: a Deployment's pod is owned by a ReplicaSet named `<deployment>-<pod-template-hash>` and a CronJob's by a Job named `<cronjob>-<scheduled time>`; the names are derived from the pod, so no permission on ReplicaSets or Jobs is needed. Log sessions also drop pods owned by another workload, because selectors can overlap.
+- **Logs**: `timestamps=true`, the kubelet's RFC 3339 prefix becomes the line time. Lines are read with a `bufio.Reader` and capped at 1 MiB (then marked truncated), never a reason to stop the stream.
+- **Events on demand** (field selector on the pod), normalized for new-style events (no `count`/`lastTimestamp`: `eventTime`, `series`), and merged when the same event repeats in a new series (after a node restart).
+- **client-go's own logs** (klog, runtime error handlers) go to Huginn's diagnostic log: writing to stderr would draw over the screen.
+- **Not done**: the manifests rule of `services.yaml` (M4 plan §3.8, optional) is still validated only; the ReplicaSet revision for restart-only rollouts (B7) is left for later.
+Status: accepted.
+
+## D-035 Resume, waiting containers and permanent errors
+- **Resume**: the API honours `sinceTime` to the second. After a reconnect the tailer drops lines strictly before the last delivered time and, at that exact time, lines already seen. The contract suite checks every LogSource in a second-precision mode.
+- **Waiting containers**: a follow stream that ends while its container is not running (crash loop, terminating pod) and a stream refused with "waiting to start" (`ErrNotStarted`) are not connection problems. The tailer waits for the pod watch to show a running instance (or one minute) instead of reconnecting with back-off, and the pod strip says `waiting: CrashLoopBackOff`.
+- **Previous instance** (`P`): reads the whole previous instance of the restarted application containers (up to the history limit, the window does not apply), without following.
+- **Permanent errors** (`ErrConfig`, `ErrNotImplemented`) are not retried; the screen says what to fix. Without a terminal Huginn says so and exits with 2.
+- **namespace_from**: `sops --decrypt` of a dotenv file, run the first time the environment is opened, output kept in memory; a failure is reported on the services screen against `environments.yaml`.
+Status: accepted.
+
+## D-036 The lab and the end-to-end job
+- `deploy/lab` starts kind (default) or minikube in Docker with dummy workloads for every state Huginn shows, and a read-only identity limited to one namespace (context `huginn-restricted`).
+- `kind.yaml` carries two patches for sandboxed hosts (`restrict_oom_score_adj`, `failCgroupV1: false`); harmless elsewhere. Images are imported with `ctr` because `kind load` fails with Docker ≥ 29 multi-platform images.
+- CI job `lab`: starts kind, runs the adapter contract suites (`HUGINN_LAB=1`) and `deploy/lab/e2e.sh`, which drives the binary in tmux and checks the screens. The script found one bug on its first run (a terminating pod showed "reconnecting").
+Status: accepted.

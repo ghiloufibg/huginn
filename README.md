@@ -4,7 +4,7 @@
 
 Huginn is a keyboard-driven, **read-only** terminal UI for reading the logs of application pods on Kubernetes (GKE), from inside your IDE's terminal. It feels like k9s and kl, but does one thing: help a developer debug from logs.
 
-**Status: prototype, milestone M3.4 done.** Everything Huginn knows about your applications comes from a [config folder](docs/CONFIG.md) you provide. Services screen (with a WHY column and a preview of the selected service) and logs screen (merged live logs of a repository's application containers, drawn with the layout of your config folder, time windows, follow/pause, pod scope, zoom), level and live text filters with highlight, and help on every screen (`?` / `F1`). The real GKE connection arrives in M4. See [`docs/plan/M0.md`](docs/plan/M0.md) and the design mockups linked from [`docs/DECISIONS.md`](docs/DECISIONS.md).
+**Status: prototype, milestone M4 done: works against real clusters (GKE, kind, minikube).** Everything Huginn knows about your applications comes from a [config folder](docs/CONFIG.md) you provide. Services screen (with a WHY column and a preview of the selected service) and logs screen (merged live logs of a repository's application containers, drawn with the layout of your config folder, time windows, follow/pause, pod scope, zoom), level and live text filters with highlight, and help on every screen (`?` / `F1`). Crash loops show as waiting and `P` reads the previous instance. A local lab ([`deploy/lab`](deploy/lab)) runs everything against a real cluster without GKE. See [`docs/plan/M0.md`](docs/plan/M0.md) and the design mockups linked from [`docs/DECISIONS.md`](docs/DECISIONS.md).
 
 ## Try it
 
@@ -18,6 +18,21 @@ make build            # or: CGO_ENABLED=0 go build -o bin/huginn ./cmd/huginn
 ./bin/huginn prd --demo
 ./bin/huginn --help
 ```
+
+## Connecting to GKE
+
+Huginn reads your kubeconfig (`KUBECONFIG`, else `~/.kube/config`) and never logs in by itself:
+
+1. Install `gcloud` and the `gke-gcloud-auth-plugin`, then `gcloud auth login`.
+2. `gcloud container clusters get-credentials <cluster> --region <region> --project <project>` creates the kube context.
+3. Put that context and your namespaces in `environments.yaml` of your config folder (or `namespace_from: sops:<file>#<key>` to read the namespace from a sops-encrypted dotenv file, with the `sops` command installed).
+4. `huginn --config <folder> <env>`.
+
+It only gets, lists and watches pods, workloads and events, and reads pod logs, in the configured namespaces (never cluster-wide): namespaced read access (`pods`, `pods/log`, `events`, and `deployments`/`statefulsets`/`daemonsets`/`cronjobs` in `apps`/`batch`) is enough, and a workload kind you cannot read is skipped. `HTTPS_PROXY`/`NO_PROXY` and `SSL_CERT_FILE` work as for `kubectl`.
+
+When something is wrong the services screen says what: `unauthorized` (log in again: `gcloud auth login`), `forbidden` for one namespace (the others keep working), `configuration error` for an unknown context (not retried: fix `environments.yaml`), `secrets unavailable` when sops cannot decrypt.
+
+**First run on GKE, checklist:** the services screen lists your repositories with their states; open a repository's logs; press `P` on a service that restarted; switch environment with `ctrl+e`; an environment with `namespace_from` opens.
 
 ## Usage
 
@@ -40,7 +55,7 @@ Flags
       --version
 ```
 
-Exit codes: `0` success, `1` runtime error, `2` config folder missing or invalid (every problem is printed with its `file:line:column`).
+Exit codes: `0` success, `1` runtime error, `2` config folder missing or invalid (every problem is printed with its `file:line:column`), or no interactive terminal.
 
 Environment variables: `HUGINN_ENV`, `HUGINN_CONFIG`, `HUGINN_THEME`, `NO_COLOR` (forces the `none` theme), `HUGINN_DEBUG=1` (diagnostic log in the user cache directory, never on screen), `HUGINN_CPUPROFILE=<file>` (CPU profile of the session for `go tool pprof`).
 
