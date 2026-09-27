@@ -4,7 +4,7 @@
 
 Huginn is a keyboard-driven, **read-only** terminal UI for reading the logs of application pods on Kubernetes (GKE), from inside your IDE's terminal. It feels like k9s and kl, but does one thing: help a developer debug from logs.
 
-**Status: prototype, milestone M4 done: works against real clusters (GKE, kind, minikube).** Everything Huginn knows about your applications comes from a [config folder](docs/CONFIG.md) you provide. Services screen (with a WHY column and a preview of the selected service) and logs screen (merged live logs of a repository's application containers, drawn with the layout of your config folder, time windows, follow/pause, pod scope, zoom), level and live text filters with highlight, and help on every screen (`?` / `F1`). Crash loops show as waiting and `P` reads the previous instance. A local lab ([`deploy/lab`](deploy/lab)) runs everything against a real cluster without GKE. See [`docs/plan/M0.md`](docs/plan/M0.md) and the design mockups linked from [`docs/DECISIONS.md`](docs/DECISIONS.md).
+**Status: prototype, milestone M4.1 done: works against real clusters (GKE, kind, minikube).** Everything Huginn knows about your applications comes from a [config folder](docs/CONFIG.md) you provide. Services screen (with a WHY column and a preview of the selected service) and logs screen (merged live logs of a repository's application containers, drawn with the layout of your config folder, time windows, follow/pause, pod scope, zoom), level and live text filters with highlight, and help on every screen (`?` / `F1`). Crash loops show as waiting and `P` reads the previous instance. A local lab ([`deploy/lab`](deploy/lab)) runs everything against a real cluster without GKE. See [`docs/plan/M0.md`](docs/plan/M0.md) and the design mockups linked from [`docs/DECISIONS.md`](docs/DECISIONS.md).
 
 ## Try it
 
@@ -48,6 +48,7 @@ Flags
   -e, --env string        environment: a name of environments.yaml
       --repo string       open this repository's logs directly
       --since string      initial window: a duration (15m, 1h, 2d) or tail
+      --containers string containers the logs open on: app or all
       --config string     config folder (default: $HUGINN_CONFIG, else <user config dir>/huginn)
       --demo              synthetic cluster
       --theme string      light, accessible, classic, none
@@ -62,6 +63,8 @@ Environment variables: `HUGINN_ENV`, `HUGINN_CONFIG`, `HUGINN_THEME`, `NO_COLOR`
 ## Services screen
 
 A service whose status changes is highlighted for a few seconds. One row per repository; the **WHY** column says why a service is unhealthy (last exit, OOM limit, image that cannot be pulled, scheduler message, rollout progress). The space the rows leave free shows a **preview** of the selected service — workloads, pods, recent warnings of its worst pod (events read only when the cursor rests on a service), hidden sidecars — on the right from 200 columns, below the rows when 8 lines are free. Sorted by status, rows are grouped (FAILING, DEGRADED/PENDING, ROLLING, HEALTHY) when the titles fit.
+
+Pods that no known workload owns are listed too, grouped by owner: a bare pod shows as `debug-shell (Pod)`, a Job made by hand as `migrate (Job)`, pods of an unknown controller with its kind (`services.yaml`: `standalone_pods`).
 
 ## Keys (services screen)
 
@@ -92,7 +95,8 @@ The pod strip shows each pod's state: a container that is not running says `wait
 | `space` | pause / resume (the screen keeps its lines; new ones wait, up to the buffer size, and the lines dropped beyond are counted) |
 | `P` | previous instance of the restarted containers (why it crashed, OOM, exit); again for the current logs |
 | `t` / `T` / `1`…`7` / `0` | next window / window picker / 15m 30m 40m 45m 1h 1d 2d / tail (AZERTY: `&é"'(-è` / `à`) |
-| `tab` / `S` | cycle pod scope / pod selector |
+| `tab` / `S` | cycle pod scope / choose pods and containers (the two lists combine: one container of every pod, or one pod's container) |
+| `A` | all containers (sidecars and init) or application containers only (default: `default_mode` of `containers.yaml`) |
 | `c` | hide the next column (time, level, thread, class); after the last one, show them again |
 | `ctrl+t` | time format: local, UTC, relative (never hides the time) |
 | `R` | reset the display (columns, pod id, time format, pan, wrap); filters, window and pods are kept |

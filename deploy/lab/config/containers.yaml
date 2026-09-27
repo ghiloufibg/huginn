@@ -25,3 +25,4 @@ hide:                          # container names (name and name-*) or image name
   - traffic        # the curl loop next to nginx in workloads.yaml
 always_show: []
 show_init: false
+default_mode: app              # app | all: the containers the logs screen opens on (key A switches)

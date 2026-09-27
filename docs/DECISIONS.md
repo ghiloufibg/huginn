@@ -278,3 +278,11 @@ Status: accepted.
 - **Megabyte lines cost what is visible**: a segment is cut to the bytes that can reach the screen before highlighting; zoom wraps at most 64 KB of a line.
 - **Not done**: choosing a container in the pod scope (`tab`/`S` select pods); the container is shown instead. Bare pods (without a workload) stay out of the catalog.
 Status: accepted.
+
+## D-038 Containers on demand, standalone pods (M4.1)
+- **Containers.** The logs screen opens on the application containers (`containers.yaml` `default_mode: app`, or `--containers`). `A` follows all containers, sidecars and init containers included, by reopening the session (same window, filters, pod scope). `S` selects pods × containers: the two lists combine, which covers "one container of every pod" and "one pod's container" without a tree. Choosing a container that is not followed (a sidecar in app mode) switches to all containers. `hide` now means "sidecar" (not followed in app mode, not counted), no longer "never shown".
+- **Why not follow every container and filter in the view:** sidecars are often the chattiest containers (mesh access logs); they would share the bounded buffer with the application and evict its lines, and double the log streams to the API server for nothing in the common case.
+- **Standalone pods.** Pods no known workload owns become synthetic workloads (`domain.StandaloneWorkloads`), grouped by owner (kind and name) or by pod name when bare, carrying their oldest pod's labels. Every screen then works on them unchanged: resolvers (a labelled debug pod joins its repository), status and WHY, logs, `P`, preview and events. Shown by default; `services.yaml` `standalone_pods: false` hides them.
+- **One claim rule.** `domain.Workload.Owns` tells which pods belong to a workload (owner name and kind, or selector for pods without an owner, or the standalone key), shared by the catalog and the log sessions instead of two slightly different rules.
+- **Owner kind without extra permission**: the adapter derives it from the pod's controller reference (ReplicaSet with a pod-template-hash → Deployment, Job with a scheduled-time suffix → CronJob).
+Status: accepted.

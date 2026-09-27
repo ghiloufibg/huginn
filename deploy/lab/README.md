@@ -20,6 +20,7 @@ huginn --config deploy/lab/config rec
 | app-rec | `email-dispatcher` | Pending (Unschedulable: insufficient memory) |
 | app-rec | `storefront-web` | nginx access logs (text, `formats/10-nginx.yaml`) next to a traffic generator |
 | app-dev | `ledger-writer` (StatefulSet) | Another environment |
+| app-rec | `debug-shell` (bare pod) | A standalone row, `debug-shell (Pod)` |
 
 - **Rollout:** `kubectl -n app-rec rollout restart deploy/payment-service` plays one.
 - **Read-only identity:** `rbac.yaml` creates `huginn-reader`, limited to `app-rec`; `up.sh` adds its kubeconfig context `huginn-restricted` (a 24 h token: run `up.sh` again to renew it). The environment `restricted` of the lab config uses it: `app-dev` is forbidden, `app-rec` works.

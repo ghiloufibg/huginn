@@ -175,28 +175,33 @@ explicit:
 | `explicit[].workloads[].name` | string | yes | | Workload name. |
 | `explicit[].workloads[].namespace` | string | | first namespace of the environment | |
 | `explicit[].workloads[].kind` | `Deployment`, `StatefulSet`, `DaemonSet`, `CronJob` | | `Deployment` | |
+| `standalone_pods` | bool | | `true` | List the pods that no known workload owns as rows of their own, grouped by owner: a bare pod (`debug-shell (Pod)`), a Job made by hand (`migrate (Job)`), pods of a ReplicaSet whose Deployment is gone or of a controller Huginn does not know (`canary (Rollout)`). They go through the rules above with their pods' labels, so a debug pod labelled like an application joins its repository. Set `false` on clusters full of finished one-off Jobs. |
 
 The `manifests` rule is accepted and validated, but it is read only from milestone M4 (the real cluster connection). Until then, use `labels` or `explicit`.
 
 ## 6. `containers.yaml`
 
-Optional. It says which containers are sidecars, hidden from the logs screen and listed as "hidden" in the services preview. Without this file, no container is hidden.
+Optional. It says which containers are **sidecars**: they are not counted in restarts, readiness or the version, they are listed under SIDECARS in the services preview, and the logs screen does not follow them in `app` mode (the default). Key `A` on the logs screen follows all containers, sidecars included; `S` chooses pods and containers. Without this file, every container is an application container.
 
 ```yaml
 version: 1
 hide: [istio-proxy, istio-init, vault-agent, cloud-sql-proxy]
 always_show: []
 show_init: false
+default_mode: app      # app | all
 ```
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `version` | int | | Must be `1` (required). |
-| `hide` | list | | Containers to hide. A name hides that container and `<name>-*` (`vault-agent` also hides `vault-agent-init`); an image name hides every container running it (the last part of the image path without its tag: `proxyv2` for `docker.io/istio/proxyv2:1.24`). |
-| `always_show` | list | | Container names always shown, even if `hide` matches them. |
-| `show_init` | bool | `false` | Also show init containers. |
+| `hide` | list | | Sidecars. A name matches that container and `<name>-*` (`vault-agent` also matches `vault-agent-init`); an image name matches every container running it (the last part of the image path without its tag: `proxyv2` for `docker.io/istio/proxyv2:1.24`). |
+| `always_show` | list | | Container names always application containers, even if `hide` matches them. |
+| `show_init` | bool | `false` | Treat init containers as application containers. |
+| `default_mode` | `app`, `all` | `app` | Containers a logs screen opens on. `app`: application containers (and an init container blocking the pod, whose output says why). `all`: every container, sidecars and init containers included. `A` switches during a session; `huginn --containers all` overrides it for one run. |
 
-A container named after its workload is always an application container. Init containers are hidden unless `show_init` is true, or they are listed in `always_show`.
+A container named after its workload is always an application container. Init containers are sidecars unless `show_init` is true, or they are listed in `always_show`.
+
+**Why sidecars are not followed by default:** a mesh sidecar often logs more than the application (one access line per request). The logs screen keeps a bounded buffer shared by all containers, so following sidecars all the time would push the application's lines out sooner. In `all` mode, the status bar says when older lines no longer fit.
 
 ## 7. `ui.yaml`
 

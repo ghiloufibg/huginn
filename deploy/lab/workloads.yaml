@@ -164,3 +164,14 @@ spec:
           image: "alpine:3.20"
           imagePullPolicy: Never
           command: [sh, -c, 'while :; do echo "{\"level\":\"INFO\",\"message\":\"batch written\"}"; sleep 5; done']
+---
+# A bare pod (no workload): listed as a standalone row "debug-shell (Pod)".
+apiVersion: v1
+kind: Pod
+metadata: {name: debug-shell, namespace: app-rec, labels: {run: debug-shell}}
+spec:
+  containers:
+    - name: shell
+      image: "alpine:3.20"
+      imagePullPolicy: Never
+      command: [sh, -c, 'while :; do echo "hello from debug-shell"; sleep 3; done']

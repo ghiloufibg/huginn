@@ -53,6 +53,20 @@ expect "stack trace folded" "enter to open"
 refuse "sidecar hidden" "envoy"
 keys Escape Escape
 
+echo "# sidecars on demand (A), then back"
+keys / p a y m e n t Enter Enter
+keys A
+expect "sidecar lines with A" "via_upstream" 30
+expect "container named" "/istio-proxy"
+keys A
+keys Escape Escape
+
+echo "# a bare pod is a standalone row with its logs"
+expect "standalone pod listed" "debug-shell (Pod)"
+keys / d e b u g Enter Enter
+expect "logs of the standalone pod" "hello from debug-shell"
+keys Escape Escape
+
 echo "# crash loop: waiting, previous instance"
 keys / c a t a l o g Enter Enter
 expect "waiting container is not an error" "waiting:"
