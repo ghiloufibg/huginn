@@ -799,7 +799,7 @@ func (l *logsScreen) podStrip(m *Model, w int) string {
 		case errors.Is(p.Err, domain.ErrNoPrevious):
 			desc, style = "no previous instance", t.Dim
 		case errors.Is(p.Err, domain.ErrNotStarted): // its logs come back when it runs
-			desc = "waiting: " + st.String()
+			desc = "waiting: " + waitingReason(m, p.Pod, st)
 		case p.Err != nil:
 			desc, style = "no logs: "+errKind(p.Err), t.Warn
 		}
@@ -820,6 +820,17 @@ func (l *logsScreen) podStrip(m *Model, w int) string {
 		parts = append(parts, label+" "+style.Render(desc)+t.Dim.Render(extra))
 	}
 	return ansi.Truncate(strings.Join(parts, "   "), w, "…")
+}
+
+// waitingReason is why the app containers of a pod do not run, in the
+// runtime's words (CrashLoopBackOff, ImagePullBackOff, ContainerCreating).
+func waitingReason(m *Model, p domain.Pod, st domain.ServiceStatus) string {
+	for _, c := range m.opts.Filter.AppContainers(p) {
+		if c.State != domain.ContainerRunning && c.Reason != "" {
+			return c.Reason
+		}
+	}
+	return st.String()
 }
 
 func (l *logsScreen) shortName(pod string) string { return podShortID(pod) }

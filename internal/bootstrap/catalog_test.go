@@ -20,7 +20,7 @@ func demoCatalog(t *testing.T) (<-chan ports.CatalogSnapshot, *portstest.FakeClo
 	c := demoConfig(t)
 	clock := portstest.NewFakeClock(t0)
 	cluster := demo.New(demo.Options{Seed: c.Huginn.Demo.Seed, Rate: c.Huginn.Demo.Rate, Clock: clock})
-	cat := newCatalog(c, cluster, clock, containerFilter(c), diag.Discard())
+	cat := newCatalog(c, scopes(c, nil), cluster, clock, containerFilter(c), diag.Discard())
 	ch, err := cat.Watch(t.Context(), domain.Env("rec"))
 	if err != nil {
 		t.Fatal(err)

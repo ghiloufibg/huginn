@@ -18,5 +18,5 @@ environments:                  # shown in this order by the environment picker (
     context: gke_acme_europe-west1_main
     namespaces: [app-prd]
     # or read it from the overlay's encrypted dotenv file:
-    # namespace_from: sops:overlays/prd/config.env#K8S_NAMESPACE
+    # namespace_from: sops:~/work/infra/overlays/prd/config.env#K8S_NAMESPACE
     production: true           # red banner

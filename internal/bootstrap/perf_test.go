@@ -25,7 +25,7 @@ func TestPerfHistoryLoad(t *testing.T) {
 	clock := portstest.NewFakeClock(t0)
 	cluster := demo.New(demo.Options{Seed: 42, Rate: 100, Clock: clock})
 	lp, _ := logParts(c)
-	s := newLogSessions(c, cluster, clock, containerFilter(c), lp.decoders, diag.Discard())
+	s := newLogSessions(c, scopes(c, nil), cluster, clock, containerFilter(c), lp.decoders, diag.Discard())
 	dir := os.Getenv("HUGINN_PERF_DIR")
 	if dir != "" {
 		f, _ := os.Create(dir + "/cpu.pprof")

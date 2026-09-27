@@ -56,7 +56,7 @@ func openDemoLogs(t *testing.T, q ports.LogQuery) *logReader {
 	if probs != nil {
 		t.Fatal(probs)
 	}
-	s := newLogSessions(c, cluster, clock, containerFilter(c), lp.decoders, diag.Discard())
+	s := newLogSessions(c, scopes(c, nil), cluster, clock, containerFilter(c), lp.decoders, diag.Discard())
 	q.Env, q.Repo = domain.Env("rec"), "payment-service"
 	ch, err := s.Open(t.Context(), q)
 	if err != nil {
@@ -131,7 +131,7 @@ func TestClosedSessionsLeaveNoGoroutines(t *testing.T) {
 		clock := portstest.NewFakeClock(t0)
 		cluster := demo.New(demo.Options{Seed: 42, Rate: 1, Clock: clock})
 		lp, _ := logParts(c)
-		s := newLogSessions(c, cluster, clock, containerFilter(c), lp.decoders, diag.Discard())
+		s := newLogSessions(c, scopes(c, nil), cluster, clock, containerFilter(c), lp.decoders, diag.Discard())
 		ch, err := s.Open(ctx, ports.LogQuery{Env: "rec", Repo: "payment-service", Window: domain.TimeWindow{Tail: 10}, Follow: true})
 		if err != nil {
 			t.Fatal(err)

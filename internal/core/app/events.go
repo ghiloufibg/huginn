@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"fmt"
 	"slices"
 
 	"github.com/ghiloufibg/huginn/internal/core/domain"
@@ -12,14 +11,14 @@ import (
 // PodEvents implements ports.PodEvents over a cluster client.
 type PodEvents struct {
 	Cluster ports.ClusterClient
-	Scopes  func(domain.Env) (ports.Scope, bool)
+	Scopes  ScopeFunc
 }
 
 // Recent implements ports.PodEvents.
 func (e *PodEvents) Recent(ctx context.Context, env domain.Env, namespace, pod string) ([]domain.Event, error) {
-	scope, ok := e.Scopes(env)
-	if !ok {
-		return nil, fmt.Errorf("environment %q is not configured", env)
+	scope, err := e.Scopes(ctx, env)
+	if err != nil {
+		return nil, err
 	}
 	evs, err := e.Cluster.PodEvents(ctx, scope, namespace, pod)
 	if err != nil {

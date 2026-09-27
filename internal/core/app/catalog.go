@@ -21,7 +21,7 @@ type Catalog struct {
 	Cluster  ports.ClusterClient
 	Resolver ports.RepoResolver
 	// Scopes returns the scope of an environment.
-	Scopes func(domain.Env) (ports.Scope, bool)
+	Scopes ScopeFunc
 	Filter domain.ContainerFilter
 	Clock  ports.Clock
 	// Coalesce is the minimum delay between two snapshots (default 100ms).
@@ -43,11 +43,15 @@ type feedMsg struct {
 	err      error
 }
 
+// ScopeFunc returns the cluster scope of an environment. Resolving it may
+// read a secret (namespace_from), hence the context and the error.
+type ScopeFunc func(ctx context.Context, env domain.Env) (ports.Scope, error)
+
 // Watch implements ports.ServiceCatalog.
 func (c *Catalog) Watch(ctx context.Context, env domain.Env) (<-chan ports.CatalogSnapshot, error) {
-	scope, ok := c.Scopes(env)
-	if !ok {
-		return nil, fmt.Errorf("environment %q is not configured", env)
+	scope, err := c.Scopes(ctx, env)
+	if err != nil {
+		return nil, err
 	}
 	namespaces := scope.Namespaces
 	if len(namespaces) == 0 {

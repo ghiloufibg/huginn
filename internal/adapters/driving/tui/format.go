@@ -39,6 +39,8 @@ func errKind(err error) string {
 		return "configuration error"
 	case errors.Is(err, domain.ErrNotStarted):
 		return "not started"
+	case errors.Is(err, domain.ErrSecretsAccess):
+		return "secrets unavailable"
 	default:
 		return "error"
 	}

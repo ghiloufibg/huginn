@@ -14,6 +14,7 @@ import (
 
 	"github.com/ghiloufibg/huginn/examples"
 	"github.com/ghiloufibg/huginn/internal/adapters/driven/clock"
+	"github.com/ghiloufibg/huginn/internal/adapters/driven/sops"
 	"github.com/ghiloufibg/huginn/internal/adapters/driving/cli"
 	"github.com/ghiloufibg/huginn/internal/adapters/driving/tui"
 	"github.com/ghiloufibg/huginn/internal/buildinfo"
@@ -160,6 +161,7 @@ func Build(o cli.Options, e Env, log *slog.Logger) (*App, error) {
 		return nil, err
 	}
 	filter := containerFilter(c)
+	sc := scopes(c, &sops.Provider{Dir: c.Dir})
 	envs := make([]tui.EnvInfo, 0, len(c.Environments.Names))
 	var current tui.EnvInfo
 	for _, name := range c.Environments.Names {
@@ -174,9 +176,9 @@ func Build(o cli.Options, e Env, log *slog.Logger) (*App, error) {
 		Config: c, Env: env, Cluster: cluster, Log: log,
 		UI: tui.Options{
 			Env: current, Envs: envs, Theme: theme, Keys: keys, Source: clientName, Repo: o.Repo,
-			Catalog: newCatalog(c, cluster, clk, filter, log), Filter: filter,
-			Sessions: newLogSessions(c, cluster, clk, filter, lp.decoders, log),
-			Events:   newPodEvents(c, cluster),
+			Catalog: newCatalog(c, sc, cluster, clk, filter, log), Filter: filter,
+			Sessions: newLogSessions(c, sc, cluster, clk, filter, lp.decoders, log),
+			Events:   newPodEvents(sc, cluster),
 			Layouts:  lp.layouts, Layout: lp.fallback, Columns: lp.columns,
 			Windows: windows(c), Window: window,
 			BufferLines: c.Huginn.Logs.BufferLines, KeyBar: c.UI.KeyBar, LogColumns: c.UI.LogColumns,

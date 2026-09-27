@@ -15,9 +15,12 @@ import (
 
 var t0 = time.Date(2026, 9, 26, 19, 0, 0, 0, time.UTC)
 
-func scopes(namespaces ...string) func(domain.Env) (ports.Scope, bool) {
-	return func(e domain.Env) (ports.Scope, bool) {
-		return ports.Scope{Env: e, Namespaces: namespaces}, e == domain.Env("rec")
+func scopes(namespaces ...string) ScopeFunc {
+	return func(_ context.Context, e domain.Env) (ports.Scope, error) {
+		if e != domain.Env("rec") {
+			return ports.Scope{}, fmt.Errorf("environment %q is not configured", e)
+		}
+		return ports.Scope{Env: e, Namespaces: namespaces}, nil
 	}
 }
 

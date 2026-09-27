@@ -26,7 +26,7 @@ type LogSessions struct {
 	Cluster  ports.ClusterClient
 	Logs     ports.LogSource
 	Resolver ports.RepoResolver
-	Scopes   func(domain.Env) (ports.Scope, bool)
+	Scopes   ScopeFunc
 	Filter   domain.ContainerFilter
 	// Decoders picks each container's decoder.
 	Decoders ports.LogDecoders
@@ -48,9 +48,9 @@ type LogSessions struct {
 
 // Open implements ports.LogSession.
 func (s *LogSessions) Open(ctx context.Context, q ports.LogQuery) (<-chan ports.LogBatch, error) {
-	scope, ok := s.Scopes(q.Env)
-	if !ok {
-		return nil, fmt.Errorf("environment %q is not configured", q.Env)
+	scope, err := s.Scopes(ctx, q.Env)
+	if err != nil {
+		return nil, err
 	}
 	workloads, err := s.workloadsOf(ctx, scope, q)
 	if err != nil {

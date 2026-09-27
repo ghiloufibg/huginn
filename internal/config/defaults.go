@@ -27,7 +27,7 @@ func applyDefaults(c *Config) {
 	if h.Demo.Rate == 0 {
 		h.Demo.Rate = 1
 	}
-	h.ReposRoot = expandHome(h.ReposRoot)
+	h.ReposRoot = ExpandHome(h.ReposRoot)
 	if c.UI.Theme == "" {
 		c.UI.Theme = "light"
 	}

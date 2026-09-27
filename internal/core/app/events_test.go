@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/ghiloufibg/huginn/internal/core/domain"
-	"github.com/ghiloufibg/huginn/internal/core/ports"
 	"github.com/ghiloufibg/huginn/internal/core/ports/portstest"
 )
 
@@ -17,9 +16,7 @@ func TestPodEventsNewestFirst(t *testing.T) {
 		{Reason: "Pulled", LastSeen: at.Add(-time.Hour)},
 		{Reason: "BackOff", LastSeen: at},
 	})
-	e := &PodEvents{Cluster: fc, Scopes: func(env domain.Env) (ports.Scope, bool) {
-		return ports.Scope{Env: env, Namespaces: []string{"app-rec"}}, env == "rec"
-	}}
+	e := &PodEvents{Cluster: fc, Scopes: scopes("app-rec")}
 	evs, err := e.Recent(context.Background(), "rec", "app-rec", "api-1")
 	if err != nil {
 		t.Fatal(err)

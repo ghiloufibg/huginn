@@ -43,10 +43,10 @@ const Structure = `  huginn.yaml         required  default environment, time win
 // HUGINN_CONFIG, then <user config dir>/huginn.
 func Locate(explicit string, getenv func(string) string, userConfigDir func() (string, error)) (string, error) {
 	if explicit != "" {
-		return expandHome(explicit), nil
+		return ExpandHome(explicit), nil
 	}
 	if dir := getenv(EnvConfigDir); dir != "" {
-		return expandHome(dir), nil
+		return ExpandHome(dir), nil
 	}
 	dir, err := userConfigDir()
 	if err != nil {
@@ -291,7 +291,8 @@ func (l *loader) mapOrder(file, key string) []string {
 	return out
 }
 
-func expandHome(p string) string {
+// ExpandHome replaces a leading "~" with the home folder.
+func ExpandHome(p string) string {
 	if p == "~" || strings.HasPrefix(p, "~/") {
 		if home, err := os.UserHomeDir(); err == nil {
 			return filepath.Join(home, strings.TrimPrefix(p, "~"))
