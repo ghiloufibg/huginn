@@ -8,61 +8,88 @@ import (
 )
 
 // TimeWindow selects which past logs to load before (optionally) following.
-// Exactly one of Since and Tail is set: Since for a relative window such as
-// 15m, Tail for "the last N lines".
+// Exactly one of Since, Tail and Head is set: Since for a relative window
+// such as 15m, Tail for "the last N lines", Head for "the first N lines"
+// (of what the source keeps; a head never follows).
 type TimeWindow struct {
 	Since time.Duration
 	Tail  int
+	Head  int
 }
 
 // DefaultTailLines is the tail size used when "tail" is given without N.
 const DefaultTailLines = 500
 
-// IsTail reports whether the window is a line-count window.
+// DefaultHeadLines is the head size used when "head" is given without N.
+const DefaultHeadLines = 500
+
+// IsTail reports whether the window is the last lines.
 func (w TimeWindow) IsTail() bool { return w.Tail > 0 }
+
+// IsHead reports whether the window is the first lines.
+func (w TimeWindow) IsHead() bool { return w.Head > 0 }
 
 // String renders the window as accepted by ParseTimeWindow.
 func (w TimeWindow) String() string {
-	if w.IsTail() {
+	switch {
+	case w.IsTail():
 		return "tail " + strconv.Itoa(w.Tail)
+	case w.IsHead():
+		return "head " + strconv.Itoa(w.Head)
 	}
 	return formatDuration(w.Since)
 }
 
-// Label is the short form shown in the status bar ("15m", "tail").
+// Label is the short form shown in the status bar ("15m", "tail", "head").
 func (w TimeWindow) Label() string {
-	if w.IsTail() {
+	switch {
+	case w.IsTail():
 		return "tail"
+	case w.IsHead():
+		return "head"
 	}
 	return formatDuration(w.Since)
 }
 
-// ParseTimeWindow parses "15m", "1h", "2d", "90s", "tail", "tail 200" or
-// "tail:200". Days are supported in addition to Go durations.
-func ParseTimeWindow(s string, defaultTail int) (TimeWindow, error) {
+// ParseTimeWindow parses "15m", "1h", "2d", "90s", "tail", "tail 200",
+// "tail:200", "head", "head 200" or "head:200". Days are supported in
+// addition to Go durations. defaultTail and defaultHead are the sizes of a
+// bare "tail" and "head" (DefaultTailLines, DefaultHeadLines when not
+// positive).
+func ParseTimeWindow(s string, defaultTail, defaultHead int) (TimeWindow, error) {
 	s = strings.ToLower(strings.TrimSpace(s))
 	if s == "" {
 		return TimeWindow{}, fmt.Errorf("empty time window")
 	}
 	if rest, ok := strings.CutPrefix(s, "tail"); ok {
-		rest = strings.TrimLeft(rest, " :=")
-		if rest == "" {
-			if defaultTail <= 0 {
-				defaultTail = DefaultTailLines
-			}
-			return TimeWindow{Tail: defaultTail}, nil
-		}
-		n, err := strconv.Atoi(rest)
-		if err != nil || n <= 0 {
-			return TimeWindow{}, fmt.Errorf("invalid tail size %q: want a positive number of lines", rest)
-		}
-		return TimeWindow{Tail: n}, nil
+		n, err := lineCount("tail", rest, defaultTail, DefaultTailLines)
+		return TimeWindow{Tail: n}, err
+	}
+	if rest, ok := strings.CutPrefix(s, "head"); ok {
+		n, err := lineCount("head", rest, defaultHead, DefaultHeadLines)
+		return TimeWindow{Head: n}, err
 	}
 	d, err := parseDuration(s)
 	if err != nil {
 		return TimeWindow{}, err
 	}
 	return TimeWindow{Since: d}, nil
+}
+
+// lineCount parses the size after "tail" or "head".
+func lineCount(kind, rest string, def, fallback int) (int, error) {
+	rest = strings.TrimLeft(rest, " :=")
+	if rest == "" {
+		if def <= 0 {
+			def = fallback
+		}
+		return def, nil
+	}
+	n, err := strconv.Atoi(rest)
+	if err != nil || n <= 0 {
+		return 0, fmt.Errorf("invalid %s size %q: want a positive number of lines", kind, rest)
+	}
+	return n, nil
 }
 
 func parseDuration(s string) (time.Duration, error) {
@@ -94,11 +121,14 @@ func formatDuration(d time.Duration) string {
 }
 
 // DefaultWindowPresets returns the presets bound to the numeric keys:
-// index 0 is key "1" (15m) … index 6 is key "7" (2d); the tail preset is
-// bound to key "0" and is returned last.
-func DefaultWindowPresets(tail int) []TimeWindow {
+// index 0 is key "1" (15m) … index 6 is key "7" (2d); the tail preset
+// (key "0") and the head preset (key "9") are returned last, in that order.
+func DefaultWindowPresets(tail, head int) []TimeWindow {
 	if tail <= 0 {
 		tail = DefaultTailLines
+	}
+	if head <= 0 {
+		head = DefaultHeadLines
 	}
 	return []TimeWindow{
 		{Since: 15 * time.Minute},
@@ -109,6 +139,7 @@ func DefaultWindowPresets(tail int) []TimeWindow {
 		{Since: 24 * time.Hour},
 		{Since: 48 * time.Hour},
 		{Tail: tail},
+		{Head: head},
 	}
 }
 
@@ -124,9 +155,16 @@ func NextWindow(presets []TimeWindow, current TimeWindow) TimeWindow {
 }
 
 // SelectWindow returns the part of lines (ordered by time) that falls in w:
-// the last w.Tail lines for a tail window, else the lines at or after
-// now-w.Since. Lines without a timestamp are kept for Since windows.
+// the last w.Tail lines for a tail window, the first w.Head lines for a
+// head window, else the lines at or after now-w.Since. Lines without a
+// timestamp are kept for Since windows.
 func SelectWindow(lines []RawLine, w TimeWindow, now time.Time) []RawLine {
+	if w.IsHead() {
+		if len(lines) > w.Head {
+			return lines[:w.Head]
+		}
+		return lines
+	}
 	if w.IsTail() {
 		if len(lines) > w.Tail {
 			return lines[len(lines)-w.Tail:]

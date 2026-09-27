@@ -51,6 +51,9 @@ keys / p a y m e n t Enter Enter
 expect "JSON decoded (logger column)" "PaymentController"
 expect "stack trace folded" "enter to open"
 refuse "sidecar hidden" "envoy"
+keys 9
+expect "head window" "HEAD"
+expect "startup in the head" "Spring Boot"
 keys Escape Escape
 
 echo "# sidecars on demand (A), then back"

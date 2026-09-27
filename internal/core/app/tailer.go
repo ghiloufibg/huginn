@@ -100,9 +100,14 @@ func (t *tailer) request() ports.LogRequest {
 	if limit <= 0 {
 		limit = 50000
 	}
-	req := ports.LogRequest{Scope: t.scope, Namespace: t.ns, Pod: t.name, Container: t.container, Window: t.q.Window, Limit: limit}
-	if t.q.Previous {
-		req.Previous, req.Window = true, domain.TimeWindow{}
+	req := ports.LogRequest{Scope: t.scope, Namespace: t.ns, Pod: t.name, Container: t.container, Window: t.q.Window, Previous: t.q.Previous}
+	if w := t.q.Window; w.IsHead() { // the first lines, of the previous instance too
+		req.Window.Head = min(w.Head, limit)
+		return req
+	}
+	req.Limit = limit
+	if t.q.Previous { // the whole instance, up to the limit
+		req.Window = domain.TimeWindow{}
 	}
 	return req
 }
@@ -175,10 +180,15 @@ func (t *tailer) run(ctx context.Context) {
 // history reads the window without following. It returns the raw lines
 // (decoded later by the session, which keeps only the newest lines of all
 // containers), the source time of the last line and the texts of the lines
-// at that time, which a stream resumed from that time delivers again.
+// at that time, which a stream resumed from that time delivers again. A
+// head stops after its lines and closes the stream, whatever the source
+// sends.
 func (t *tailer) history(ctx context.Context) ([]domain.RawLine, time.Time, map[string]bool, error) {
 	seen := map[string]bool{}
-	st, err := t.s.Logs.Stream(ctx, t.request())
+	req := t.request()
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	st, err := t.s.Logs.Stream(ctx, req)
 	if err != nil {
 		return nil, time.Time{}, seen, err
 	}
@@ -191,6 +201,9 @@ func (t *tailer) history(ctx context.Context) ([]domain.RawLine, time.Time, map[
 			clear(seen)
 		}
 		seen[l.Text] = true
+		if req.Window.IsHead() && len(out) >= req.Window.Head {
+			return out, last, seen, nil // the deferred cancel closes the stream
+		}
 	}
 	return out, last, seen, st.Err()
 }

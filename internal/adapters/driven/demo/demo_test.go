@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -230,4 +231,44 @@ func collect(t *testing.T, c *Cluster, req ports.LogRequest) []domain.RawLine {
 		out = append(out, l)
 	}
 	return out
+}
+
+func TestHeadStartsAtTheInstanceStart(t *testing.T) {
+	c, _ := newTest(t)
+	var app domain.Container
+	p := podOf(t, c, "payment-service", func(p domain.Pod) bool {
+		app = p.Containers[1]
+		return app.State == domain.ContainerRunning && app.Started.After(t0.Add(-6*time.Hour))
+	})
+	lines := collect(t, c, ports.LogRequest{Scope: recScope, Namespace: "app-rec", Pod: p.Name, Container: app.Name, Window: domain.TimeWindow{Head: 20}})
+	if len(lines) != 20 || !lines[0].Time.Equal(app.Started) {
+		t.Fatalf("head: %d lines, first at %v, started %v", len(lines), lines[0].Time, app.Started)
+	}
+	if !slices.ContainsFunc(lines, func(l domain.RawLine) bool { return strings.Contains(l.Text, "Starting") }) {
+		t.Fatal("the head holds the startup")
+	}
+}
+
+// A pod older than the retention: the head starts where "the node" keeps
+// logs, not at the container start (the rotation notice's case).
+func TestHeadIsBoundedByRetention(t *testing.T) {
+	c, _ := newTest(t)
+	p := podOf(t, c, "user-api", nil)
+	if !p.Containers[1].Started.Before(t0.Add(-6 * time.Hour)) {
+		t.Fatalf("fixture: user-api started %v", p.Containers[1].Started)
+	}
+	lines := collect(t, c, ports.LogRequest{Scope: recScope, Namespace: "app-rec", Pod: p.Name, Container: "user-api", Window: domain.TimeWindow{Head: 3}})
+	if len(lines) != 3 || lines[0].Time.Before(t0.Add(-6*time.Hour)) || lines[0].Time.After(t0.Add(-5*time.Hour)) {
+		t.Fatalf("head: %d lines, first %v", len(lines), lines[0].Time)
+	}
+}
+
+func TestHeadOfThePreviousInstance(t *testing.T) {
+	c, _ := newTest(t)
+	p := podOf(t, c, "payment-service", restarted)
+	lines := collect(t, c, ports.LogRequest{Scope: recScope, Namespace: "app-rec", Pod: p.Name, Container: "payment-service", Previous: true, Window: domain.TimeWindow{Head: 2}})
+	whole := collect(t, c, ports.LogRequest{Scope: recScope, Namespace: "app-rec", Pod: p.Name, Container: "payment-service", Previous: true})
+	if len(lines) != 2 || lines[0] != whole[0] || lines[1] != whole[1] {
+		t.Fatalf("previous head: %d lines, want the first 2 of the instance", len(lines))
+	}
 }

@@ -163,6 +163,21 @@ func RunLogSourceContract(t *testing.T, newFixture func(t *testing.T) LogFixture
 		}
 	})
 
+	t.Run("head keeps the first lines", func(t *testing.T) {
+		f := newFixture(t)
+		req := f.Request
+		req.Window = domain.TimeWindow{Since: 48 * time.Hour}
+		all := collect(t, ctx, f.Source, req)
+		req.Window = domain.TimeWindow{Head: 2}
+		got := collect(t, ctx, f.Source, req)
+		if len(got) > 2 {
+			got = got[:2] // a source may send more; consumers cut
+		}
+		if len(got) != min(2, len(all)) || got[0].Text != all[0].Text || got[len(got)-1].Text != all[len(got)-1].Text {
+			t.Fatalf("head 2: %d lines of %d", len(got), len(all))
+		}
+	})
+
 	t.Run("unknown pod is not found", func(t *testing.T) {
 		f := newFixture(t)
 		req := f.Request

@@ -19,6 +19,11 @@ func TestParseTimeWindow(t *testing.T) {
 		{"tail 200", TimeWindow{Tail: 200}, false},
 		{"tail:50", TimeWindow{Tail: 50}, false},
 		{"tail -1", TimeWindow{}, true},
+		{"head", TimeWindow{Head: 400}, false},
+		{"head 200", TimeWindow{Head: 200}, false},
+		{"HEAD:50", TimeWindow{Head: 50}, false},
+		{"head:0", TimeWindow{}, true},
+		{"head x", TimeWindow{}, true},
 		{"0m", TimeWindow{}, true},
 		{"-5m", TimeWindow{}, true},
 		{"xd", TimeWindow{}, true},
@@ -27,7 +32,7 @@ func TestParseTimeWindow(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.in, func(t *testing.T) {
-			got, err := ParseTimeWindow(tt.in, 300)
+			got, err := ParseTimeWindow(tt.in, 300, 400)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("err = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -39,15 +44,19 @@ func TestParseTimeWindow(t *testing.T) {
 }
 
 func TestParseTimeWindowDefaultTail(t *testing.T) {
-	got, err := ParseTimeWindow("tail", 0)
+	got, err := ParseTimeWindow("tail", 0, 0)
 	if err != nil || got.Tail != DefaultTailLines {
+		t.Fatalf("got %+v, %v", got, err)
+	}
+	got, err = ParseTimeWindow("head", 0, 0)
+	if err != nil || got.Head != DefaultHeadLines {
 		t.Fatalf("got %+v, %v", got, err)
 	}
 }
 
 func TestTimeWindowStringRoundTrip(t *testing.T) {
-	for _, w := range DefaultWindowPresets(500) {
-		back, err := ParseTimeWindow(w.String(), 1)
+	for _, w := range DefaultWindowPresets(500, 300) {
+		back, err := ParseTimeWindow(w.String(), 1, 1)
 		if err != nil || back != w {
 			t.Fatalf("%v -> %q -> %+v, %v", w, w.String(), back, err)
 		}
@@ -55,8 +64,8 @@ func TestTimeWindowStringRoundTrip(t *testing.T) {
 }
 
 func TestPresetLabels(t *testing.T) {
-	want := []string{"15m", "30m", "40m", "45m", "1h", "1d", "2d", "tail"}
-	for i, w := range DefaultWindowPresets(500) {
+	want := []string{"15m", "30m", "40m", "45m", "1h", "1d", "2d", "tail", "head"}
+	for i, w := range DefaultWindowPresets(500, 500) {
 		if w.Label() != want[i] {
 			t.Errorf("preset %d label = %q, want %q", i, w.Label(), want[i])
 		}
@@ -64,7 +73,10 @@ func TestPresetLabels(t *testing.T) {
 }
 
 func TestNextWindowWraps(t *testing.T) {
-	p := DefaultWindowPresets(500)
+	p := DefaultWindowPresets(500, 500)
+	if got := NextWindow(p, TimeWindow{Tail: 500}); got != (TimeWindow{Head: 500}) {
+		t.Fatalf("tail -> head: got %v", got)
+	}
 	if got := NextWindow(p, p[len(p)-1]); got != p[0] {
 		t.Fatalf("wrap: got %v", got)
 	}
@@ -87,6 +99,12 @@ func TestSelectWindow(t *testing.T) {
 	}
 	if got := SelectWindow(lines, TimeWindow{Tail: 50}, now); len(got) != 11 {
 		t.Fatalf("tail larger than history: %d", len(got))
+	}
+	if got := SelectWindow(lines, TimeWindow{Head: 3}, now); len(got) != 3 || got[0].Time != lines[0].Time {
+		t.Fatalf("head: %d lines", len(got))
+	}
+	if got := SelectWindow(lines, TimeWindow{Head: 50}, now); len(got) != 11 {
+		t.Fatalf("head larger than history: %d", len(got))
 	}
 	if got := SelectWindow(lines, TimeWindow{Since: 5 * time.Minute}, now); len(got) != 6 {
 		t.Fatalf("since: %d lines", len(got))

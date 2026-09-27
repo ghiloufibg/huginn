@@ -134,7 +134,7 @@ func Build(o cli.Options, e Env, log *slog.Logger) (*App, error) {
 		return nil, err
 	}
 	w := c.Huginn.Windows
-	window, err := domain.ParseTimeWindow(w.Default, w.TailLines)
+	window, err := domain.ParseTimeWindow(w.Default, w.TailLines, w.HeadLines)
 	if err != nil {
 		return nil, err
 	}
@@ -148,7 +148,7 @@ func Build(o cli.Options, e Env, log *slog.Logger) (*App, error) {
 		}
 	}
 	if o.Since != "" {
-		if window, err = domain.ParseTimeWindow(o.Since, w.TailLines); err != nil {
+		if window, err = domain.ParseTimeWindow(o.Since, w.TailLines, w.HeadLines); err != nil {
 			return nil, fmt.Errorf("--since: %w", err)
 		}
 	}
@@ -195,16 +195,17 @@ func Build(o cli.Options, e Env, log *slog.Logger) (*App, error) {
 	}, nil
 }
 
-// windows returns the presets of keys 1…7 followed by the tail window.
+// windows returns the presets of keys 1…7 followed by the tail window
+// (key 0) and the head window (key 9).
 func windows(c *config.Config) []domain.TimeWindow {
 	w := c.Huginn.Windows
 	var out []domain.TimeWindow
 	for _, p := range w.Presets {
-		if tw, err := domain.ParseTimeWindow(p, w.TailLines); err == nil {
+		if tw, err := domain.ParseTimeWindow(p, w.TailLines, w.HeadLines); err == nil {
 			out = append(out, tw)
 		}
 	}
-	return append(out, domain.TimeWindow{Tail: w.TailLines})
+	return append(out, domain.TimeWindow{Tail: w.TailLines}, domain.TimeWindow{Head: w.HeadLines})
 }
 
 func run(ctx context.Context, o cli.Options) error {

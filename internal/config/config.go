@@ -55,7 +55,8 @@ type Huginn struct {
 type Windows struct {
 	Presets   []string `yaml:"presets" doc:"Windows bound to keys 1…7, e.g. [15m, 30m, 1h, 1d]; at most 7. Default: 15m 30m 40m 45m 1h 1d 2d."`
 	TailLines int      `yaml:"tail_lines" doc:"Lines loaded by the tail window (key 0). Default 500."`
-	Default   string   `yaml:"default" doc:"Window used when a logs screen opens: a duration such as 15m, or tail. Default 15m."`
+	HeadLines int      `yaml:"head_lines" doc:"Lines loaded per container by the head window (key 9): the first lines the node keeps. At most logs.buffer_lines. Default 500."`
+	Default   string   `yaml:"default" doc:"Window used when a logs screen opens: a duration such as 15m, tail or head. Default 15m."`
 }
 
 // Logs configures log loading.

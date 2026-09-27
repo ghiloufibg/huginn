@@ -10,7 +10,7 @@
      >                next ERROR line                                                                                   
      <                previous ERROR line                                                                               
    Time and stream                                                                                                      
-     ctrl+l           follow on/off                                                                                     
+     ctrl+l           follow on/off (in a head: back to the default window, following)                                  
      space            pause / resume (keeps buffering)                                                                  
      P                previous instance of the restarted containers (why it crashed), again for the current logs        
      t                next time window                                                                                  
@@ -23,6 +23,7 @@
      6  -             window 1d                                                                                         
      7  è             window 2d                                                                                         
      0  à             tail (last lines)                                                                                 
+     9  ç             head (first lines of each container; does not follow)                                             
    Filter                                                                                                               
      /  ctrl+f        filter as you type                                                                                
      x                filter (hide) or highlight (keep all)                                                             
@@ -68,7 +69,6 @@
      !                invert (as first character; \! for a literal !)                                                   
      ctrl+a           stack another filter (AND)                                                                        
      enter / esc      keep / cancel the edit                                                                            
-                                                                                                                        
                                                                                                                         
                                                                                                                         
                                                                                                                         

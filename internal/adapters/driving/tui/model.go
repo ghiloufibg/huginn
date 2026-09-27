@@ -147,7 +147,7 @@ func NewModel(o Options) *Model {
 		o.Envs = []EnvInfo{o.Env}
 	}
 	if len(o.Windows) == 0 {
-		o.Windows = domain.DefaultWindowPresets(domain.DefaultTailLines)
+		o.Windows = domain.DefaultWindowPresets(domain.DefaultTailLines, domain.DefaultHeadLines)
 	}
 	if o.Window == (domain.TimeWindow{}) {
 		o.Window = o.Windows[0]

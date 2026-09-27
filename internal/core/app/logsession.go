@@ -63,7 +63,7 @@ func (s *LogSessions) Open(ctx context.Context, q ports.LogQuery) (<-chan ports.
 	if err != nil {
 		return nil, err
 	}
-	if q.Previous {
+	if q.Previous || q.Window.IsHead() { // history only: a head never follows
 		q.Follow = false
 	}
 	run := &session{
@@ -411,6 +411,9 @@ func (r *session) retentionNotice(m tailMsg) string {
 	if r.q.Previous {
 		return ""
 	}
+	if r.q.Window.IsHead() {
+		return r.rotationNotice(m)
+	}
 	if m.capped && !r.q.Window.IsTail() {
 		return fmt.Sprintf("%s: older lines of the window not loaded (limit %d lines per container)", m.pod, len(m.history))
 	}
@@ -432,13 +435,43 @@ func (r *session) retentionNotice(m tailMsg) string {
 	return fmt.Sprintf("logs of %s available from %s only", m.pod, first.In(time.Local).Format("Jan 2 15:04"))
 }
 
+// rotationNotice reports, for a head, when a container's first line came
+// more than a minute after its instance started: the node rotated the
+// start of its logs away, and the API serves the current file only.
+func (r *session) rotationNotice(m tailMsg) string {
+	p := r.pods[m.pod]
+	if p == nil || len(m.history) == 0 || m.history[0].Time.IsZero() {
+		return ""
+	}
+	c, ok := containerOf(p.Pod, m.container)
+	if !ok || c.Started.IsZero() {
+		return ""
+	}
+	first := m.history[0].Time
+	if first.Sub(c.Started) <= time.Minute {
+		return ""
+	}
+	who := m.pod
+	if len(p.Containers) > 1 {
+		who += "/" + m.container
+	}
+	return fmt.Sprintf("%s: first line at %s, the container started at %s (older lines rotated away on the node)",
+		who, first.In(time.Local).Format("Jan 2 15:04"), c.Started.In(time.Local).Format("Jan 2 15:04"))
+}
+
 func (r *session) finishHistory() {
 	limit := r.s.MaxHistory
 	if limit <= 0 {
 		limit = 50000
 	}
-	entries, dropped := decodeHistory(r.history, limit)
-	if dropped > 0 {
+	head := r.q.Window.IsHead() && !r.q.Previous
+	entries, dropped := decodeHistory(r.history, limit, head)
+	switch {
+	case dropped > 0 && head:
+		r.pending.Notices = append(r.pending.Notices, ports.LogNotice{
+			Text: fmt.Sprintf("newer lines of the heads not loaded: %d lines kept (buffer size), %d newer skipped", len(entries), dropped),
+		})
+	case dropped > 0:
 		r.pending.Notices = append(r.pending.Notices, ports.LogNotice{
 			Text: fmt.Sprintf("older lines of the window not loaded: %d lines kept (buffer size), %d older skipped", len(entries), dropped),
 		})

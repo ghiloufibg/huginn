@@ -58,9 +58,10 @@ func setStatus(c *domain.Container, st *corev1.ContainerStatus) {
 	c.Ready, c.Restarts = st.Ready, int(st.RestartCount)
 	switch s := st.State; {
 	case s.Running != nil:
-		c.State = domain.ContainerRunning
+		c.State, c.Started = domain.ContainerRunning, s.Running.StartedAt.Time
 	case s.Terminated != nil:
 		c.State, c.Reason, c.Message = domain.ContainerTerminated, s.Terminated.Reason, s.Terminated.Message
+		c.Started = s.Terminated.StartedAt.Time
 	case s.Waiting != nil:
 		c.State, c.Reason, c.Message = domain.ContainerWaiting, s.Waiting.Reason, s.Waiting.Message
 	}

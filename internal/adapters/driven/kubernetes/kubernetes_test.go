@@ -418,6 +418,8 @@ func TestLogOptions(t *testing.T) {
 		{ports.LogRequest{Window: domain.TimeWindow{Tail: 10}, Limit: 5000}, "tail=10"},
 		{ports.LogRequest{Window: domain.TimeWindow{Tail: 10}, SinceTime: since, Follow: true}, "sinceTime follow"},
 		{ports.LogRequest{Previous: true}, "previous"},
+		{ports.LogRequest{Window: domain.TimeWindow{Head: 500}, Limit: 5000, Follow: true}, ""},
+		{ports.LogRequest{Window: domain.TimeWindow{Head: 500}, Previous: true}, "previous"},
 	}
 	for _, c := range cases {
 		o := logOptions(c.req)
@@ -520,6 +522,43 @@ func TestKubeletNoLogsIsNotFound(t *testing.T) {
 	}
 	if n != 0 || !errors.Is(st.Err(), domain.ErrNotFound) {
 		t.Fatalf("%d lines, err %v", n, st.Err())
+	}
+}
+
+func TestContainerStarted(t *testing.T) {
+	p := pod("api-1", "api", "7d9f", nil)
+	p.Status.ContainerStatuses[0].State.Running.StartedAt = metav1.NewTime(t0)
+	if got := toPod("rec", p).Containers[0].Started; !got.Equal(t0) {
+		t.Errorf("running: started %v", got)
+	}
+	p.Status.ContainerStatuses[0].State = corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{StartedAt: metav1.NewTime(t0.Add(time.Minute))}}
+	if got := toPod("rec", p).Containers[0].Started; !got.Equal(t0.Add(time.Minute)) {
+		t.Errorf("terminated: started %v", got)
+	}
+	p.Status.ContainerStatuses[0].State = corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "ContainerCreating"}}
+	if got := toPod("rec", p).Containers[0].Started; !got.IsZero() {
+		t.Errorf("waiting: started %v", got)
+	}
+}
+
+// closeCounter is a log body that records its closing.
+type closeCounter struct {
+	io.Reader
+	closed bool
+}
+
+func (c *closeCounter) Close() error { c.closed = true; return nil }
+
+func TestHeadStopsAfterItsLines(t *testing.T) {
+	st := &stream{ch: make(chan domain.RawLine, 16)}
+	body := &closeCounter{Reader: strings.NewReader(strings.Repeat("2026-09-27T10:00:07Z line\n", 10))}
+	st.read(context.Background(), body, ports.LogRequest{Pod: "p", Container: "c", Window: domain.TimeWindow{Head: 3}})
+	var n int
+	for range st.Lines() {
+		n++
+	}
+	if n != 3 || st.Err() != nil || !body.closed {
+		t.Fatalf("%d lines, err %v, closed %v", n, st.Err(), body.closed)
 	}
 }
 

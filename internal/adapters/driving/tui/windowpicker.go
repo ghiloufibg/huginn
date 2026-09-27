@@ -48,13 +48,16 @@ func (p *windowPicker) view(m *Model) string {
 	keysFor := []Action{ActWindow1, ActWindow2, ActWindow3, ActWindow4, ActWindow5, ActWindow6, ActWindow7}
 	var lines []string
 	for i, w := range m.opts.Windows {
-		key := m.label(ActWindowTail)
-		if i < len(m.opts.Windows)-1 && i < len(keysFor) {
-			key = m.label(keysFor[i])
-		}
-		label := w.Label()
-		if w.IsTail() {
-			label = w.String() + " lines"
+		var key, label string
+		switch {
+		case w.IsTail():
+			key, label = m.label(ActWindowTail), w.String()+" lines"
+		case w.IsHead():
+			key, label = m.label(ActWindowHead), w.String()+" lines"
+		case i < len(keysFor):
+			key, label = m.label(keysFor[i]), w.Label()
+		default:
+			key, label = " ", w.Label()
 		}
 		line := " " + t.Key.Render(key) + "  " + label
 		if w == p.logs.window {
@@ -77,5 +80,5 @@ func (p *windowPicker) view(m *Model) string {
 }
 
 func (p *windowPicker) hints(m *Model) []hint {
-	return []hint{m.pair(ActDown, ActUp, "move"), {m.label(ActWindow1) + "…" + m.label(ActWindowTail), "pick"}, m.h(ActOpen, "load"), m.h(ActBack, "cancel")}
+	return []hint{m.pair(ActDown, ActUp, "move"), {m.label(ActWindow1) + "…" + m.label(ActWindowTail) + " " + m.label(ActWindowHead), "pick"}, m.h(ActOpen, "load"), m.h(ActBack, "cancel")}
 }

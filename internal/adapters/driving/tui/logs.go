@@ -160,7 +160,10 @@ func (l *logsScreen) open(m *Model) tea.Cmd {
 	ctx, cancel := context.WithCancel(m.opts.Context)
 	l.cancel = cancel
 	gen, sessions := l.gen, m.opts.Sessions
-	q := ports.LogQuery{Env: domain.Env(m.env.Name), Repo: l.repo, Window: l.window, Follow: l.follow, Previous: l.previous, Containers: l.containerMode}
+	if l.window.IsHead() {
+		l.tail = false // a head is read from its first line, set once loaded
+	}
+	q := ports.LogQuery{Env: domain.Env(m.env.Name), Repo: l.repo, Window: l.window, Follow: l.follow && !l.window.IsHead(), Previous: l.previous, Containers: l.containerMode}
 	return func() tea.Msg {
 		ch, err := sessions.Open(ctx, q)
 		return logStartedMsg{screen: l, gen: gen, ch: ch, err: err}
@@ -259,6 +262,18 @@ func (l *logsScreen) apply(b ports.LogBatch, now time.Time) {
 		releaseMemory()
 	}
 	l.evict()
+	if b.HistoryDone && l.window.IsHead() {
+		l.toOldest()
+	}
+}
+
+// toOldest puts the cursor on the oldest line, unpinned: where a head is
+// read from.
+func (l *logsScreen) toOldest() {
+	l.tail, l.cursor = false, 0
+	if l.newestTop {
+		l.cursor = max(l.shown()-1, 0)
+	}
 }
 
 // hold keeps entries arriving while paused, at most a buffer's worth: the
@@ -567,6 +582,12 @@ func (l *logsScreen) key(m *Model, k tea.KeyPressMsg) (bool, tea.Cmd) {
 		l.setLevels(m, warnAndError())
 	case keys.Is(key, ActAllLevels):
 		l.setLevels(m, domain.AllLevels())
+	case keys.Is(key, ActFollow) && l.window.IsHead():
+		// A head does not follow: following goes back to the default
+		// window, so no gap is left between the head and now.
+		l.window, l.follow = l.followWindow(m), true
+		m.flash("follow: back to " + l.window.Label())
+		return true, l.open(m)
 	case keys.Is(key, ActFollow):
 		l.follow = !l.follow
 		m.flash(onOff("follow", l.follow))
@@ -652,19 +673,57 @@ func (l *logsScreen) key(m *Model, k tea.KeyPressMsg) (bool, tea.Cmd) {
 	return true, nil
 }
 
-// windowKey maps the preset keys (1…7, 0 and their AZERTY aliases).
+// windowKey maps the preset keys (1…7, 0 for tail, 9 for head and their
+// AZERTY aliases).
 func (l *logsScreen) windowKey(m *Model, key string) (domain.TimeWindow, bool) {
-	acts := []Action{ActWindow1, ActWindow2, ActWindow3, ActWindow4, ActWindow5, ActWindow6, ActWindow7}
-	w := m.opts.Windows
-	for i, a := range acts {
-		if m.opts.Keys.Is(key, a) && i < len(w)-1 {
-			return w[i], true
+	keys := m.opts.Keys
+	for i, a := range []Action{ActWindow1, ActWindow2, ActWindow3, ActWindow4, ActWindow5, ActWindow6, ActWindow7} {
+		if keys.Is(key, a) {
+			return durationPreset(m.opts.Windows, i)
 		}
 	}
-	if m.opts.Keys.Is(key, ActWindowTail) {
-		return w[len(w)-1], true
+	switch {
+	case keys.Is(key, ActWindowTail):
+		return findWindow(m.opts.Windows, domain.TimeWindow.IsTail)
+	case keys.Is(key, ActWindowHead):
+		return findWindow(m.opts.Windows, domain.TimeWindow.IsHead)
 	}
 	return domain.TimeWindow{}, false
+}
+
+// durationPreset returns the i-th duration window of the presets.
+func durationPreset(ws []domain.TimeWindow, i int) (domain.TimeWindow, bool) {
+	for _, w := range ws {
+		if w.IsTail() || w.IsHead() {
+			continue
+		}
+		if i == 0 {
+			return w, true
+		}
+		i--
+	}
+	return domain.TimeWindow{}, false
+}
+
+func findWindow(ws []domain.TimeWindow, is func(domain.TimeWindow) bool) (domain.TimeWindow, bool) {
+	for _, w := range ws {
+		if is(w) {
+			return w, true
+		}
+	}
+	return domain.TimeWindow{}, false
+}
+
+// followWindow is the window f goes back to from a head: the default one,
+// or the tail when the default is a head.
+func (l *logsScreen) followWindow(m *Model) domain.TimeWindow {
+	if !m.opts.Window.IsHead() {
+		return m.opts.Window
+	}
+	if w, ok := findWindow(m.opts.Windows, domain.TimeWindow.IsTail); ok {
+		return w
+	}
+	return domain.TimeWindow{Tail: domain.DefaultTailLines}
 }
 
 func (l *logsScreen) setWindow(m *Model, w domain.TimeWindow) tea.Cmd {
@@ -746,6 +805,8 @@ func (l *logsScreen) emptyMessage(m *Model) string {
 			l.keyHint(m, ActBack, "clear the last filter", ActAllLevels, "all levels")
 	case l.buf.Len() > 0:
 		return t.Dim.Render("no line from the selected pods") + "\n\n" + l.keyHint(m, ActPodScope, "pods")
+	case l.window.IsHead():
+		return t.Dim.Render("no log line in "+l.repo+"'s containers yet") + "\n\n" + l.keyHint(m, ActWindowTail, "last lines", ActBack, "back")
 	case l.window.Tail > 0:
 		return t.Dim.Render("no log line yet") + "\n\n" + l.keyHint(m, ActFollow, "follow", ActBack, "back")
 	}
@@ -1090,6 +1151,8 @@ func (l *logsScreen) statusLeft(m *Model) string {
 			waiting += fmt.Sprintf(" (%d dropped)", l.heldLost)
 		}
 		chip = t.ChipPaused.Render(waiting)
+	case l.window.IsHead():
+		chip = t.Chip.Render("HEAD")
 	case !l.follow:
 		chip = t.Chip.Render("STOPPED")
 	case !l.tail && !l.newestTop:
@@ -1107,8 +1170,13 @@ func (l *logsScreen) statusLeft(m *Model) string {
 		order = "newest first"
 	}
 	window := l.window.Label()
-	if l.previous {
+	switch {
+	case l.previous && l.window.IsHead():
+		window = l.window.String() + " of the instance"
+	case l.previous:
 		window = "whole instance" // the window does not apply
+	case l.window.IsHead():
+		window = l.window.String()
 	}
 	fields := []string{window, scope, "levels " + levelsLabel(l.filter.Levels)}
 	if c := l.containersLabel(m); c != "" {

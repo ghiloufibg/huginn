@@ -384,10 +384,15 @@ func TestLogsWindowKeys(t *testing.T) {
 	m, l := openLogs(t)
 	press(m, "é") // AZERTY "2": 30m
 	press(m, "0") // tail
-	press(m, "t") // next after tail wraps to 15m
-	want := []string{"15m", "30m", "tail", "15m"}
+	press(m, "t") // next after tail: head
+	press(m, "t") // next after head wraps to 15m
+	press(m, "ç") // AZERTY "9": head
+	want := []string{"15m", "30m", "tail", "head", "15m", "head"}
+	if len(sessions.queries) != len(want) {
+		t.Fatalf("queries %+v", sessions.queries)
+	}
 	for i, q := range sessions.queries {
-		if q.Window.Label() != want[i] || q.Repo != "payment-service" || q.Env != "rec" {
+		if q.Window.Label() != want[i] || q.Repo != "payment-service" || q.Env != "rec" || q.Follow == q.Window.IsHead() {
 			t.Fatalf("query %d: %+v", i, q)
 		}
 	}
@@ -496,3 +501,64 @@ func TestShortAge(t *testing.T) {
 }
 
 func keyMsgF1() tea.KeyPressMsg { return tea.KeyPressMsg{Code: tea.KeyF1} }
+
+// headBatch is the history of a head: the startup of each pod.
+func headBatch() ports.LogBatch {
+	return ports.LogBatch{HistoryDone: true, Entries: []domain.LogEntry{
+		logEntry(-7200, podA, domain.LevelInfo, "i.g.p.PaymentApplication", "Starting PaymentApplication v2.14.3 using Java 21.0.5 with PID 1"),
+		logEntry(-7198, podA, domain.LevelInfo, "i.g.p.PaymentApplication", `The following 1 profile is active: "kubernetes"`),
+		logEntry(-7192, podA, domain.LevelInfo, "i.g.p.PaymentApplication", "Started PaymentApplication in 7.412 seconds (process running for 8.03)"),
+		logEntry(-3600, podB, domain.LevelInfo, "i.g.p.PaymentApplication", "Starting PaymentApplication v2.14.3 using Java 21.0.5 with PID 1"),
+		logEntry(-3590, podB, domain.LevelWarn, "c.z.hikari.HikariDataSource", "HikariPool-1 - Connection is not available, retrying"),
+		logEntry(-3584, podB, domain.LevelInfo, "i.g.p.PaymentApplication", "Started PaymentApplication in 7.9 seconds (process running for 8.5)"),
+	}, Notices: []ports.LogNotice{{Text: podA + ": first line at Sep 26 17:00, the container started at Sep 26 09:10 (older lines rotated away on the node)"}}}
+}
+
+func TestLogsHead(t *testing.T) {
+	m, l := openLogs(t)
+	press(m, "9")
+	q := sessions.queries[len(sessions.queries)-1]
+	if !q.Window.IsHead() || q.Follow {
+		t.Fatalf("9 must open a head without follow: %+v", q)
+	}
+	feed(m, l, headBatch())
+	out := render(m, 160, 16)
+	golden(t, "logs_head_160x16", out)
+	if l.tail || l.displayCursor() != 0 || !strings.Contains(out, "HEAD") || !strings.Contains(out, "head 500") {
+		t.Fatalf("a head opens on its first line, unpinned, with the HEAD chip:\n%s", out)
+	}
+	press(m, "o") // newest first: the cursor stays on the oldest line
+	if e, ok := l.entryAt(l.displayCursor()); !ok || !strings.HasPrefix(e.Message, "Starting") || e.Pod != podA {
+		t.Fatalf("cursor on %+v", e)
+	}
+	press(m, "o", "P")
+	if out := render(m, 160, 16); !strings.Contains(out, "head 500 of the instance") || !strings.Contains(out, "PREVIOUS INSTANCE") {
+		t.Fatalf("previous + head:\n%s", out)
+	}
+	if q := sessions.queries[len(sessions.queries)-1]; !q.Previous || !q.Window.IsHead() {
+		t.Fatalf("P keeps the head: %+v", q)
+	}
+	press(m, "P", "f")
+	q = sessions.queries[len(sessions.queries)-1]
+	if q.Window != m.opts.Window || !q.Follow || !l.follow {
+		t.Fatalf("f in a head goes back to the default window, following: %+v", q)
+	}
+}
+
+func TestLogsHeadEmpty(t *testing.T) {
+	m, l := openLogs(t)
+	press(m, "9")
+	feed(m, l, ports.LogBatch{HistoryDone: true})
+	if out := render(m, 120, 12); !strings.Contains(out, "no log line in payment-service's containers yet") || !strings.Contains(out, "last lines") {
+		t.Fatalf("empty head:\n%s", out)
+	}
+}
+
+func TestFollowFromADefaultHeadGoesToTheTail(t *testing.T) {
+	m, l := openLogs(t)
+	m.opts.Window = domain.TimeWindow{Head: 500}
+	press(m, "9", "f")
+	if q := sessions.queries[len(sessions.queries)-1]; !q.Window.IsTail() || !q.Follow || l.window != q.Window {
+		t.Fatalf("f from a head, head being the default: the tail, following: %+v", q)
+	}
+}

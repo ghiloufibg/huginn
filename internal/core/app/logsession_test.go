@@ -484,3 +484,100 @@ func TestCompletedPodStreamEnds(t *testing.T) {
 		t.Fatalf("%d streams on a finished container", n)
 	}
 }
+
+func TestHeadWindow(t *testing.T) {
+	f := newFixture(t)
+	r, cancel := f.open(t, ports.LogQuery{Window: domain.TimeWindow{Head: 1}, Follow: true})
+	defer cancel()
+	r.until(10*time.Millisecond, func() bool { return r.history })
+	if got := strings.Join(r.entries, ","); got != "a1,b2" {
+		t.Fatalf("head 1 per container: %s", got)
+	}
+	if n := f.logs.Following("ns", "api-1", "api") + f.logs.Following("ns", "api-2", "api"); n != 0 {
+		t.Fatalf("a head never follows: %d streams followed", n)
+	}
+	if len(r.notices) != 0 {
+		t.Fatalf("notices %v", r.notices)
+	}
+}
+
+func TestHeadIsCappedToTheOldestLinesOfAllContainers(t *testing.T) {
+	f := newFixture(t)
+	f.s.MaxHistory = 1
+	r, cancel := f.open(t, ports.LogQuery{Window: domain.TimeWindow{Head: 2}})
+	defer cancel()
+	r.until(10*time.Millisecond, func() bool { return r.history })
+	if got := strings.Join(r.entries, ","); got != "a1" {
+		t.Fatalf("the buffer holds 1 line: the oldest of all containers, got %s", got)
+	}
+	if len(r.notices) != 1 || !strings.Contains(r.notices[0], "newer lines of the heads not loaded: 1 lines kept (buffer size), 1 newer skipped") {
+		t.Fatalf("notices %v", r.notices)
+	}
+}
+
+// headIgnored is a source that knows nothing of heads: it sends everything.
+type headIgnored struct{ ports.LogSource }
+
+func (s headIgnored) Stream(ctx context.Context, req ports.LogRequest) (ports.LogStream, error) {
+	req.Window = domain.TimeWindow{}
+	return s.LogSource.Stream(ctx, req)
+}
+
+func TestHeadStopsASourceThatSendsMore(t *testing.T) {
+	f := newFixture(t)
+	f.s.Logs = headIgnored{f.logs}
+	r, cancel := f.open(t, ports.LogQuery{Window: domain.TimeWindow{Head: 1}})
+	defer cancel()
+	r.until(10*time.Millisecond, func() bool { return r.history })
+	if got := strings.Join(r.entries, ","); got != "a1,b2" {
+		t.Fatalf("head 1 per container: %s", got)
+	}
+}
+
+func TestHeadOfThePreviousInstance(t *testing.T) {
+	f := newFixture(t)
+	restarted := podWithSidecar("api-1", t0.Add(-time.Hour))
+	restarted.Containers[0].Restarts = 3
+	f.cluster.PutPod(restarted)
+	f.logs.SetLines("ns", "api-1", "api", []domain.RawLine{line("api-1", t0, "current")},
+		[]domain.RawLine{line("api-1", t0.Add(-3*time.Hour), "old boot"), line("api-1", t0.Add(-2*time.Hour), "crash")})
+	r, cancel := f.open(t, ports.LogQuery{Previous: true, Window: domain.TimeWindow{Head: 1}})
+	defer cancel()
+	r.until(10*time.Millisecond, func() bool { return r.history && len(r.pods) == 2 })
+	if !slices.Equal(r.entries, []string{"old boot"}) {
+		t.Fatalf("the first line of the previous instance: %v", r.entries)
+	}
+}
+
+func TestHeadRotationNotice(t *testing.T) {
+	f := newFixture(t)
+	rotated := podWithSidecar("api-1", t0.Add(-2*time.Hour))
+	rotated.Containers[0].Started = t0.Add(-10 * time.Minute) // first line at -5m
+	f.cluster.PutPod(rotated)
+	fresh := podWithSidecar("api-2", t0.Add(-2*time.Hour))
+	fresh.Containers[0].Started = t0.Add(-4*time.Minute - 30*time.Second) // first line at -4m
+	f.cluster.PutPod(fresh)
+	r, cancel := f.open(t, ports.LogQuery{Window: domain.TimeWindow{Head: 5}})
+	defer cancel()
+	r.until(10*time.Millisecond, func() bool { return r.history })
+	if len(r.notices) != 1 || !strings.HasPrefix(r.notices[0], "api-1: first line at ") ||
+		!strings.Contains(r.notices[0], "(older lines rotated away on the node)") {
+		t.Fatalf("notices %v", r.notices)
+	}
+}
+
+func TestHeadOfANewPod(t *testing.T) {
+	f := newFixture(t)
+	r, cancel := f.open(t, ports.LogQuery{Window: domain.TimeWindow{Head: 1}})
+	defer cancel()
+	r.until(10*time.Millisecond, func() bool { return r.history })
+	f.logs.SetLines("ns", "api-3", "api", []domain.RawLine{
+		line("api-3", t0.Add(time.Second), "banner"), line("api-3", t0.Add(2*time.Second), "ready"),
+	}, nil)
+	f.cluster.PutPod(podWithSidecar("api-3", t0))
+	r.until(20*time.Millisecond, func() bool { return slices.Contains(r.entries, "banner") })
+	r.until(20*time.Millisecond, func() bool { return len(r.pods) == 3 })
+	if slices.Contains(r.entries, "ready") {
+		t.Fatalf("a new pod loads its head only: %v", r.entries)
+	}
+}

@@ -133,6 +133,19 @@ func (c *Cluster) history(g generator, pc podContext, ctr domain.Container, inst
 	if !req.SinceTime.IsZero() {
 		return c.lines(g, pc, ctr, inst, latest(lower, req.SinceTime), to, true)
 	}
+	if w.IsHead() {
+		// From the start of what "the node" keeps: generate a span that
+		// should hold the head, longer until it does or reaches the end.
+		span := time.Duration(float64(w.Head)*1.25/c.opts.Rate*float64(time.Second)) + 30*time.Second
+		for {
+			end := earliest(to, lower.Add(span))
+			lines := c.lines(g, pc, ctr, inst, lower, end, true)
+			if len(lines) >= w.Head || !end.Before(to) {
+				return lines[:min(len(lines), w.Head)]
+			}
+			span *= 2
+		}
+	}
 	limit := req.Limit
 	if w.IsTail() && (limit <= 0 || w.Tail < limit) {
 		limit = w.Tail

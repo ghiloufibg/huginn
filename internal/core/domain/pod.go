@@ -76,6 +76,9 @@ type Container struct {
 	Message  string
 	Ready    bool
 	Restarts int
+	// Started is when the current instance started running (zero when it
+	// never ran, e.g. waiting to start).
+	Started time.Time
 	// LastTermination is the previous instance's termination, if any; it
 	// is what `kubectl logs --previous` would show logs for.
 	LastTermination *Termination

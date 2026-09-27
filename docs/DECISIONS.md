@@ -286,3 +286,12 @@ Status: accepted.
 - **One claim rule.** `domain.Workload.Owns` tells which pods belong to a workload (owner name and kind, or selector for pods without an owner, or the standalone key), shared by the catalog and the log sessions instead of two slightly different rules.
 - **Owner kind without extra permission**: the adapter derives it from the pod's controller reference (ReplicaSet with a pod-template-hash → Deployment, Job with a scheduled-time suffix → CronJob).
 Status: accepted.
+
+## D-039 Head window (M4.2)
+- **A window kind, not a flag.** `TimeWindow.Head` sits next to `Since` and `Tail`: one key (`9`, AZERTY `ç`), one picker row, one `--since head[:N]` value, `windows.default: head`, and `t` cycles through it. It never combines with a duration.
+- **Per container.** The logs API has no head, and a repository has no single start: each container gives its first `windows.head_lines` lines, merged by time, so a Deployment shows each pod's startup at its time. When containers × head exceed the buffer, the **oldest** lines are kept (`newer lines of the heads not loaded`).
+- **Read from the start, stop by count.** No `tailLines`/`since`/`follow`: the API streams from the start of the current (or previous) log file; the adapter stops after N lines and closes the body, which stops the kubelet. The tailer cuts at N too, so a source that ignores the head costs no more. `limitBytes` is not used: it counts bytes and cuts the last line.
+- **No follow.** Appending live lines after line N would leave a gap until now. `f` in a head goes back to the default window (the tail when the default is a head), following. The view opens on the oldest line, unpinned; `space` works as in `STOPPED`. Pods started during the session load their own head.
+- **Rotation is shown, not worked around.** The API serves the current log file only; reading rotated files needs node access Huginn never has. The first line more than a minute after the container's start (`Container.Started`, from `state.running.startedAt`) gives a notice. Cloud Logging (the V2 source of D-010) could serve older lines later through the same port.
+- **With `P`**, the head reads the first lines of the previous instance: how the crashed instance started, for N lines instead of the whole instance.
+Status: accepted.

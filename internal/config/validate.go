@@ -130,16 +130,23 @@ func (v *validator) huginn() {
 	if w.TailLines < 1 {
 		v.add(FileHuginn, "windows.tail_lines", "must be at least 1")
 	}
+	if w.HeadLines < 1 {
+		v.add(FileHuginn, "windows.head_lines", "must be at least 1")
+	} else if w.HeadLines > h.Logs.BufferLines && h.Logs.BufferLines >= 1000 {
+		v.add(FileHuginn, "windows.head_lines", "must not exceed logs.buffer_lines (%d)", h.Logs.BufferLines)
+	}
 	if len(w.Presets) > 7 {
 		v.add(FileHuginn, "windows.presets", "at most 7 presets (keys 1…7), got %d", len(w.Presets))
 	}
 	for i, s := range w.Presets {
-		if tw, err := domain.ParseTimeWindow(s, w.TailLines); err != nil || tw.Tail > 0 {
+		if tw, err := domain.ParseTimeWindow(s, w.TailLines, w.HeadLines); err != nil || tw.Tail > 0 || tw.Head > 0 {
 			v.add(FileHuginn, fmt.Sprintf("windows.presets[%d]", i), "%q is not a duration such as 15m, 1h or 2d", s)
 		}
 	}
-	if _, err := domain.ParseTimeWindow(w.Default, w.TailLines); err != nil {
+	if tw, err := domain.ParseTimeWindow(w.Default, w.TailLines, w.HeadLines); err != nil {
 		v.add(FileHuginn, "windows.default", "%v", err)
+	} else if tw.Head > h.Logs.BufferLines && h.Logs.BufferLines >= 1000 {
+		v.add(FileHuginn, "windows.default", "head size %d exceeds logs.buffer_lines (%d)", tw.Head, h.Logs.BufferLines)
 	}
 	if h.Logs.BufferLines < 1000 {
 		v.add(FileHuginn, "logs.buffer_lines", "must be at least 1000")

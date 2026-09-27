@@ -182,6 +182,16 @@ func (w *world) newPod(env domain.Env, ns string, r repoSpec, workload, rs, vers
 	}
 	spec := podSpec{repo: r, workload: workload, cond: cond, version: version, createdAt: podCreated, runningSince: p.Started}
 	w.applyCondition(&p, &spec, i)
+	for j := range p.Containers {
+		c := &p.Containers[j]
+		switch {
+		case c.State == domain.ContainerWaiting:
+		case j == 1:
+			c.Started = spec.runningSince
+		default:
+			c.Started = p.Started
+		}
+	}
 	return p, spec
 }
 

@@ -13,7 +13,12 @@ type LogRequest struct {
 	Namespace string
 	Pod       string
 	Container string
-	Window    domain.TimeWindow
+	// Window selects the history. A head window (Window.Head) asks for the
+	// first Head lines of what the source keeps, of the previous instance
+	// with Previous; Follow must then be false, and SinceTime and Limit do
+	// not apply. A source may stop after Head lines; consumers ignore any
+	// extra lines.
+	Window domain.TimeWindow
 	// SinceTime, when set, replaces Window: lines at or after this time
 	// (used to resume a stream without reloading its history). Sources may
 	// honor it with second precision only (the Kubernetes API does):

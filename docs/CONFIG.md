@@ -97,6 +97,7 @@ repos_root: ~/work/repos
 windows:
   presets: [15m, 30m, 40m, 45m, 1h, 1d, 2d]
   tail_lines: 500
+  head_lines: 500
   default: 15m
 logs:
   buffer_lines: 50000
@@ -110,9 +111,10 @@ demo:
 | `version` | int | yes | | Must be `1`. |
 | `default_env` | string | yes | | Environment opened by `huginn` without argument. It must be a key of `environments.yaml`. `HUGINN_ENV`, `-e` and the positional argument override it. |
 | `repos_root` | string | | | Folder containing your repositories. Only needed by the `manifests` rule of `services.yaml`. |
-| `windows.presets` | list of durations | | `15m 30m 40m 45m 1h 1d 2d` | Windows of keys `1`…`7`, in order; at most 7. |
+| `windows.presets` | list of durations | | `15m 30m 40m 45m 1h 1d 2d` | Windows of keys `1`…`7`, in order; at most 7. Tail (key `0`) and head (key `9`) are always there and are not presets. |
 | `windows.tail_lines` | int | | `500` | Lines loaded by the tail window (key `0`). |
-| `windows.default` | duration or `tail` | | `15m` | Window used when a logs screen opens. `--since` overrides it. |
+| `windows.head_lines` | int | | `500` | Lines loaded **per container** by the head window (key `9`): the first lines the node still keeps. At most `logs.buffer_lines`. |
+| `windows.default` | duration, `tail` or `head` | | `15m` | Window used when a logs screen opens. `--since` overrides it. `tail:N` and `head:N` set the size. |
 | `logs.buffer_lines` | int | | `50000` | Lines kept in memory per logs screen; older ones are dropped. At least 1000. |
 | `demo.seed` | int | | `42` | `--demo` only: the same seed gives the same synthetic cluster. |
 | `demo.rate` | number | | `1` | `--demo` only: live lines per second per pod. |

@@ -54,7 +54,7 @@ func TestMinimalFolderLoadsWithNeutralDefaults(t *testing.T) {
 	if strings.Join(c.Environments.Names, ",") != "rec,prd" {
 		t.Fatalf("environments keep file order: %v", c.Environments.Names)
 	}
-	if c.Huginn.Windows.Default != "15m" || c.Huginn.Logs.BufferLines != 50000 || c.UI.Theme != "light" {
+	if c.Huginn.Windows.Default != "15m" || c.Huginn.Windows.HeadLines != 500 || c.Huginn.Logs.BufferLines != 50000 || c.UI.Theme != "light" {
 		t.Fatalf("defaults: %+v %+v", c.Huginn, c.UI)
 	}
 	l := c.Layouts["basic"]
@@ -154,6 +154,25 @@ stream:
 	if !strings.HasPrefix(msg, "the config folder cfg has ") {
 		t.Fatalf("header: %s", msg)
 	}
+}
+
+func TestHeadWindow(t *testing.T) {
+	fsys := valid()
+	fsys["huginn.yaml"].Data = []byte("version: 1\ndefault_env: rec\nwindows:\n  head_lines: 200\n  default: head\n")
+	c, msg := load(t, fsys)
+	if msg != "" {
+		t.Fatal(msg)
+	}
+	if c.Huginn.Windows.HeadLines != 200 || c.Huginn.Windows.Default != "head" {
+		t.Fatalf("windows: %+v", c.Huginn.Windows)
+	}
+	fsys["huginn.yaml"].Data = []byte("version: 1\ndefault_env: rec\nwindows:\n  presets: [15m, head]\n  head_lines: 60000\n  default: head:70000\n")
+	_, msg = load(t, fsys)
+	wantErrors(t, msg,
+		`windows.presets[1]: "head" is not a duration`,
+		"windows.head_lines: must not exceed logs.buffer_lines (50000)",
+		"windows.default: head size 70000 exceeds logs.buffer_lines (50000)",
+	)
 }
 
 func TestRequiredKeys(t *testing.T) {

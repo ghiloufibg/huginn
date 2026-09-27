@@ -42,8 +42,16 @@ func (c *Client) Stream(ctx context.Context, req ports.LogRequest) (ports.LogStr
 	return st, nil
 }
 
+// logOptions maps a request to the API's options. The API has no head: a
+// head reads from the start of the log file (no tail, since or follow) and
+// the stream stops after its lines. limitBytes is not used for it: it
+// counts bytes and cuts the last line.
 func logOptions(req ports.LogRequest) *corev1.PodLogOptions {
 	o := &corev1.PodLogOptions{Container: req.Container, Follow: req.Follow, Previous: req.Previous, Timestamps: true}
+	if req.Window.IsHead() {
+		o.Follow = false
+		return o
+	}
 	switch {
 	case !req.SinceTime.IsZero():
 		t := metav1.NewTime(req.SinceTime)
@@ -76,7 +84,9 @@ func (s *stream) read(ctx context.Context, rc io.ReadCloser, req ports.LogReques
 	defer stop()
 	defer rc.Close()
 	r := bufio.NewReaderSize(rc, 64<<10)
-	for {
+	// A head ends after its lines: returning closes the body, which ends
+	// the kubelet's read of the file.
+	for n := 0; !req.Window.IsHead() || n < req.Window.Head; n++ {
 		text, err := readLine(r)
 		if len(text) > 0 || err == nil {
 			l := splitTimestamp(text)

@@ -20,11 +20,12 @@ type rawHistory struct {
 const decodeChunk = 4096
 
 // decodeHistory keeps the newest limit lines of all containers (by source
-// time) and decodes only those, in parallel. Each container may return up
-// to limit lines, so without the cut a repository with n containers would
-// decode n times what the view can hold. It returns the entries and the
-// number of lines skipped. Without source times (zero), nothing is cut.
-func decodeHistory(hs []rawHistory, limit int) ([]domain.LogEntry, int) {
+// time), or the oldest ones when oldest is set (a head), and decodes only
+// those, in parallel. Each container may return up to limit lines, so
+// without the cut a repository with n containers would decode n times what
+// the view can hold. It returns the entries and the number of lines
+// skipped. Without source times (zero), nothing is cut.
+func decodeHistory(hs []rawHistory, limit int, oldest bool) ([]domain.LogEntry, int) {
 	total := 0
 	timed := true
 	for _, h := range hs {
@@ -43,6 +44,9 @@ func decodeHistory(hs []rawHistory, limit int) ([]domain.LogEntry, int) {
 		}
 		slices.SortFunc(times, func(a, b time.Time) int { return a.Compare(b) })
 		cut = times[total-limit]
+		if oldest {
+			cut = times[limit-1]
+		}
 	}
 	type job struct {
 		lines []domain.RawLine
@@ -53,8 +57,18 @@ func decodeHistory(hs []rawHistory, limit int) ([]domain.LogEntry, int) {
 	kept := 0
 	for _, h := range hs {
 		lines := h.lines
-		if !cut.IsZero() {
-			// Lines of one container arrive in time order: skip the head.
+		switch {
+		case !cut.IsZero() && oldest:
+			// Lines of one container arrive in time order: skip the end.
+			i, _ := slices.BinarySearchFunc(lines, cut, func(l domain.RawLine, t time.Time) int {
+				if l.Time.After(t) {
+					return 1
+				}
+				return -1
+			})
+			lines = lines[:i]
+		case !cut.IsZero():
+			// Skip the start.
 			i, _ := slices.BinarySearchFunc(lines, cut, func(l domain.RawLine, t time.Time) int { return l.Time.Compare(t) })
 			lines = lines[i:]
 		}

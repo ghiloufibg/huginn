@@ -41,6 +41,7 @@ const (
 	ActWindow6       Action = "window_6"
 	ActWindow7       Action = "window_7"
 	ActWindowTail    Action = "window_tail"
+	ActWindowHead    Action = "window_head"
 	ActFollow        Action = "follow"
 	ActPause         Action = "pause"
 	ActOrder         Action = "order"
@@ -97,7 +98,7 @@ var defaultKeys = map[Action][]string{
 	ActFilter: {"/", "ctrl+f"}, ActSort: {"s"}, ActPreview: {"p"}, ActRefresh: {"r"},
 	ActWindowNext: {"t"}, ActWindowPick: {"T"},
 	ActWindow1: {"1", "&"}, ActWindow2: {"2", "é"}, ActWindow3: {"3", `"`}, ActWindow4: {"4", "'"},
-	ActWindow5: {"5", "("}, ActWindow6: {"6", "-"}, ActWindow7: {"7", "è"}, ActWindowTail: {"0", "à"},
+	ActWindow5: {"5", "("}, ActWindow6: {"6", "-"}, ActWindow7: {"7", "è"}, ActWindowTail: {"0", "à"}, ActWindowHead: {"9", "ç"},
 	ActFollow: {"f"}, ActPause: {"space"}, ActOrder: {"o"},
 	ActLevels: {"l"}, ActErrorsOnly: {"e"}, ActWarnAndError: {"w"}, ActAllLevels: {"a"},
 	ActFilterMode: {"x"}, ActRegex: {"ctrl+r"}, ActAddFilter: {"ctrl+a"}, ActContext: {"X"}, ActColumns: {"C"}, ActFocus: {"z"}, ActKeyBar: {"f2", "ctrl+k"},

@@ -15,6 +15,9 @@ func applyDefaults(c *Config) {
 	if h.Windows.TailLines == 0 {
 		h.Windows.TailLines = 500
 	}
+	if h.Windows.HeadLines == 0 {
+		h.Windows.HeadLines = 500
+	}
 	if h.Windows.Default == "" {
 		h.Windows.Default = "15m"
 	}

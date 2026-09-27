@@ -4,7 +4,7 @@
 
 Huginn is a keyboard-driven, **read-only** terminal UI for reading the logs of application pods on Kubernetes (GKE), from inside your IDE's terminal. It feels like k9s and kl, but does one thing: help a developer debug from logs.
 
-**Status: prototype, milestone M4.1 done: works against real clusters (GKE, kind, minikube).** Everything Huginn knows about your applications comes from a [config folder](docs/CONFIG.md) you provide. Services screen (with a WHY column and a preview of the selected service) and logs screen (merged live logs of a repository's application containers, drawn with the layout of your config folder, time windows, follow/pause, pod scope, zoom), level and live text filters with highlight, and help on every screen (`?` / `F1`). Crash loops show as waiting and `P` reads the previous instance. A local lab ([`deploy/lab`](deploy/lab)) runs everything against a real cluster without GKE. See [`docs/plan/M0.md`](docs/plan/M0.md) and the design mockups linked from [`docs/DECISIONS.md`](docs/DECISIONS.md).
+**Status: prototype, milestone M4.2 done: works against real clusters (GKE, kind, minikube).** Everything Huginn knows about your applications comes from a [config folder](docs/CONFIG.md) you provide. Services screen (with a WHY column and a preview of the selected service) and logs screen (merged live logs of a repository's application containers, drawn with the layout of your config folder, time windows, follow/pause, pod scope, zoom), level and live text filters with highlight, and help on every screen (`?` / `F1`). Crash loops show as waiting and `P` reads the previous instance; `9` shows the first lines of each container (how it started), of the previous instance with `P`. A local lab ([`deploy/lab`](deploy/lab)) runs everything against a real cluster without GKE. See [`docs/plan/M0.md`](docs/plan/M0.md) and the design mockups linked from [`docs/DECISIONS.md`](docs/DECISIONS.md).
 
 ## Try it
 
@@ -47,7 +47,7 @@ huginn [env] [flags]
 Flags
   -e, --env string        environment: a name of environments.yaml
       --repo string       open this repository's logs directly
-      --since string      initial window: a duration (15m, 1h, 2d) or tail
+      --since string      initial window: a duration (15m, 1h, 2d), tail or head (tail:N, head:N)
       --containers string containers the logs open on: app or all
       --config string     config folder (default: $HUGINN_CONFIG, else <user config dir>/huginn)
       --demo              synthetic cluster
@@ -82,7 +82,9 @@ Pods that no known workload owns are listed too, grouped by owner: a bare pod sh
 
 ## Logs screen
 
-The pod strip shows each pod's state: a container that is not running says `waiting: CrashLoopBackOff` (its logs come back when it restarts), an init container that keeps failing says `waiting: init migrate …` and its output is shown, and pods read `terminating` or `completed` when so. When a pod runs several application containers, the pod column names the container (`9d5px/worker`). Lines recovered after a network outage are placed by time; lines are ordered by when the cluster received them, and a line dated another day shows its date. The status bar shows the stream at a glance: `LIVE 42/s` (live lines per second; `PAUSED +n`, `NO PODS`, `REMOVED` when the repository is gone, `NOT LOADED` after an error), then the errors and warnings of the current view (`>` / `<` jump to them), the window, pod scope and filters. When a view is empty it says why and which key helps; after a read error, `r` reloads the logs.
+**Head** (`9`, `--since head`): the first `windows.head_lines` lines (500) of each container, merged by time, read from the start of what the node keeps; the view opens on the first line and does not follow (`f` goes back to the default window, following). Nodes rotate container logs, so for a chatty container the start may be gone: the status bar then says `first line at 14:02, the container started at 09:10 (older lines rotated away on the node)`. With `P`, the head of the previous instance shows how the crashed instance started. A pod started during the session loads its own head.
+
+The pod strip shows each pod's state: a container that is not running says `waiting: CrashLoopBackOff` (its logs come back when it restarts), an init container that keeps failing says `waiting: init migrate …` and its output is shown, and pods read `terminating` or `completed` when so. When a pod runs several application containers, the pod column names the container (`9d5px/worker`). Lines recovered after a network outage are placed by time; lines are ordered by when the cluster received them, and a line dated another day shows its date. The status bar shows the stream at a glance: `LIVE 42/s` (live lines per second; `PAUSED +n`, `NO PODS`, `REMOVED` when the repository is gone, `NOT LOADED` after an error, `HEAD` for a head), then the errors and warnings of the current view (`>` / `<` jump to them), the window, pod scope and filters. When a view is empty it says why and which key helps; after a read error, `r` reloads the logs.
 
 ## Keys (logs screen)
 
@@ -94,7 +96,7 @@ The pod strip shows each pod's state: a container that is not running says `wait
 | `f` | follow on/off |
 | `space` | pause / resume (the screen keeps its lines; new ones wait, up to the buffer size, and the lines dropped beyond are counted) |
 | `P` | previous instance of the restarted containers (why it crashed, OOM, exit); again for the current logs |
-| `t` / `T` / `1`…`7` / `0` | next window / window picker / 15m 30m 40m 45m 1h 1d 2d / tail (AZERTY: `&é"'(-è` / `à`) |
+| `t` / `T` / `1`…`7` / `0` / `9` | next window / window picker / 15m 30m 40m 45m 1h 1d 2d / tail / head (AZERTY: `&é"'(-è` / `à` / `ç`) |
 | `tab` / `S` | cycle pod scope / choose pods and containers (the two lists combine: one container of every pod, or one pod's container) |
 | `A` | all containers (sidecars and init) or application containers only (default: `default_mode` of `containers.yaml`) |
 | `c` | hide the next column (time, level, thread, class); after the last one, show them again |

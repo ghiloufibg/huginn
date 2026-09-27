@@ -39,8 +39,9 @@ type ServiceCatalog interface {
 // LogQuery describes what the logs screen wants to see. Pod scope, levels
 // and text filters are view concerns applied without reloading.
 type LogQuery struct {
-	Env    domain.Env
-	Repo   string
+	Env  domain.Env
+	Repo string
+	// Window is what history to load; a head window never follows.
 	Window domain.TimeWindow
 	Follow bool
 	// Containers says which containers of the pods are followed:
@@ -48,7 +49,8 @@ type LogQuery struct {
 	Containers domain.ContainerMode
 	// Previous reads the previous instance of the containers that
 	// restarted (what explains a crash), whole up to the history limit;
-	// Window and Follow do not apply.
+	// Window and Follow do not apply, except a head window, which reads
+	// the first lines of that instance.
 	Previous bool
 }
 
