@@ -1,0 +1,6 @@
+# yaml-language-server: $schema=../../../docs/schema/ui.schema.json
+version: 1
+
+theme: light
+key_bar: compact
+keymap: {}

@@ -25,10 +25,19 @@ Huginn reads your kubeconfig (`KUBECONFIG`, else `~/.kube/config`) and never log
 
 1. Install `gcloud` and the `gke-gcloud-auth-plugin`, then `gcloud auth login`.
 2. `gcloud container clusters get-credentials <cluster> --region <region> --project <project>` creates the kube context.
-3. Put that context and your namespaces in `environments.yaml` of your config folder (or `namespace_from: sops:<file>#<key>` to read the namespace from a sops-encrypted dotenv file, with the `sops` command installed).
+3. Put that context and your namespaces in `environments.yaml` of your config folder (or `namespace_from: sops:<file>#<key>` to read the namespace from a sops-encrypted dotenv file, with the `sops` command installed — the encrypted file itself must sit **outside** the config folder, e.g. `sops:../namespace.env.enc#KEY`, since the config loader rejects any file in the folder that isn't one it recognizes).
 4. `huginn --config <folder> <env>`.
 
 It only gets, lists and watches pods, workloads and events, and reads pod logs, in the configured namespaces (never cluster-wide): namespaced read access (`pods`, `pods/log`, `events`, and `deployments`/`statefulsets`/`daemonsets`/`cronjobs` in `apps`/`batch`) is enough, and a workload kind you cannot read is skipped. `HTTPS_PROXY`/`NO_PROXY` and `SSL_CERT_FILE` work as for `kubectl`.
+
+**IAM and RBAC are a union, not an intersection.** Don't grant the
+read-only identity a project-level role like `roles/container.viewer`
+alongside a namespaced `Role`/`RoleBinding` meant to restrict it — the
+broader IAM role alone grants read access to every cluster and namespace
+in the project regardless of what RBAC says, silently defeating the
+namespace scoping. Grant only the namespaced `Role`/`RoleBinding`; IAM is
+still needed to authenticate the principal and fetch cluster credentials,
+but nothing above that.
 
 When something is wrong the services screen says what: `unauthorized` (log in again: `gcloud auth login`), `forbidden` for one namespace (the others keep working), `configuration error` for an unknown context (not retried: fix `environments.yaml`), `secrets unavailable` when sops cannot decrypt.
 

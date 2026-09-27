@@ -295,3 +295,64 @@ Status: accepted.
 - **Rotation is shown, not worked around.** The API serves the current log file only; reading rotated files needs node access Huginn never has. The first line more than a minute after the container's start (`Container.Started`, from `state.running.startedAt`) gives a notice. Cloud Logging (the V2 source of D-010) could serve older lines later through the same port.
 - **With `P`**, the head reads the first lines of the previous instance: how the crashed instance started, for N lines instead of the whole instance.
 Status: accepted.
+
+## D-040 Real GKE QA (M5)
+
+- **GKE Autopilot** for the QA cluster (`huginn-qa`, `us-central1`,
+  project `huginn-kube-tui`): scale-to-zero, no node-pool sizing
+  decisions, free cluster-management fee for one cluster/month — the
+  realistic way to waste the $300 free-trial credit here is a
+  forgotten-standing cluster, not a runaway bill (the free-trial
+  billing account cannot be charged past its balance; see
+  `docs/plan/M5-gke-qa.md` §1).
+- **Real Spring Boot 3.5 structured logging**
+  (`logging.structured.format.console=logstash`, no extra dependency)
+  validated end to end against `deploy/lab/config/formats/20-spring-json.yaml`/
+  `layouts/spring.yaml` unchanged: real `@timestamp`/`logger_name`/
+  `thread_name`/MDC fields, real multi-frame `stack_trace`s on a genuine
+  Hibernate/Hikari startup failure and JVM OOM, real logger-name
+  abbreviation at real package depth, real `/actuator/health`-backed
+  pods. No format-file change was needed — it decoded real output on the
+  first try.
+- **Real RBAC-driven `forbidden`**: `huginn-reader`'s IAM principal maps
+  straight to a Kubernetes `User` on GKE (IAM authenticates, RBAC
+  authorizes); a namespaced `Role`/`RoleBinding` scoped to `qa-rec` only
+  reproduces the lab's local-kubeconfig-context `forbidden` test with a
+  real cluster decision instead of a faked context swap.
+- **GCP-KMS-backed `namespace_from`**: closes the one gap
+  `deploy/lab/QA-SESSION.md` §0.1 left explicit (the lab only exercises
+  `age` keys) — `sops` decrypts a dotenv via a GCP KMS key, the read-only
+  principal needing `roles/cloudkms.cryptoKeyDecrypter` on it. The
+  sops-encrypted file cannot live inside the config folder itself: the
+  config loader validates the folder against a fixed allow-list and
+  rejects any other file, so it sits one level up
+  (`deploy/gke-qa/namespace.env.enc`, referenced as `../namespace.env.enc`
+  per `docs/CONFIG.md`'s documented relative-path convention).
+- **IAM/RBAC is a union, not an intersection — do not grant
+  `roles/container.viewer` at the project level.** That role alone grants
+  read access to every cluster and namespace in the project regardless of
+  a principal's namespaced `Role`/`RoleBinding`; GKE authorization is the
+  union of whatever IAM and RBAC each separately allow, not their
+  intersection. `rbac.yaml`'s namespaced Role/RoleBinding is therefore
+  the read-only principal's **only** grant — no project-level IAM role at
+  all — otherwise the `qa-restricted` "forbidden" test would silently
+  pass for the wrong reason (IAM-level access, not an RBAC gap).
+- **`gcloud billing budgets create` does not accept a free-trial billing
+  account.** The command returned `INVALID_ARGUMENT` against
+  `huginn-kube-tui`'s billing account; free-trial accounts cannot be
+  budgeted through this API path (confirmed against Google's own
+  documentation, not assumed). Since a free-trial account cannot be
+  overspent by construction (§1), this blocks a nice-to-have guardrail,
+  not the session itself — flagged as a non-blocking platform
+  limitation, not retried further.
+- **Cost**: three small real Spring Boot pods (100m CPU / 192Mi request
+  each) plus a KMS key ring for a few hours; well under the free-trial
+  credit, consistent with the order-of-magnitude estimate in
+  `docs/plan/M5-gke-qa.md` §1.
+- **Findings, none code bugs**: see `deploy/gke-qa/QA-REPORT.md` in full —
+  a tmux-server stale-environment gotcha and a `wsl.exe` argument-mangling
+  gotcha (both host/tooling, worked around in `deploy/gke-qa/e2e.sh`), and
+  an inconclusive `unauthorized` repro (disabling the read-only
+  principal's IAM key did not retroactively invalidate an already-issued
+  access token within the session's time budget).
+Status: accepted.
