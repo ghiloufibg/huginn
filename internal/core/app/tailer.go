@@ -124,10 +124,8 @@ func (t *tailer) follow(ctx context.Context, req ports.LogRequest, seen map[stri
 	n := 0
 	var last time.Time
 	for l := range st.Lines() {
-		if !req.SinceTime.IsZero() && !l.Time.After(req.SinceTime) {
-			if seen[l.Text] {
-				continue
-			}
+		if skipResumed(req.SinceTime, l, seen) {
+			continue
 		}
 		e := t.decode(l)
 		if !t.send(ctx, tailMsg{live: &e}) {
@@ -160,4 +158,16 @@ func (t *tailer) sleep(ctx context.Context, d time.Duration) bool {
 	case <-ctx.Done():
 		return false
 	}
+}
+
+// skipResumed tells whether a line of a resumed stream was already
+// delivered. The stream restarts at since, the time of the last delivered
+// line, but sources may honor since to the second only (the Kubernetes
+// API): lines strictly before since were delivered, and lines at since
+// were delivered when their text was seen at that time.
+func skipResumed(since time.Time, l domain.RawLine, seen map[string]bool) bool {
+	if since.IsZero() || l.Time.IsZero() {
+		return false
+	}
+	return l.Time.Before(since) || (l.Time.Equal(since) && seen[l.Text])
 }

@@ -15,7 +15,10 @@ type LogRequest struct {
 	Container string
 	Window    domain.TimeWindow
 	// SinceTime, when set, replaces Window: lines at or after this time
-	// (used to resume a stream without reloading its history).
+	// (used to resume a stream without reloading its history). Sources may
+	// honor it with second precision only (the Kubernetes API does):
+	// lines of the same second before SinceTime can come back, and
+	// consumers must skip them.
 	SinceTime time.Time
 	// Limit, when positive, caps the history to the most recent Limit
 	// lines of the window (Kubernetes tailLines combined with the window),

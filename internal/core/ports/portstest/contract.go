@@ -144,7 +144,8 @@ func RunLogSourceContract(t *testing.T, newFixture func(t *testing.T) LogFixture
 		lines := collect(t, ctx, f.Source, req)
 		req.Window, req.SinceTime = domain.TimeWindow{}, lines[len(lines)-1].Time
 		for _, l := range collect(t, ctx, f.Source, req) {
-			if l.Time.Before(req.SinceTime) {
+			// Second precision is allowed (the Kubernetes API).
+			if l.Time.Before(req.SinceTime.Truncate(time.Second)) {
 				t.Fatalf("line at %v before %v", l.Time, req.SinceTime)
 			}
 		}

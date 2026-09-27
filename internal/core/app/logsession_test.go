@@ -187,6 +187,53 @@ func TestReconnectWithoutDuplicates(t *testing.T) {
 	}
 }
 
+// TestResumeWithSecondPrecisionSource reproduces the Kubernetes API, which
+// honors sinceTime to the second: after a reconnect, the lines of the same
+// second before the last delivered one must not come back.
+func TestResumeWithSecondPrecisionSource(t *testing.T) {
+	f := newFixture(t)
+	f.logs.SecondPrecision = true
+	sec := t0.Add(-time.Minute).Truncate(time.Second)
+	f.logs.SetLines("ns", "api-1", "api", []domain.RawLine{
+		line("api-1", sec.Add(100*time.Millisecond), "early"), line("api-1", sec.Add(500*time.Millisecond), "last"),
+	}, nil)
+	f.s.Backoff = []time.Duration{time.Second}
+	r, cancel := f.open(t, ports.LogQuery{Follow: true})
+	defer cancel()
+	r.until(10*time.Millisecond, func() bool { return r.history })
+	r.until(10*time.Millisecond, func() bool { return f.logs.Following("ns", "api-1", "api") == 1 })
+	f.logs.Close("ns", "api-1", "api")
+	r.until(100*time.Millisecond, func() bool { return f.logs.Following("ns", "api-1", "api") == 1 })
+	f.logs.Push("ns", "api-1", line("api-1", f.clock.Now(), "after"))
+	r.until(50*time.Millisecond, func() bool { return slices.Contains(r.entries, "after") })
+	counts := map[string]int{}
+	for _, e := range r.entries {
+		counts[e]++
+	}
+	if counts["early"] != 1 || counts["last"] != 1 {
+		t.Fatalf("resumed lines delivered again: %v", counts)
+	}
+}
+
+func TestSkipResumed(t *testing.T) {
+	since := t0.Add(500 * time.Millisecond)
+	seen := map[string]bool{"x": true}
+	for _, c := range []struct {
+		at   time.Duration
+		text string
+		skip bool
+	}{
+		{100 * time.Millisecond, "a", true},  // same second, before: delivered already
+		{500 * time.Millisecond, "x", true},  // at since, seen
+		{500 * time.Millisecond, "y", false}, // at since, new text
+		{900 * time.Millisecond, "z", false}, // after
+	} {
+		if got := skipResumed(since, domain.RawLine{Time: t0.Add(c.at), Text: c.text}, seen); got != c.skip {
+			t.Errorf("%v %s: skip %v", c.at, c.text, got)
+		}
+	}
+}
+
 func TestRetentionNotice(t *testing.T) {
 	f := newFixture(t)
 	r, cancel := f.open(t, ports.LogQuery{Window: domain.TimeWindow{Since: time.Hour}})

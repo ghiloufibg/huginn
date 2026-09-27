@@ -14,6 +14,10 @@ import (
 // honored; Follow keeps the stream open until ctx is cancelled, delivering
 // lines pushed with Push.
 type FakeLogSource struct {
+	// SecondPrecision honors SinceTime to the second, as the Kubernetes
+	// API does.
+	SecondPrecision bool
+
 	mu       sync.Mutex
 	clock    ports.Clock
 	lines    map[string][]domain.RawLine
@@ -77,7 +81,11 @@ func (s *FakeLogSource) Stream(ctx context.Context, req ports.LogRequest) (ports
 	}
 	hist := domain.SelectWindow(src, req.Window, s.clock.Now())
 	if !req.SinceTime.IsZero() {
-		hist = sinceTime(src, req.SinceTime)
+		since := req.SinceTime
+		if s.SecondPrecision {
+			since = since.Truncate(time.Second)
+		}
+		hist = sinceTime(src, since)
 	}
 	if req.Limit > 0 && len(hist) > req.Limit {
 		hist = hist[len(hist)-req.Limit:]
