@@ -29,8 +29,13 @@ public class PaymentController {
     // Simulates real payment processing traffic: periodic INFO logs, with
     // an occasional downstream timeout logged at WARN/ERROR with a real
     // multi-frame stack trace, to exercise formats/20-spring-json.yaml's
-    // stack decoding against real Spring Boot output.
-    @Scheduled(fixedDelay = 4000, initialDelay = 5000)
+    // stack decoding against real Spring Boot output. The interval is
+    // externalized (not hardcoded) so a second deployment of this same
+    // image can run as payment-service-loadgen, overriding it via
+    // PAYMENT_PROCESSING_INTERVAL_MS to produce real sustained log volume
+    // for the NFR pass (docs/plan/M10-gke-qa.md §3.4), without a second app.
+    @Scheduled(fixedDelayString = "${payment.processing.interval-ms:4000}",
+               initialDelayString = "${payment.processing.initial-delay-ms:5000}")
     public void processPayment() {
         String correlationId = UUID.randomUUID().toString();
         MDC.put("correlationId", correlationId);
