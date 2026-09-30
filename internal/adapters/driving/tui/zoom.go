@@ -90,6 +90,10 @@ func (z *zoomScreen) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 		z.moveField(-1)
 	case keys.Is(key, ActFieldKeep), keys.Is(key, ActFieldExclude):
 		z.filterOnField(m, keys.Is(key, ActFieldExclude))
+	case keys.Is(key, ActViewTrace):
+		l, seq := z.logs, z.seq
+		m.pop()
+		l.enterTrace(m, seq)
 	default:
 		return false, nil
 	}
@@ -357,6 +361,9 @@ func (z *zoomScreen) hints(m *Model) []hint {
 		hs = append(hs, m.h(ActFieldKeep, "keep"), m.h(ActFieldExclude, "exclude"))
 	} else if e, ok := z.entry(); ok && !z.raw && len(zoomFields(e)) > 0 {
 		hs = append(hs, m.h(ActFieldNext, "field"))
+	}
+	if e, ok := z.entry(); ok && e.TraceID != "" {
+		hs = append(hs, m.h(ActViewTrace, "trace"))
 	}
 	return append(hs, m.h(ActOpen, "hidden fields"), m.h(ActBack, "back"), m.h(ActHelp, "help"))
 }

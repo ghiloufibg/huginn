@@ -116,6 +116,8 @@ type logsScreen struct {
 	before    string // input before editing, restored by esc
 	dirty     bool   // rows must be recomputed (debounced while typing)
 	pending   bool   // a debounce tick is scheduled
+
+	trace *traceState // the trace view (trace.go), nil outside it
 }
 
 // viewRow is one displayed entry.
@@ -325,6 +327,9 @@ func (l *logsScreen) mergeLate(late []domain.LogEntry) {
 	if keep != 0 {
 		keep, _ = renumber(keep)
 	}
+	if l.trace != nil {
+		l.trace.seq, _ = renumber(l.trace.seq)
+	}
 	l.rebuildFrom(keep)
 }
 
@@ -350,6 +355,8 @@ func (l *logsScreen) ingest(entries []domain.LogEntry) {
 	}
 	if l.dirty && !l.editing {
 		l.rebuild()
+	} else if l.trace != nil && added > 0 {
+		l.keepCursor(l.orderTrace)
 	}
 	if l.newestTop && !l.tail && !l.paused {
 		// New entries are inserted above: keep the same entries on screen.
@@ -362,6 +369,24 @@ func (l *logsScreen) ingest(entries []domain.LogEntry) {
 // the same entry.
 func (l *logsScreen) evict() {
 	first := l.buf.FirstSeq()
+	if l.trace != nil && len(l.rows) > 0 && !slices.ContainsFunc(l.rows, func(r viewRow) bool { return r.seq < first }) {
+		return
+	}
+	if l.trace != nil {
+		// Trace rows are ordered by entry time, not by sequence: drop the
+		// evicted ones wherever they are.
+		kept := l.rows[:0]
+		for _, r := range l.rows {
+			if r.seq < first {
+				l.count(r, -1)
+				continue
+			}
+			kept = append(kept, r)
+		}
+		l.rows = kept
+		l.orderTrace()
+		return
+	}
 	n := 0
 	for n < len(l.rows) && l.rows[n].seq < first {
 		n++
@@ -469,6 +494,16 @@ func (l *logsScreen) rebuildFrom(keep uint64) {
 		l.count(row, 1)
 	}
 	l.dirty, l.paused = false, false
+	if l.trace != nil {
+		l.orderTrace() // rows by entry time: the cursor goes on keep itself
+		if i := slices.IndexFunc(l.rows, func(r viewRow) bool { return r.seq == keep }); keep != 0 && i >= 0 {
+			l.cursor = i
+			if l.newestTop {
+				l.cursor = len(l.rows) - 1 - i
+			}
+			return
+		}
+	}
 	if keep != 0 {
 		for i, r := range l.rows {
 			if r.seq >= keep {
@@ -560,6 +595,8 @@ func (l *logsScreen) key(m *Model, k tea.KeyPressMsg) (bool, tea.Cmd) {
 		l.jumpError(-1)
 	case keys.Is(key, ActFilter):
 		l.startEditing()
+	case keys.Is(key, ActFilterMode) && l.trace != nil:
+		m.flash("the trace view keeps only the lines of the trace")
 	case keys.Is(key, ActFilterMode):
 		l.toggleMode(m)
 		l.rebuild()
@@ -657,7 +694,13 @@ func (l *logsScreen) key(m *Model, k tea.KeyPressMsg) (bool, tea.Cmd) {
 		l.fullscreen = !l.fullscreen
 	case keys.Is(key, ActBack) && l.fullscreen:
 		l.fullscreen = false
+	case keys.Is(key, ActBack) && l.trace != nil && !l.traceHasExtraFilters():
+		l.exitTrace(m)
 	case keys.Is(key, ActBack) && l.clearLastFilter(m):
+	case keys.Is(key, ActViewTrace):
+		if e, ok := l.entryAt(l.displayCursor()); ok {
+			l.enterTrace(m, e.Seq)
+		}
 	case keys.Is(key, ActPodScope):
 		l.cycleScope()
 		m.flash("scope " + l.scopeLabel())
@@ -923,6 +966,9 @@ func (l *logsScreen) renderEntry(m *Model, e *domain.LogEntry, row viewRow, w in
 func (l *logsScreen) renderRows(m *Model, e *domain.LogEntry, row viewRow, w int, f frameState) []string {
 	var b strings.Builder
 	b.WriteString(" ")
+	if l.trace != nil {
+		b.WriteString(m.segmentInk(e, ports.RoleTimestamp).paint(l.traceDelta(e)))
+	}
 	if id := l.podLabel(e.Pod); id != "" {
 		b.WriteString(m.podInk(l.podColor[e.Pod]).paint(id))
 		if l.multiContainer && e.Container != "" {
@@ -1139,6 +1185,8 @@ func (l *logsScreen) statusLeft(m *Model) string {
 	var chip string
 	gone := l.repoGone(m)
 	switch {
+	case l.trace != nil:
+		chip = t.Chip.Render("TRACE")
 	case l.err != nil:
 		chip = t.Chip.Render("NOT LOADED")
 	case gone != "":
@@ -1182,7 +1230,9 @@ func (l *logsScreen) statusLeft(m *Model) string {
 	if c := l.containersLabel(m); c != "" {
 		fields = append(fields[:2], append([]string{c}, fields[2:]...)...)
 	}
-	if f := l.filterSummary(); f != "" {
+	if l.trace != nil {
+		fields = append(l.traceSummary(), window)
+	} else if f := l.filterSummary(); f != "" {
 		fields = append(fields, f)
 	}
 	// Most useful first: a narrow terminal truncates the end.
@@ -1220,6 +1270,11 @@ func (l *logsScreen) hints(m *Model) []hint {
 		}
 	case l.paused:
 		return []hint{m.h(ActPause, "resume"), m.pair(ActDown, ActUp, "scroll"), m.h(ActOpen, "zoom"), m.h(ActFilter, "filter"), m.h(ActHelp, "help")}
+	case l.trace != nil:
+		return []hint{
+			m.h(ActBack, "back to the logs"), m.h(ActOpen, "zoom"), m.h(ActFilter, "filter"), m.pair(ActNextError, ActPrevError, "error"),
+			m.h(ActViewTrace, "trace of this line"), m.h(ActWindowNext, "window"), m.h(ActHelp, "help"),
+		}
 	}
 	return []hint{
 		m.h(ActFilter, "filter"), m.h(ActLevels, "levels"), m.h(ActFilterMode, "mode"), m.pair(ActNextMatch, ActPrevMatch, "match"),

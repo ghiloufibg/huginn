@@ -403,3 +403,16 @@ Status: accepted.
 - **Keys** (remappable): `tab`/`shift+tab` select a field. There is no cursor until then, so zoom reads as before. `=` keeps and `!` excludes. Both then go back to the logs, on the zoomed entry when it still shows. `enter` keeps toggling the hidden fields.
 - **Cost**: one map lookup per line. `Select` over 50 000 lines takes 3.0 ms with a field filter, against 9.3 ms with a text filter.
 Status: accepted.
+
+## D-047 Trace view (M8.2)
+- **The trace is a field filter on `trace_id`** (D-046), over the buffer of the logs screen. The loaded window and the pods of the service are its scope. The config decides what `trace_id` is (a JSON key or a transform group), so the TUI knows no application field. Searching across services or before the window remains V2 (Cloud Logging, D-010).
+- **Filters, levels and pod scope are set aside, not applied**, because a trace is only useful whole. They are saved with the cursor entry and the scroll position, and restored on `esc`.
+  - Inside the trace, `/` adds filters that narrow it, and `esc` removes them first.
+  - `x` (highlight) is refused, since it would mix every line into the trace.
+  - Changing the window reloads, and the trace stays.
+- **Ordered by the entries' own time**, not by arrival (the buffer order), since the delta column is the time between the application's steps. Trace rows are sorted after a rebuild and after live lines arrive (only when out of order). Eviction drops them wherever they are. Late lines renumber the saved cursor entry.
+- **Delta column** owned by Huginn, like the pod id (`+0 ms`, `+102 ms`, `+1.2 s`, `+3 m 04 s`). Layouts are unchanged. The status bar shows `TRACE`, the id, the lines, the pods and the duration. It says `may start before the loaded lines` when the trace contains the buffer's first line.
+- **Deviations from the M8 plan**: there is no separate `domain.Trace`, since the M8.1 field filter already selects the lines. `/` in a trace narrows it instead of only highlighting, for one behaviour of `/` everywhere.
+- **Cost**: `v` then `esc` on a full buffer of 50 000 lines take 5.9 ms together, two rebuilds with a field filter (`BenchmarkTraceView`). A live line costs one map lookup, plus a sort of the trace rows only when it arrives out of order. There is no new goroutine and no copy of entries: the view holds sequence numbers.
+- The demo shares a trace id between neighbouring requests of every `order-orchestrator` pod, so `--demo` shows real multi-pod traces.
+Status: accepted.

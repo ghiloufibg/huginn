@@ -61,6 +61,7 @@ var actions = map[Action]actionInfo{
 	ActNextEntry:     {"Inspect", "next entry"},
 	ActPrevEntry:     {"Inspect", "previous entry"},
 	ActJSONView:      {"Inspect", "raw JSON view"},
+	ActViewTrace:     {"Inspect", "trace view: every line with this line's trace_id, on all pods, with time deltas (esc back)"},
 	ActFieldNext:     {"Inspect", "next field of the entry (zoom)"},
 	ActFieldPrev:     {"Inspect", "previous field of the entry (zoom)"},
 	ActFieldKeep:     {"Filter", "keep the lines whose selected field has this value (zoom)"},

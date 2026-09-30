@@ -296,7 +296,7 @@ The standard fields are:
 | `thread` | Thread name. |
 | `message` | The message. |
 | `stack` | Stack trace, folded on the stream and shown in full in zoom. |
-| `trace_id` | Correlation id, shown in zoom and searchable. |
+| `trace_id` | Correlation id, shown in zoom and searchable. `v` on a line shows every line of the service with the same `trace_id`: the trace view. It can come from a JSON key, or from text through a `transform` group named `trace_id`. |
 | `app` | Application name. |
 | `pid` | Process id. |
 

@@ -101,6 +101,7 @@ The pod strip shows each pod's state: a container that is not running says `wait
 |---|---|
 | `j` `k` `pgup` `pgdn` `g` `G`, mouse wheel | move (`G` returns to the live tail) |
 | `>` `<` | next / previous ERROR |
+| `v` | trace view: every line of the service with the same `trace_id`, on all pods, ordered by their own time, with the time since the first one. Filters, levels and pod scope are set aside and come back with `esc`. Also from zoom |
 | `enter` | zoom on the entry (`J`/`K` next/previous, `p` raw JSON, `enter` hidden fields, `tab`/`shift+tab` select a field, then `=` keep or `!` hide the lines whose field has exactly this value) |
 | `f` | follow on/off |
 | `space` | pause / resume (the screen keeps its lines; new ones wait, up to the buffer size, and the lines dropped beyond are counted) |

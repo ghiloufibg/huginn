@@ -38,6 +38,7 @@
      a                all levels                                                                                        
    Inspect                                                                                                              
      enter            open / zoom / apply                                                                               
+     v                trace view: every line with this line's trace_id, on all pods, with time deltas (esc back)        
      tab              pod scope: all, then each pod                                                                     
      S                select pods and containers (fullscreen)                                                           
      A                all containers (sidecars and init) or application containers only                                 
@@ -69,7 +70,6 @@
      !                invert (as first character; \! for a literal !)                                                   
      ctrl+a           stack another filter (AND)                                                                        
      enter / esc      keep / cancel the edit                                                                            
-                                                                                                                        
                                                                                                                         
                                                                                                                         
                                                                                                                         

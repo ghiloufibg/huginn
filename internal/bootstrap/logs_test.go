@@ -133,6 +133,24 @@ func TestDemoTransformExtractsContext(t *testing.T) {
 			}
 		}
 	}
+	pods := map[string]map[string]bool{} // trace id → pods
+	for _, e := range r.entries {
+		if e.TraceID != "" {
+			if pods[e.TraceID] == nil {
+				pods[e.TraceID] = map[string]bool{}
+			}
+			pods[e.TraceID][e.Pod] = true
+		}
+	}
+	var spread int
+	for _, ps := range pods {
+		if len(ps) >= 2 {
+			spread++
+		}
+	}
+	if spread < 10 {
+		t.Fatalf("only %d traces span several pods: the trace view has nothing to show", spread)
+	}
 	if withContext < 50 || requests < 10 || failed < 5 {
 		t.Fatalf("only %d lines with a context, %d requests, %d failed", withContext, requests, failed)
 	}

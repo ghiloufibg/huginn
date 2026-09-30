@@ -78,6 +78,11 @@ func (g generator) plainAt(k int64, t time.Time) entry {
 	pkg, cls := g.spec.repo.pkg, domainClass(g.spec.workload)
 	thread := fmt.Sprintf("http-nio-8080-exec-%d", 1+r.IntN(10))
 	trace := fmt.Sprintf("%016x%016x", r.Uint64(), r.Uint64())
+	if mdcRepos[g.spec.repo.name] {
+		// One request is served by several pods: neighbouring slots of
+		// every pod share a trace id, for the trace view (v).
+		trace = fmt.Sprintf("%016x%016x", hashOf(g.spec.repo.name, "trace", k/2), hashOf(g.spec.repo.name, "span", k/2))
+	}
 	path := "/v1/" + noun(g.spec.repo.name) + "s"
 	roll := r.IntN(100)
 	errPct := 3

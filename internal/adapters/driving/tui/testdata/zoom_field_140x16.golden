@@ -13,4 +13,4 @@
        at io.gimle.payment.gateway.GatewayClient.charge(GatewayClient.java:184)                                                             
        at org.springframework.web.servlet.FrameworkServlet.service(FrameworkServlet.java:885)                                               
  sort name   ZOOM   structured view  ·  wrap on                                                                                             
- J/K next/prev entry  j/k scroll  p raw json  = keep  ! exclude  enter hidden fields  esc back  ? help                                      
+ J/K next/prev entry  j/k scroll  p raw json  = keep  ! exclude  v trace  enter hidden fields  esc back  ? help                             
