@@ -231,8 +231,12 @@
       "additionalProperties": {
         "additionalProperties": false,
         "properties": {
+          "pair_pattern": {
+            "description": "Go regular expression reading one pair of a pairs group, with the groups key and value, e.g. '(?P\u003ckey\u003e[\\w.-]+): (?P\u003cvalue\u003e[^;]*);?'. The matches must cover the group except white space, otherwise the group is kept whole. Default: key=value separated by white space.",
+            "type": "string"
+          },
           "pairs": {
-            "description": "Groups of pattern holding key=value text, e.g. [before, after]: each key=value becomes a field; empty values are left out.",
+            "description": "Groups of pattern holding key=value text, e.g. [before, after]: each pair becomes a field; empty values are left out.",
             "items": {
               "type": "string"
             },

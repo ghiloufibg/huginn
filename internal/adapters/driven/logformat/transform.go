@@ -13,7 +13,9 @@ import (
 //   - its group named Field becomes the value;
 //   - a group named like another standard field fills that field when it is
 //     still empty;
-//   - a group listed in Pairs is split into key=value fields;
+//   - a group listed in Pairs is split into fields, one per pair read by
+//     PairPattern (groups key and value), or per key=value separated by
+//     white space when PairPattern is nil;
 //   - any other named group becomes a field.
 //
 // Otherwise nothing changes. Field is a standard field name of the
@@ -22,6 +24,9 @@ type FieldTransform struct {
 	Field   string
 	Pattern *regexp.Regexp
 	Pairs   []string
+	// PairPattern reads one pair of a Pairs group with its groups key and
+	// value; nil means key=value separated by white space.
+	PairPattern *regexp.Regexp
 }
 
 // field is an extracted key and value.
@@ -70,7 +75,13 @@ func transform(e *domain.LogEntry, ts []FieldTransform, aliases map[string]domai
 		}
 		for _, p := range t.Pairs {
 			g := strings.TrimSpace(group(t.Pattern.SubexpIndex(p)))
-			if !splitPairs(g, add) {
+			var split bool
+			if t.PairPattern != nil {
+				split = splitPairsWith(t.PairPattern, g, add)
+			} else {
+				split = splitPairs(g, add)
+			}
+			if !split {
 				add(p, g)
 			}
 		}
@@ -85,28 +96,63 @@ func splitPairs(s string, add func(k, v string)) bool {
 	for rest := s; rest != ""; {
 		var tok string
 		tok, rest = cutSpace(rest)
-		if k, _, ok := strings.Cut(tok, "="); !ok || k == "" {
+		if k, _, ok := strings.Cut(tok, "="); tok != "" && (!ok || k == "") {
 			return false
 		}
 	}
 	for rest := s; rest != ""; {
 		var tok string
 		tok, rest = cutSpace(rest)
-		k, v, _ := strings.Cut(tok, "=")
-		add(k, v)
+		if tok != "" {
+			k, v, _ := strings.Cut(tok, "=")
+			add(k, v)
+		}
 	}
 	return true
 }
 
+// splitPairsWith calls add for each pair of s read by re, whose groups
+// key and value are the pair. It reports false, without calling add, when
+// the matches leave other text than white space, or a key is empty: the
+// text is then kept whole.
+func splitPairsWith(re *regexp.Regexp, s string, add func(k, v string)) bool {
+	ms := re.FindAllStringSubmatchIndex(s, -1)
+	ki, vi := re.SubexpIndex("key"), re.SubexpIndex("value")
+	last := 0
+	for _, m := range ms {
+		if !blank(s[last:m[0]]) || m[2*ki] < 0 || m[2*ki] == m[2*ki+1] {
+			return false
+		}
+		last = m[1]
+	}
+	if !blank(s[last:]) {
+		return false
+	}
+	for _, m := range ms {
+		var v string
+		if m[2*vi] >= 0 {
+			v = s[m[2*vi]:m[2*vi+1]]
+		}
+		add(s[m[2*ki]:m[2*ki+1]], v)
+	}
+	return true
+}
+
+// spaces are the white space characters of regexp's \s, which separate
+// pairs.
+const spaces = " \t\n\f\r"
+
+func blank(s string) bool { return strings.Trim(s, spaces) == "" }
+
 // cutSpace returns the first token of s and the text after it, skipping
 // white space around it.
 func cutSpace(s string) (tok, rest string) {
-	s = strings.TrimLeft(s, " \t")
-	i := strings.IndexAny(s, " \t")
+	s = strings.TrimLeft(s, spaces)
+	i := strings.IndexAny(s, spaces)
 	if i < 0 {
 		return s, ""
 	}
-	return s[:i], strings.TrimLeft(s[i:], " \t")
+	return s[:i], strings.TrimLeft(s[i:], spaces)
 }
 
 // isField reports whether name is a standard field a transform can set.

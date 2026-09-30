@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"maps"
 	"regexp"
+	"slices"
 	"testing"
 	"unicode/utf8"
 
@@ -112,6 +113,45 @@ func TestTransformPairsKeepTextThatIsNotPairs(t *testing.T) {
 	}
 }
 
+func TestTransformPairPattern(t *testing.T) {
+	d := NewJSON(withTransforms(FieldTransform{
+		Field: "message", Pattern: regexp.MustCompile(`^\[(?P<ctx>[^\]]*)\] (?P<message>.*)`), Pairs: []string{"ctx"},
+		PairPattern: regexp.MustCompile(`(?P<key>[\w.-]+): (?:"(?P<value>[^"]*)"|[^;"]*?);?`),
+	}))
+	for _, tc := range []struct {
+		message string
+		want    map[string]string
+	}{
+		{`[user: "bob smith"; route: "/a"] m`, map[string]string{"user": "bob smith", "route": "/a"}},
+		{`[user: ""; route: "/a"] m`, map[string]string{"route": "/a"}},
+		{`[user: bob] m`, map[string]string{"ctx": "user: bob"}}, // unquoted: "bob" is left over
+		{`[user: "bob" oops] m`, map[string]string{"ctx": `user: "bob" oops`}},
+		{`[] m`, nil},
+	} {
+		e := d.Decode(raw(`{"message":` + jsonString(tc.message) + `}`))
+		if e.Message != "m" || !maps.Equal(e.Fields, tc.want) {
+			t.Errorf("%q: message %q fields %v", tc.message, e.Message, e.Fields)
+		}
+	}
+}
+
+// defaultPairs is the default pair syntax written as a pair_pattern.
+var defaultPairs = regexp.MustCompile(`(?P<key>[^\s=]+)=(?P<value>\S*)`)
+
+func FuzzPairPatternMatchesDefault(f *testing.F) {
+	for _, s := range []string{"a=1 b= c=x=y", "a=1 oops", "=1", "a==", "\ta=1\n b=2 ", "é=\u00a0x", ""} {
+		f.Add(s)
+	}
+	f.Fuzz(func(t *testing.T, s string) {
+		var byHand, byPattern []field
+		okHand := splitPairs(s, func(k, v string) { byHand = append(byHand, field{k, v}) })
+		okPattern := splitPairsWith(defaultPairs, s, func(k, v string) { byPattern = append(byPattern, field{k, v}) })
+		if okHand != okPattern || !slices.Equal(byHand, byPattern) {
+			t.Fatalf("%q: by hand %v %v, by pattern %v %v", s, okHand, byHand, okPattern, byPattern)
+		}
+	})
+}
+
 func TestTransformNamedGroups(t *testing.T) {
 	d := NewJSON(withTransforms(FieldTransform{
 		Field:   "message",
@@ -158,6 +198,11 @@ func TestTransformHiddenExtractedFields(t *testing.T) {
 	if search(t, &e, "request_id=r1") {
 		t.Error("hidden fields are not searched")
 	}
+}
+
+func jsonString(s string) string {
+	q, _ := json.Marshal(s)
+	return string(q)
 }
 
 // search reports whether a text filter for q finds e.

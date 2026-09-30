@@ -183,7 +183,10 @@ type FieldMap struct {
 // regular expression: it keeps part of the value and extracts fields.
 type Transform struct {
 	Pattern string   `yaml:"pattern" doc:"Go regular expression with a group named after the field, e.g. (?P<message>…): when it matches, the group becomes the field's value; otherwise nothing changes. Other named groups become fields of the line (standard ones fill their field when the JSON left it empty); time and stack groups are not allowed." required:"true"`
-	Pairs   []string `yaml:"pairs" doc:"Groups of pattern holding key=value text, e.g. [before, after]: each key=value becomes a field; empty values are left out."`
+	Pairs   []string `yaml:"pairs" doc:"Groups of pattern holding key=value text, e.g. [before, after]: each pair becomes a field; empty values are left out."`
+	// PairPattern reads the pairs groups; empty means key=value separated by
+	// white space.
+	PairPattern string `yaml:"pair_pattern" doc:"Go regular expression reading one pair of a pairs group, with the groups key and value, e.g. '(?P<key>[\\w.-]+): (?P<value>[^;]*);?'. The matches must cover the group except white space, otherwise the group is kept whole. Default: key=value separated by white space."`
 }
 
 // byName returns the paths of a standard field by its YAML name, and

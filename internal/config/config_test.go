@@ -258,6 +258,25 @@ func TestTransform(t *testing.T) {
 
 	fsys["formats/app.yaml"].Data = []byte(`version: 1
 decoder: json
+fields: {message: msg, logger: logger, thread: thread}
+transform:
+  message: {pattern: '(?P<ctx>.*) - (?P<message>.*)', pairs: [ctx], pair_pattern: '(?P<key>\w+): (?P<value>\S*)'}
+  logger: {pattern: '(?P<logger>.*)', pair_pattern: '(?P<key>\w+)=(?P<v>\S*'}
+  thread: {pattern: '(?P<ctx>.*) (?P<thread>.*)', pairs: [ctx], pair_pattern: '(?P<key>\w+)=(?P<v>\S*)'}
+layout: basic
+`)
+	_, msg = load(t, fsys)
+	wantErrors(t, msg,
+		"formats/app.yaml:6:39  transform.logger.pair_pattern: pair_pattern needs pairs",
+		"transform.logger.pair_pattern: invalid regular expression",
+		"transform.thread.pair_pattern: name exactly the groups (?P<key>…) and (?P<value>…), once each",
+	)
+	if strings.Contains(msg, "transform.message") {
+		t.Errorf("a valid pair_pattern is accepted:\n%s", msg)
+	}
+
+	fsys["formats/app.yaml"].Data = []byte(`version: 1
+decoder: json
 fields: {message: msg}
 transform:
   message: {pattern: '(?P<a>\S+) (?P<a>\S+) (?P<time>\S+) - (?P<message>.*)', pairs: [a, b, message]}

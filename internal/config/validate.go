@@ -292,6 +292,7 @@ func (v *validator) transforms(f Format) {
 			}
 			seen[g] = true
 		}
+		v.pairPattern(f.File, at, t)
 		for i, g := range t.Pairs {
 			p := fmt.Sprintf("%s.pairs[%d]", at, i)
 			_, standard := f.Fields.byName(g)
@@ -302,6 +303,33 @@ func (v *validator) transforms(f Format) {
 				v.add(f.File, p, "%q is a standard field, not a group of key=value text", g)
 			}
 		}
+	}
+}
+
+// pairPattern checks the pair_pattern of a transform: it compiles, names
+// exactly the groups key and value, and reads pairs groups.
+func (v *validator) pairPattern(file, at string, t Transform) {
+	if t.PairPattern == "" {
+		return
+	}
+	at += ".pair_pattern"
+	if len(t.Pairs) == 0 {
+		v.add(file, at, "pair_pattern needs pairs")
+	}
+	re, err := regexp.Compile(t.PairPattern)
+	if err != nil {
+		v.add(file, at, "invalid regular expression: %v", err)
+		return
+	}
+	var names []string
+	for _, g := range re.SubexpNames() {
+		if g != "" {
+			names = append(names, g)
+		}
+	}
+	slices.Sort(names)
+	if !slices.Equal(names, []string{"key", "value"}) {
+		v.add(file, at, "name exactly the groups (?P<key>…) and (?P<value>…), once each")
 	}
 }
 

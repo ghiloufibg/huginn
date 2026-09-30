@@ -314,11 +314,17 @@ With this transform, the stream shows `Order created`. The line gets the fields 
 |---|---|---|---|
 | `transform.<field>` | map | | The standard field to read: `message`, `logger`, `thread`, `trace_id`, `app` or `pid`. It must be mapped in `fields`. |
 | `transform.<field>.pattern` | string | yes | A Go regular expression with **a group named after the field** (`(?P<message>…)`). |
-| `transform.<field>.pairs` | list | | Groups of `pattern` holding `key=value` text. |
+| `transform.<field>.pairs` | list | | Groups of `pattern` holding pairs, by default `key=value` separated by spaces. |
+| `transform.<field>.pair_pattern` | string | | A Go regular expression reading **one pair** of a `pairs` group, with the groups `(?P<key>…)` and `(?P<value>…)`. Default: `key=value` separated by white space. |
 
 When the pattern matches:
 - **The group named after the field becomes its value.** Write the parts you only want to drop as `(?:…)`.
-- **A group listed in `pairs`** is split on spaces. Each `key=value` becomes the field `key`, spelled as written (`{field:correlation-id}`). Keys never need to be listed, so a new key in the logs becomes a new field by itself. If one piece of the text is not `key=value`, the whole group is kept as one field named after the group. Values containing spaces need a named group.
+- **A group listed in `pairs`** is split into pairs, and each one becomes the field `key`, spelled as written (`{field:correlation-id}`). Keys never need to be listed, so a new key in the logs becomes a new field by itself. By default a pair is `key=value` and pairs are separated by white space. If one piece of the text is not a pair, the whole group is kept as one field named after the group.
+- **Another pair syntax** is set with `pair_pattern`. Put the separator in the pattern: the pairs it reads must cover the whole group, except white space, otherwise the group is kept whole. For example, `user: "bob smith"; route: "/a"` is read with:
+
+  ```yaml
+  pair_pattern: '(?P<key>[\w.-]+): "(?P<value>[^"]*)";?'
+  ```
 - **Another named group** becomes a field: `route=(?P<route>\S*)` gives the field `route`. Capture the value, not the `route=` before it.
 - **A group named like a standard field** (`level`, `logger`, `thread`, `trace_id`, `app`, `pid`) fills that field when the JSON left it empty. For example, `correlation-id=(?P<trace_id>\S*)` makes the correlation id the trace id. `time` and `stack` groups are not allowed.
 

@@ -375,3 +375,9 @@ Status: accepted.
 - **The zoom section "KUBERNETES METADATA" is now "HIDDEN FIELDS"** (key bar: `enter hidden fields`). It always held whatever `hidden` matched, and with transforms that includes fields that do not come from Kubernetes.
 - **Cost**: `pairs` on the 13-key line decodes in about 10.5 µs instead of 2.3 µs. The JSON decode path without transforms is unchanged, with the same allocations.
 Status: accepted.
+
+## D-043 Pair syntax in the config; the trace id named by its standard field
+- **`pair_pattern`**: the `pairs` of D-042 assumed one convention (`key=value` separated by white space), so a stack writing `key: value;` or quoted values would have needed a code change. A transform now takes an optional `pair_pattern`, a regular expression with exactly the groups `key` and `value`, read with `FindAll`. The pairs it reads must cover the group except white space, so the separator belongs to the pattern. Otherwise the group is kept whole, as with the default syntax.
+- **The default stays hand-written**, not a regular expression: `key=value` split on white space is the common case and costs less without a regexp. A fuzz test checks that it agrees with the same syntax written as `pair_pattern` (`(?P<key>[^\s=]+)=(?P<value>\S*)`). That test found and fixed one difference (a group of white space only).
+- **Zoom labels the trace id `trace_id`**, the standard field's name, instead of `traceId`, the key of one encoder, whatever path the format reads it from. `internal/archtest` now forbids `traceid` in generic code.
+Status: accepted.

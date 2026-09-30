@@ -3,11 +3,13 @@ package bootstrap
 import (
 	"context"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/ghiloufibg/huginn/internal/adapters/driven/demo"
+	"github.com/ghiloufibg/huginn/internal/config"
 	"github.com/ghiloufibg/huginn/internal/core/domain"
 	"github.com/ghiloufibg/huginn/internal/core/ports"
 	"github.com/ghiloufibg/huginn/internal/core/ports/portstest"
@@ -189,5 +191,25 @@ func TestClosedSessionsLeaveNoGoroutines(t *testing.T) {
 	if n := runtime.NumGoroutine(); n > base+2 {
 		buf := make([]byte, 1<<16)
 		t.Fatalf("%d goroutines left (was %d):\n%s", n, base, buf[:runtime.Stack(buf, true)])
+	}
+}
+
+// TestTransformsCarryEverySetting guards the wiring of formats/*.yaml
+// transform into the decoder, in the fixed field order.
+func TestTransformsCarryEverySetting(t *testing.T) {
+	f := config.Format{Transform: map[string]config.Transform{
+		"logger":  {Pattern: `(?P<logger>.*)`},
+		"message": {Pattern: `(?P<ctx>.*) - (?P<message>.*)`, Pairs: []string{"ctx"}, PairPattern: `(?P<key>\w+): (?P<value>\S*)`},
+	}}
+	got := transforms(f)
+	if len(got) != 2 || got[0].Field != "message" || got[1].Field != "logger" {
+		t.Fatalf("order: %+v", got)
+	}
+	m := got[0]
+	if m.Pattern.String() != f.Transform["message"].Pattern || !slices.Equal(m.Pairs, []string{"ctx"}) || m.PairPattern == nil || m.PairPattern.String() != f.Transform["message"].PairPattern {
+		t.Errorf("message transform: %+v", m)
+	}
+	if got[1].PairPattern != nil {
+		t.Error("no pair_pattern: the default syntax")
 	}
 }
