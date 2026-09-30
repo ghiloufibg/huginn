@@ -191,7 +191,7 @@ var AppDataRule = struct {
 		"internal/adapters/driven/layout", "internal/adapters/driven/logformat",
 	},
 	Forbidden: []string{
-		"springframework", "spring-", "logstash", "logger_name", "thread_name", "@timestamp", "stack_trace",
+		"springframework", "spring-", "logstash", "logger_name", "thread_name", "@timestamp", "stack_trace", "traceid",
 		"istio", "vault-agent", "linkerd", "app-dev", "app-rec", "app-prd", "prprd",
 	},
 }

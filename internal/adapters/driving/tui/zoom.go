@@ -157,7 +157,7 @@ func (z *zoomScreen) structured(m *Model, e *domain.LogEntry) []string {
 	if len(e.Fields) > 0 || e.TraceID != "" {
 		out = append(out, sec("FIELDS", ""))
 		if e.TraceID != "" {
-			out = append(out, "   "+t.Dim.Render(fmt.Sprintf("%-16s", "traceId"))+t.Key.Render(e.TraceID))
+			out = append(out, "   "+t.Dim.Render(fmt.Sprintf("%-16s", "trace_id"))+t.Key.Render(e.TraceID))
 		}
 		for _, k := range sortedKeys(e.Fields) {
 			out = append(out, "   "+t.Dim.Render(fmt.Sprintf("%-16s", k))+e.Fields[k])

@@ -4,7 +4,7 @@
  19:13:12.000 ERROR [exec-1] i.g.p.PaymentService : Payment authorization failed orderId=ord_8f91a2 traceId=7fd28c90                        
                                                                                                                                             
  FIELDS                                                                                                                                     
-   traceId         7fd28c90                                                                                                                 
+   trace_id        7fd28c90                                                                                                                 
    extra.orderId   ord_8f91a2                                                                                                               
    spanId          91ac07                                                                                                                   
                                                                                                                                             
