@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
@@ -195,45 +196,74 @@ func (l *logsScreen) copyLines(m *Model, entries []*domain.LogEntry, form copyFo
 		m.flash("nothing to copy")
 		return nil
 	}
+	l.lastForm = form
+	w := l.lineWriter(m, form)
 	var b strings.Builder
 	for _, e := range entries {
-		if form == copyRaw {
-			b.WriteString(e.Raw)
-		} else {
-			l.writeShown(&b, m, e)
-		}
-		b.WriteByte('\n')
+		w.write(&b, e)
 		if b.Len() > m.opts.CopyMaxBytes {
-			m.flash(fmt.Sprintf("selection too large (over %s, ui.yaml copy.max_bytes): nothing copied", byteSize(m.opts.CopyMaxBytes)))
+			m.flash(fmt.Sprintf("selection too large to copy (over %s, ui.yaml copy.max_bytes): %s saves it to a file", byteSize(m.opts.CopyMaxBytes), m.label(ActSave)))
 			return nil
 		}
 	}
-	return m.copyText(cleanCopy(b.String()), plural(len(entries), "line"), form.String())
+	text := cleanCopy(m.opts.Redactor.Redact(b.String()))
+	return m.copyText(text, plural(len(entries), "line"), form.String())
 }
 
-// writeShown writes an entry as the logs screen draws it, without colors,
-// truncation or wrapping, followed by its whole stack trace.
-func (l *logsScreen) writeShown(b *strings.Builder, m *Model, e *domain.LogEntry) {
-	if l.trace != nil {
-		b.WriteString(strings.TrimLeft(l.traceDelta(e), " "))
+// lineWriter writes entries as copied or saved: it holds the display
+// settings of the moment, so it can run away from the UI goroutine.
+type lineWriter struct {
+	form       copyForm
+	podID      podIDMode
+	containers bool // name the container after the pod id
+	opts       ports.RenderOptions
+	layout     func(*domain.LogEntry) ports.LogLayout
+	trace      bool
+	traceStart time.Time
+	redact     domain.Redactor
+}
+
+func (l *logsScreen) lineWriter(m *Model, form copyForm) lineWriter {
+	w := lineWriter{
+		form: form, podID: l.podID, containers: l.multiContainer, layout: m.layout, redact: m.opts.Redactor,
+		// The columns the user hid (c, C, z) are left out; the ones only a
+		// narrow terminal hides are kept: a copy is not bound by the width.
+		opts: ports.RenderOptions{Timestamps: l.timestamps, Now: m.opts.Now(), Hide: l.hide},
 	}
-	if id := l.podLabel(e.Pod); id != "" {
+	if l.trace != nil {
+		w.trace, w.traceStart = true, l.trace.start
+	}
+	return w
+}
+
+// write writes one entry and a new line: raw, or as the logs screen draws
+// it, without colors, truncation or wrapping, followed by its whole stack
+// trace.
+func (w lineWriter) write(b *strings.Builder, e *domain.LogEntry) {
+	if w.form == copyRaw {
+		b.WriteString(e.Raw)
+		b.WriteByte('\n')
+		return
+	}
+	if w.trace {
+		b.WriteString(formatDelta(e.Time.Sub(w.traceStart)))
+		b.WriteByte(' ')
+	}
+	if id := podLabelFor(e.Pod, w.podID); id != "" {
 		b.WriteString(id)
-		if l.multiContainer && e.Container != "" {
+		if w.containers && e.Container != "" {
 			b.WriteString("/" + e.Container)
 		}
 		b.WriteByte(' ')
 	}
-	// The columns the user hid (c, C, z) are left out; the ones only a
-	// narrow terminal hides are copied: the copy is not bound by the width.
-	opts := ports.RenderOptions{Timestamps: l.timestamps, Now: m.opts.Now(), Hide: l.hide}
-	for _, s := range m.layout(e).Render(*e, opts) {
+	for _, s := range w.layout(e).Render(*e, w.opts) {
 		b.WriteString(s.Text)
 	}
 	if e.Stack != "" {
 		b.WriteByte('\n')
 		b.WriteString(strings.TrimRight(e.Stack, "\n"))
 	}
+	b.WriteByte('\n')
 }
 
 // cleanCopy removes control characters from copied text, but tab and new

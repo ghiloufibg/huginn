@@ -5,3 +5,12 @@ version: 1
 theme: light                   # light | accessible | classic | none
 key_bar: compact               # compact | full | hidden
 keymap: {}                     # e.g. { follow: [f, ctrl+l] }
+
+# Copying and saving log lines (y, Y, ctrl+s)
+clipboard: auto                # auto | osc52 | system | off
+copy: { max_bytes: 1048576 }   # larger selections: save them with ctrl+s
+save: { dir: "" }              # "" is the current directory; ~/huginn-logs works too
+redact:                        # hidden in copies and saved files, not on screen
+  - '(?i)bearer [a-z0-9._-]+'
+  - '(?i)"(password|secret|token)"\s*:\s*"[^"]*"'
+mouse: true                    # false: leave the mouse to the terminal's own selection

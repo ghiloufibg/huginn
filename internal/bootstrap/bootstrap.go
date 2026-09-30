@@ -15,6 +15,7 @@ import (
 	"github.com/ghiloufibg/huginn/examples"
 	"github.com/ghiloufibg/huginn/internal/adapters/driven/clipboard"
 	"github.com/ghiloufibg/huginn/internal/adapters/driven/clock"
+	"github.com/ghiloufibg/huginn/internal/adapters/driven/filesink"
 	"github.com/ghiloufibg/huginn/internal/adapters/driven/sops"
 	"github.com/ghiloufibg/huginn/internal/adapters/driving/cli"
 	"github.com/ghiloufibg/huginn/internal/adapters/driving/tui"
@@ -183,6 +184,10 @@ func Build(o cli.Options, e Env, log *slog.Logger) (*App, error) {
 			current = info
 		}
 	}
+	redactor, err := domain.NewRedactor(c.UI.Redact) // validated with the folder
+	if err != nil {
+		return nil, err
+	}
 	return &App{
 		Config: c, Env: env, Cluster: cluster, Log: log,
 		UI: tui.Options{
@@ -195,6 +200,7 @@ func Build(o cli.Options, e Env, log *slog.Logger) (*App, error) {
 			BufferLines: c.Huginn.Logs.BufferLines, KeyBar: c.UI.KeyBar, LogColumns: c.UI.LogColumns,
 			ClipboardOSC52: c.UI.Clipboard == "auto" || c.UI.Clipboard == "osc52",
 			Clipboard:      systemClipboard(c.UI.Clipboard), CopyMaxBytes: c.UI.Copy.MaxBytes,
+			Files: filesink.Dir{Path: c.UI.Save.Dir}, Redactor: redactor, Mouse: c.UI.Mouse == nil || *c.UI.Mouse,
 		},
 	}, nil
 }

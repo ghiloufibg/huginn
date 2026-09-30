@@ -224,10 +224,13 @@ log_columns: [time, level, logger]
 | `theme` | `light`, `accessible`, `classic`, `none` | `light` | `--theme`, `NO_COLOR` and `HUGINN_THEME` override it. |
 | `paint_background` | bool | `false` | Paint the theme background instead of keeping the terminal's. |
 | `key_bar` | `compact`, `full`, `hidden` | `compact` | Key bar at the bottom (`f2` cycles it). |
-| `keymap` | map action → keys | | Replaces all default keys of an action. The action names are those of the help screen (`?`) and the README; for example `follow`, `filter`, `columns_cycle`, `field_next`, `field_prev`, `field_keep` and `field_exclude` for filtering on a field from zoom, or `select`, `mark`, `copy` and `copy_raw` for copying lines. |
+| `keymap` | map action → keys | | Replaces all default keys of an action. The action names are those of the help screen (`?`) and the README; for example `follow`, `filter`, `columns_cycle`, `field_next`, `field_prev`, `field_keep` and `field_exclude` for filtering on a field from zoom, or `select`, `mark`, `copy`, `copy_raw` and `save` for copying and saving lines. |
 | `log_columns` | list | | Columns shown when a logs screen opens: `pod` and column names from `layouts/`. Without it, every visible column is shown and narrowed automatically. |
 | `clipboard` | `auto`, `osc52`, `system`, `off` | | Where `y`/`Y` copy. `osc52`: the terminal's clipboard, through the OSC 52 sequence, which works over SSH, in tmux (`set -g set-clipboard on`), Windows Terminal, iTerm2, kitty, WezTerm and IDE terminals. `system`: the first command found among `pbcopy`, `wl-copy`, `xclip`, `xsel` and `clip.exe`. `auto`: the terminal, and the system command when one is installed. `off`: no copying. Default `auto`. |
 | `copy.max_bytes` | int | | Largest copy, in bytes. Terminals cap what OSC 52 carries. Past it, nothing is copied and a message says so. Default `1048576` (1 MiB). |
+| `save.dir` | path | | Where `ctrl+s` writes files. It must exist; `~` is the home directory. Files are named `<repo>-<env>-<yyyymmdd-hhmmss>.log` (`.raw.log` after a raw copy), never overwrite a file, and are readable by you only. Default: the current directory. |
+| `redact` | list | | Go regular expressions whose matches become `[redacted]` in everything copied (`y`, `Y`) or saved (`ctrl+s`). The screen still shows the logs as they are. None by default, for example `'(?i)bearer [a-z0-9._-]+'`. |
+| `mouse` | bool | | `true`: Huginn reads the mouse. The wheel scrolls, a click moves the cursor, `shift`+click selects from the cursor, and a drag selects lines. `false` leaves the mouse to the terminal, whose own selection then works directly. Default `true`. |
 
 ## 8. `formats/<name>.yaml`
 

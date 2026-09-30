@@ -119,6 +119,13 @@ type logsScreen struct {
 
 	trace *traceState // the trace view (trace.go), nil outside it
 	sel   selection   // lines selected for copying (selection.go)
+	// mouse (mouse.go): the display position of the line on each screen
+	// row of the last frame, the screen row of the first one, and a drag.
+	screenRows []int
+	linesTop   int
+	dragging   bool
+	dragFrom   uint64
+	lastForm   copyForm // the form of the last copy, which ctrl+s saves in
 }
 
 // viewRow is one displayed entry.
@@ -220,6 +227,9 @@ func (l *logsScreen) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 		case tea.MouseWheelUp:
 			l.scroll(-3)
 		}
+		return true, nil
+	case tea.MouseClickMsg, tea.MouseMotionMsg, tea.MouseReleaseMsg:
+		l.mouse(m, msg.(tea.MouseMsg))
 		return true, nil
 	case tea.KeyPressMsg:
 		return l.key(m, msg)
@@ -712,6 +722,8 @@ func (l *logsScreen) key(m *Model, k tea.KeyPressMsg) (bool, tea.Cmd) {
 		return true, l.copyLines(m, l.selected(), copyShown)
 	case keys.Is(key, ActCopyRaw):
 		return true, l.copyLines(m, l.selected(), copyRaw)
+	case keys.Is(key, ActSave):
+		return true, l.save(m)
 	case keys.Is(key, ActViewTrace):
 		if e, ok := l.entryAt(l.displayCursor()); ok {
 			l.enterTrace(m, e.Seq)
@@ -835,9 +847,11 @@ func (l *logsScreen) jumpError(dir int) {
 func (l *logsScreen) view(m *Model, w, h int) string {
 	t := &m.opts.Theme
 	var parts []string
+	l.linesTop, l.screenRows = 1, l.screenRows[:0] // below the header; rows filled by lines
 	if !l.fullscreen {
 		parts = append(parts, l.podStrip(m, w))
 		h--
+		l.linesTop++
 	}
 	l.height = h
 	switch {
@@ -949,11 +963,14 @@ func (l *logsScreen) lines(m *Model, w, h int) string {
 		sel  bool
 	}
 	var rows []row
+	l.screenRows = l.screenRows[:0]
 	for i := start; i < l.shown() && len(rows) < h; i++ {
 		for _, r := range render(i) {
 			rows = append(rows, row{r, i == cur})
+			l.screenRows = append(l.screenRows, i)
 		}
 	}
+	l.screenRows = l.screenRows[:min(len(l.screenRows), h)]
 	sel := m.opts.Theme.Selected
 	out := make([]string, 0, h)
 	for _, r := range rows[:min(len(rows), h)] {
@@ -1080,8 +1097,11 @@ func (l *logsScreen) segmentStyle(t *Theme, e *domain.LogEntry, r ports.Role) li
 
 // podLabel identifies a pod: its generated suffix (the part after the
 // last dash), the full name, or nothing.
-func (l *logsScreen) podLabel(pod string) string {
-	switch l.podID {
+func (l *logsScreen) podLabel(pod string) string { return podLabelFor(pod, l.podID) }
+
+// podLabelFor is the pod column of pod in a pod-id mode.
+func podLabelFor(pod string, mode podIDMode) string {
+	switch mode {
 	case podIDFull:
 		return pod
 	case podIDNone:
@@ -1304,7 +1324,7 @@ func (l *logsScreen) hints(m *Model) []hint {
 		return []hint{m.h(ActPause, "resume"), m.pair(ActDown, ActUp, "scroll"), m.h(ActOpen, "zoom"), m.h(ActFilter, "filter"), m.h(ActHelp, "help")}
 	case l.sel.active():
 		return []hint{
-			m.h(ActCopy, "copy"), m.h(ActCopyRaw, "copy raw"), m.h(ActSelect, "range"), m.h(ActMark, "mark"),
+			m.h(ActCopy, "copy"), m.h(ActCopyRaw, "copy raw"), m.h(ActSave, "save"), m.h(ActSelect, "range"), m.h(ActMark, "mark"),
 			m.pair(ActDown, ActUp, "move"), m.h(ActBack, "clear"), m.h(ActHelp, "help"),
 		}
 	case l.trace != nil:

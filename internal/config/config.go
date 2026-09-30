@@ -143,6 +143,14 @@ type UI struct {
 	LogColumns      []string            `yaml:"log_columns" doc:"Columns shown when a logs screen opens: pod and names of layout columns. Empty: every visible column, narrowed automatically."`
 	Clipboard       string              `yaml:"clipboard" doc:"Where y copies: auto (the terminal, via OSC 52, and the system clipboard command when there is one), osc52 (the terminal only), system (pbcopy, wl-copy, xclip, xsel or clip.exe only), off. Default auto." enum:"auto,osc52,system,off"`
 	Copy            Copy                `yaml:"copy" doc:"Copying log lines (y, Y)."`
+	Save            Save                `yaml:"save" doc:"Saving log lines to a file (ctrl+s)."`
+	Redact          []string            `yaml:"redact" doc:"Go regular expressions whose matches become [redacted] in everything copied or saved (not on screen), e.g. ['(?i)bearer [a-z0-9._-]+']. None by default."`
+	Mouse           *bool               `yaml:"mouse" doc:"Huginn reads the mouse: wheel scrolling, click to move the cursor, shift+click and drag to select lines. false leaves the mouse to the terminal, whose own selection then works directly. Default true."`
+}
+
+// Save says where ctrl+s writes files.
+type Save struct {
+	Dir string `yaml:"dir" doc:"Directory of saved files; it must exist. ~ is the home directory. Default: the current directory."`
 }
 
 // Copy bounds what y and Y copy.

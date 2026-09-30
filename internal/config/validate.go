@@ -206,6 +206,11 @@ func (v *validator) ui() {
 	if v.c.UI.Copy.MaxBytes < 1 {
 		v.add(FileUI, "copy.max_bytes", "must be at least 1")
 	}
+	for i, p := range v.c.UI.Redact {
+		if _, err := regexp.Compile(p); err != nil {
+			v.add(FileUI, fmt.Sprintf("redact[%d]", i), "invalid regular expression: %v", err)
+		}
+	}
 	known := map[string]bool{"pod": true}
 	for _, l := range v.c.Layouts {
 		for _, col := range l.Stream.Columns {

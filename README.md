@@ -103,6 +103,8 @@ The pod strip shows each pod's state: a container that is not running says `wait
 | `>` `<` | next / previous ERROR |
 | `V` / `m` | select lines: `V` starts a range at the cursor (move to extend, `V` again to end it), `m` marks single lines. The gutter shows `▌` for the range and `*` for marks; `esc` clears the selection |
 | `y` / `Y` | copy the selected lines, or the cursor line, **as shown** (uncolored, never cut, with whole stack traces) or **raw** (the line as received, e.g. the JSON). Only displayed lines are copied. Also in zoom. See `clipboard` in `ui.yaml` |
+| `ctrl+s` | save the selected lines, or every displayed line, to a file (`save.dir` in `ui.yaml`), in the form of the last copy; `redact` patterns hide secrets in copies and saves |
+| mouse | click moves the cursor, `shift`+click selects from the cursor, drag selects lines, wheel scrolls; `mouse: false` in `ui.yaml` leaves the mouse to the terminal |
 | `v` | trace view: every line of the service with the same `trace_id`, on all pods, ordered by their own time, with the time since the first one. Filters, levels and pod scope are set aside and come back with `esc`. Also from zoom |
 | `enter` | zoom on the entry (`J`/`K` next/previous, `p` raw JSON, `enter` hidden fields, `tab`/`shift+tab` select a field, then `=` keep or `!` hide the lines whose field has exactly this value) |
 | `f` | follow on/off |

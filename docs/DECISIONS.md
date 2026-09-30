@@ -433,3 +433,11 @@ Status: accepted.
 - **Cost:** a frame with a range over the screen and 1 000 marks takes 0.61 ms against 0.52 ms (`BenchmarkLogsFrameSelecting`). A 10 000-line copy is built in about 15 ms, only on `y`/`Y` (`BenchmarkCopy10000`).
 - **Deviation from the M9 plan:** selected rows get the gutter only, not a background, which would fight the level colors (D-020's `*` gutter).
 Status: accepted.
+
+## D-050 Save lines, redaction, mouse (M9.2, M9.3)
+- **`ctrl+s` saves the selection**, or every displayed line (not only the screen), in the form of the last copy: as shown, or raw after `Y`. There is no picker: the copy keys already choose the form. The file is `<repo>-<env>-<yyyymmdd-hhmmss>.log`, or `.raw.log` rather than the planned `.ndjson`, since raw lines are JSON only when the logs are.
+- **The lines are copied on the UI goroutine, then written away from it**, streamed. The buffer reuses its slots for new lines, so the writer never reads it: a copy of the entries and of the display settings (`lineWriter`) goes to the command. For 50 000 lines the UI waits about 11 ms for the copy; the write takes about 75 ms in the background (`BenchmarkSave50000`).
+- **The `filesink` adapter** writes in `ui.yaml save.dir`, which must exist and is never created behind the user's back. Files use `O_EXCL` (`-1`, `-2` suffixes, never overwritten) and mode `0600`. A failed or cancelled write leaves no half file. The name is sanitized.
+- **`domain.Redactor`** (ARCHITECTURE rule 10) replaces matches of `ui.yaml redact` with `[redacted]` in copies and saves, never on screen. No pattern is built in; the examples live in `examples/`. It does nothing when no pattern is set.
+- **Mouse:** a click moves the cursor, `shift`+click selects from the cursor, a drag selects. Each frame records the entry drawn on every screen row, so wrapped lines and folded stacks map back to their entry. `ui.yaml mouse: false` stops capturing the mouse (`MouseModeNone`), which gives the terminal's own selection back. Clicks are ignored under a popup.
+Status: accepted.

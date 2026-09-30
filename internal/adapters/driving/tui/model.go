@@ -71,6 +71,13 @@ type Options struct {
 	ClipboardOSC52 bool
 	Clipboard      ports.Clipboard
 	CopyMaxBytes   int
+	// Files saves exported lines (ctrl+s); nil disables saving. Redactor
+	// hides patterns in everything copied or saved (ui.yaml redact).
+	Files    ports.FileSink
+	Redactor domain.Redactor
+	// Mouse reads the mouse (ui.yaml mouse); false leaves it to the
+	// terminal's own selection.
+	Mouse bool
 }
 
 // screen is one page of the UI. The root model routes messages to the
@@ -261,12 +268,21 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 	case clipboardDoneMsg:
 		m.clipboardDone(msg)
 		return nil
+	case saveDoneMsg:
+		m.saveDone(msg)
+		return nil
 	case flashDoneMsg:
 		if msg.id == m.flashID {
 			m.flashText = ""
 		}
 		return nil
 	case tea.MouseWheelMsg:
+		_, cmd := m.top().update(m, msg)
+		return cmd
+	case tea.MouseClickMsg, tea.MouseMotionMsg, tea.MouseReleaseMsg:
+		if m.popup != nil {
+			return nil // a popup is modal
+		}
 		_, cmd := m.top().update(m, msg)
 		return cmd
 	}
@@ -360,7 +376,9 @@ func (m *Model) switchEnv(e EnvInfo) tea.Cmd {
 func (m *Model) View() tea.View {
 	v := tea.NewView(m.render())
 	v.AltScreen = true
-	v.MouseMode = tea.MouseModeCellMotion
+	if m.opts.Mouse {
+		v.MouseMode = tea.MouseModeCellMotion // reports motion while a button is held: drags
+	}
 	v.WindowTitle = "huginn · " + m.env.Name
 	return v
 }

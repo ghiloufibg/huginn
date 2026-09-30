@@ -89,7 +89,7 @@ func run(m *Model, cmd tea.Cmd) {
 		for _, c := range msg {
 			run(m, c)
 		}
-	case clipboardDoneMsg:
+	case clipboardDoneMsg, saveDoneMsg:
 		m.Update(msg)
 	default:
 		if strings.Contains(fmt.Sprintf("%T", msg), "setClipboard") {
@@ -118,7 +118,7 @@ func keyMsg(k string) tea.KeyPressMsg {
 		return tea.KeyPressMsg{Code: tea.KeyBackspace}
 	case "down":
 		return tea.KeyPressMsg{Code: tea.KeyDown}
-	case "ctrl+e", "ctrl+r", "ctrl+x", "ctrl+a", "ctrl+f", "ctrl+l", "ctrl+u", "ctrl+t":
+	case "ctrl+e", "ctrl+r", "ctrl+x", "ctrl+a", "ctrl+f", "ctrl+l", "ctrl+u", "ctrl+t", "ctrl+s", "ctrl+y":
 		return tea.KeyPressMsg{Code: rune(k[5]), Mod: tea.ModCtrl}
 	case "tab":
 		return tea.KeyPressMsg{Code: tea.KeyTab}

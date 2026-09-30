@@ -354,7 +354,16 @@ func TestUICopy(t *testing.T) {
 	if c, msg = load(t, fsys); msg != "" || c.UI.Clipboard != "system" || c.UI.Copy.MaxBytes != 4096 {
 		t.Fatalf("set: %q %+v %s", c.UI.Clipboard, c.UI.Copy, msg)
 	}
-	fsys["ui.yaml"].Data = []byte("version: 1\nclipboard: xclip\ncopy: {max_bytes: -1}\n")
+	if c, msg = load(t, valid()); msg != "" || c.UI.Mouse == nil || !*c.UI.Mouse || c.UI.Save.Dir != "" || len(c.UI.Redact) != 0 {
+		t.Fatalf("defaults: mouse %v, save %+v, redact %v %s", c.UI.Mouse, c.UI.Save, c.UI.Redact, msg)
+	}
+	fsys["ui.yaml"].Data = []byte("version: 1\nmouse: false\nsave: {dir: ~/logs}\nredact: ['(?i)bearer \\S+']\n")
+	c, msg = load(t, fsys)
+	if msg != "" || *c.UI.Mouse || !strings.HasSuffix(c.UI.Save.Dir, "/logs") || strings.HasPrefix(c.UI.Save.Dir, "~") || len(c.UI.Redact) != 1 {
+		t.Fatalf("set: mouse %v save %q redact %v %s", *c.UI.Mouse, c.UI.Save.Dir, c.UI.Redact, msg)
+	}
+	fsys["ui.yaml"].Data = []byte("version: 1\nclipboard: xclip\ncopy: {max_bytes: -1}\nredact: [ok, '(']\n")
 	_, msg = load(t, fsys)
-	wantErrors(t, msg, `ui.yaml:2:1  clipboard: "xclip" is not one of: auto, osc52, system, off`, "ui.yaml:3:8  copy.max_bytes: must be at least 1")
+	wantErrors(t, msg, `ui.yaml:2:1  clipboard: "xclip" is not one of: auto, osc52, system, off`, "ui.yaml:3:8  copy.max_bytes: must be at least 1",
+		"ui.yaml:4:14  redact[1]: invalid regular expression")
 }

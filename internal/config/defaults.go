@@ -54,6 +54,11 @@ func applyDefaults(c *Config) {
 	if c.UI.Copy.MaxBytes == 0 {
 		c.UI.Copy.MaxBytes = DefaultCopyMaxBytes
 	}
+	c.UI.Save.Dir = ExpandHome(c.UI.Save.Dir)
+	if c.UI.Mouse == nil {
+		on := true
+		c.UI.Mouse = &on
+	}
 	for i := range c.Formats {
 		for field, t := range c.Formats[i].Transform {
 			if t.MaxBytes == 0 {

@@ -65,6 +65,7 @@ var actions = map[Action]actionInfo{
 	ActMark:          {"Inspect", "mark or unmark the line (marked lines are copied with the range)"},
 	ActCopy:          {"Inspect", "copy the selected lines, or the cursor line, as shown (uncolored, whole, with stack traces)"},
 	ActCopyRaw:       {"Inspect", "copy the selected lines, or the cursor line, as received (raw JSON)"},
+	ActSave:          {"Inspect", "save the selected lines, or every displayed line, to a file, in the form of the last copy"},
 	ActViewTrace:     {"Inspect", "trace view: every line with this line's trace_id, on all pods, with time deltas (esc back)"},
 	ActFieldNext:     {"Inspect", "next field of the entry (zoom)"},
 	ActFieldPrev:     {"Inspect", "previous field of the entry (zoom)"},

@@ -11,4 +11,4 @@
 ▌ m8q7v 19:13:32.000 ERROR [exec-1] i.g.p.card.CardController : Card declined by issuer orderId=ord_72bf10 retryable=false                  
   x4k2p 19:13:42.000  INFO [exec-1] i.g.p.HealthReporter : health probe succeeded components=db,redis,gateway                               
  marked (1)   SELECT   2 errors · 1 warning  ·  selected 3 lines + 1 marked  ·  15m  ·  all pods  ·  levels all  ·  oldest first  ·  9/9 l… 
- y copy  Y copy raw  V range  m mark  j/k move  esc clear  ? help                                                                           
+ y copy  Y copy raw  ctrl+s save  V range  m mark  j/k move  esc clear  ? help                                                              

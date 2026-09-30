@@ -49,9 +49,31 @@
       },
       "type": "array"
     },
+    "mouse": {
+      "description": "Huginn reads the mouse: wheel scrolling, click to move the cursor, shift+click and drag to select lines. false leaves the mouse to the terminal, whose own selection then works directly. Default true.",
+      "type": "boolean"
+    },
     "paint_background": {
       "description": "Paint the theme background instead of using the terminal's.",
       "type": "boolean"
+    },
+    "redact": {
+      "description": "Go regular expressions whose matches become [redacted] in everything copied or saved (not on screen), e.g. ['(?i)bearer [a-z0-9._-]+']. None by default.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "save": {
+      "additionalProperties": false,
+      "description": "Saving log lines to a file (ctrl+s).",
+      "properties": {
+        "dir": {
+          "description": "Directory of saved files; it must exist. ~ is the home directory. Default: the current directory.",
+          "type": "string"
+        }
+      },
+      "type": "object"
     },
     "theme": {
       "description": "Color theme. Default light.",
