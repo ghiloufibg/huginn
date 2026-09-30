@@ -211,7 +211,7 @@ Optional. These are personal display choices, usually not shared by a team.
 
 ```yaml
 version: 1
-theme: light
+theme: auto
 key_bar: compact
 keymap:
   follow: [f, ctrl+l]
@@ -221,8 +221,8 @@ log_columns: [time, level, logger]
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `version` | int | | Must be `1` (required). |
-| `theme` | `light`, `accessible`, `classic`, `none` | `light` | `--theme`, `NO_COLOR` and `HUGINN_THEME` override it. |
-| `paint_background` | bool | `false` | Paint the theme background instead of keeping the terminal's. |
+| `theme` | `auto`, `light`, `dark`, `accessible`, `classic`, `none` | `auto` | `auto` asks the terminal for its background color and picks `light` or `dark`. If the terminal does not answer, it uses `COLORFGBG` when set, else `dark`. `light` is for light terminal backgrounds and `dark` for dark ones. Both use fixed 256-color shades with readable contrast on common terminal palettes (VS Code, JetBrains, xterm, Solarized), whatever the terminal's own 16 colors. `accessible` keeps the terminal's 16 colors, `classic` is a k9s-like dark theme, and `none` uses no color. `--theme`, `NO_COLOR` and `HUGINN_THEME` override it. |
+| `paint_background` | bool | `false` | Paint the theme's own background (`light`: white, `dark`: near black) instead of keeping the terminal's. |
 | `key_bar` | `compact`, `full`, `hidden` | `compact` | Key bar at the bottom (`f2` cycles it). |
 | `keymap` | map action → keys | | Replaces all default keys of an action. The action names are those of the help screen (`?`) and the README; for example `follow`, `filter`, `columns_cycle`, `field_next`, `field_prev`, `field_keep` and `field_exclude` for filtering on a field from zoom, or `select`, `mark`, `copy`, `copy_raw` and `save` for copying and saving lines. |
 | `log_columns` | list | | Columns shown when a logs screen opens: `pod` and column names from `layouts/`. Without it, every visible column is shown and narrowed automatically. |

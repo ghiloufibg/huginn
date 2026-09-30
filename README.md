@@ -60,7 +60,7 @@ Flags
       --containers string containers the logs open on: app or all
       --config string     config folder (default: $HUGINN_CONFIG, else <user config dir>/huginn)
       --demo              synthetic cluster
-      --theme string      light, accessible, classic, none
+      --theme string      auto (from the terminal background), light, dark, accessible, classic, none
       --log-level string  write a diagnostic log (debug, info, warn, error)
       --version
 ```

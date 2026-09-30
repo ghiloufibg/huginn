@@ -76,9 +76,11 @@
       "type": "object"
     },
     "theme": {
-      "description": "Color theme. Default light.",
+      "description": "Color theme. auto picks light or dark from the terminal's background (asked to the terminal, else COLORFGBG, else dark). Default auto.",
       "enum": [
+        "auto",
         "light",
+        "dark",
         "accessible",
         "classic",
         "none"

@@ -43,7 +43,7 @@ func applyDefaults(c *Config) {
 	}
 	h.ReposRoot = ExpandHome(h.ReposRoot)
 	if c.UI.Theme == "" {
-		c.UI.Theme = "light"
+		c.UI.Theme = "auto"
 	}
 	if c.UI.KeyBar == "" {
 		c.UI.KeyBar = "compact"

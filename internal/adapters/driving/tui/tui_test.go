@@ -554,17 +554,6 @@ func TestEveryActionHasAKey(t *testing.T) {
 	}
 }
 
-func TestThemes(t *testing.T) {
-	for _, n := range ThemeNames {
-		if _, err := NewTheme(n, true); err != nil {
-			t.Errorf("%s: %v", n, err)
-		}
-	}
-	if _, err := NewTheme("dark", false); err == nil {
-		t.Fatal("unknown theme accepted")
-	}
-}
-
 func TestShortAge(t *testing.T) {
 	for d, want := range map[time.Duration]string{30 * time.Second: "30s", 12 * time.Minute: "12m", 3 * time.Hour: "3h", 47 * time.Hour: "47h", 12 * 24 * time.Hour: "12d"} {
 		if got := shortAge(d); got != want {

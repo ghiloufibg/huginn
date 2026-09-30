@@ -78,6 +78,10 @@ type Options struct {
 	// Mouse reads the mouse (ui.yaml mouse); false leaves it to the
 	// terminal's own selection.
 	Mouse bool
+	// AutoTheme asks the terminal its background color and switches Theme
+	// to light or dark accordingly; PaintBackground is ui.yaml's.
+	AutoTheme       bool
+	PaintBackground bool
 }
 
 // screen is one page of the UI. The root model routes messages to the
@@ -173,7 +177,32 @@ func NewModel(o Options) *Model {
 }
 
 // Init implements tea.Model.
-func (m *Model) Init() tea.Cmd { return tea.Batch(m.startWatch(), m.schedule()) }
+func (m *Model) Init() tea.Cmd {
+	cmds := []tea.Cmd{m.startWatch(), m.schedule()}
+	if m.opts.AutoTheme {
+		cmds = append(cmds, tea.RequestBackgroundColor)
+	}
+	return tea.Batch(cmds...)
+}
+
+// adaptTheme switches an auto theme to the terminal's background, light or
+// dark. A terminal that does not answer keeps the guess of bootstrap.
+func (m *Model) adaptTheme(msg tea.BackgroundColorMsg) {
+	if !m.opts.AutoTheme {
+		return
+	}
+	name := "light"
+	if msg.IsDark() {
+		name = "dark"
+	}
+	if name == m.opts.Theme.Name {
+		return
+	}
+	if t, err := NewTheme(name, m.opts.PaintBackground); err == nil {
+		m.opts.Theme = t
+		m.inks = nil // inks are painted with the old theme
+	}
+}
 
 func (m *Model) startWatch() tea.Cmd {
 	if m.cancel != nil {
@@ -265,6 +294,9 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		return tea.Batch(m.broadcast(msg), waitSnapshot(msg.gen, msg.ch))
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
+	case tea.BackgroundColorMsg:
+		m.adaptTheme(msg)
+		return nil
 	case clipboardDoneMsg:
 		m.clipboardDone(msg)
 		return nil

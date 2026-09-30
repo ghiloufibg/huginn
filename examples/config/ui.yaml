@@ -2,7 +2,7 @@
 # Personal display choices. Reference: docs/CONFIG.md#uiyaml
 version: 1
 
-theme: light                   # light | accessible | classic | none
+theme: auto                    # auto (from the terminal background) | light | dark | accessible | classic | none
 key_bar: compact               # compact | full | hidden
 keymap: {}                     # e.g. { follow: [f, ctrl+l] }
 

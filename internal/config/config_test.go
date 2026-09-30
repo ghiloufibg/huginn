@@ -54,7 +54,7 @@ func TestMinimalFolderLoadsWithNeutralDefaults(t *testing.T) {
 	if strings.Join(c.Environments.Names, ",") != "rec,prd" {
 		t.Fatalf("environments keep file order: %v", c.Environments.Names)
 	}
-	if c.Huginn.Windows.Default != "15m" || c.Huginn.Windows.HeadLines != 500 || c.Huginn.Logs.BufferLines != 50000 || c.UI.Theme != "light" {
+	if c.Huginn.Windows.Default != "15m" || c.Huginn.Windows.HeadLines != 500 || c.Huginn.Logs.BufferLines != 50000 || c.UI.Theme != "auto" {
 		t.Fatalf("defaults: %+v %+v", c.Huginn, c.UI)
 	}
 	l := c.Layouts["basic"]

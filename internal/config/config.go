@@ -136,7 +136,7 @@ type Containers struct {
 // UI is ui.yaml: personal display choices.
 type UI struct {
 	Version         int                 `yaml:"version" doc:"Structure version of this file; must be 1." required:"true"`
-	Theme           string              `yaml:"theme" doc:"Color theme. Default light." enum:"light,accessible,classic,none"`
+	Theme           string              `yaml:"theme" doc:"Color theme. auto picks light or dark from the terminal's background (asked to the terminal, else COLORFGBG, else dark). Default auto." enum:"auto,light,dark,accessible,classic,none"`
 	PaintBackground bool                `yaml:"paint_background" doc:"Paint the theme background instead of using the terminal's."`
 	KeyBar          string              `yaml:"key_bar" doc:"Key bar at the bottom. Default compact." enum:"compact,full,hidden"`
 	Keymap          map[string][]string `yaml:"keymap" doc:"Action name to keys, replacing the default keys of that action, e.g. {follow: [f, ctrl+l]}."`

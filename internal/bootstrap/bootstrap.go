@@ -168,7 +168,12 @@ func Build(o cli.Options, e Env, log *slog.Logger) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	theme, err := tui.NewTheme(ResolveTheme(o.Theme, e.Getenv, c), c.UI.PaintBackground)
+	themeName := ResolveTheme(o.Theme, e.Getenv, c)
+	auto := themeName == "auto"
+	if auto {
+		themeName = BackgroundGuess(e.Getenv) // the TUI asks the terminal and switches (D-051)
+	}
+	theme, err := tui.NewTheme(themeName, c.UI.PaintBackground)
 	if err != nil {
 		return nil, err
 	}
@@ -201,6 +206,7 @@ func Build(o cli.Options, e Env, log *slog.Logger) (*App, error) {
 			ClipboardOSC52: c.UI.Clipboard == "auto" || c.UI.Clipboard == "osc52",
 			Clipboard:      systemClipboard(c.UI.Clipboard), CopyMaxBytes: c.UI.Copy.MaxBytes,
 			Files: filesink.Dir{Path: c.UI.Save.Dir}, Redactor: redactor, Mouse: c.UI.Mouse == nil || *c.UI.Mouse,
+			AutoTheme: auto, PaintBackground: c.UI.PaintBackground,
 		},
 	}, nil
 }

@@ -58,7 +58,7 @@ func NewRootCommand(h Handlers, version string) *cobra.Command {
 	f.StringVar(&o.Containers, "containers", "", "containers the logs open on: app (application) or all (sidecars too); default from containers.yaml")
 	f.StringVar(&o.ConfigPath, "config", "", "config folder (default: $HUGINN_CONFIG, else <user config dir>/huginn); see docs/CONFIG.md")
 	f.BoolVar(&o.Demo, "demo", false, "use a synthetic in-memory cluster and, without --config, the embedded example folder")
-	f.StringVar(&o.Theme, "theme", "", "color theme: light, accessible, classic or none (NO_COLOR forces none)")
+	f.StringVar(&o.Theme, "theme", "", "color theme: auto (from the terminal's background), light, dark, accessible, classic or none (NO_COLOR forces none)")
 	f.StringVar(&o.LogLevel, "log-level", "", "write Huginn's diagnostic log at this level (debug, info, warn, error)")
 	root.SetVersionTemplate("huginn {{.Version}}\n")
 	return root

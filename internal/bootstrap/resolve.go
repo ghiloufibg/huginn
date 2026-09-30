@@ -42,6 +42,21 @@ func ResolveTheme(flag string, getenv func(string) string, c *config.Config) str
 	return firstNonEmpty(getenv(EnvTheme), c.UI.Theme)
 }
 
+// BackgroundGuess is the theme auto starts with, before the terminal
+// answers the background-color query: COLORFGBG ("fg;bg", set by rxvt,
+// Konsole, iTerm2 and others) tells a light background by a bg of 7 or 15;
+// otherwise dark, the more common terminal background.
+func BackgroundGuess(getenv func(string) string) string {
+	v := getenv("COLORFGBG")
+	if i := strings.LastIndex(v, ";"); i >= 0 {
+		switch v[i+1:] {
+		case "7", "15":
+			return "light"
+		}
+	}
+	return "dark"
+}
+
 func firstNonEmpty(xs ...string) string {
 	for _, x := range xs {
 		if x != "" {

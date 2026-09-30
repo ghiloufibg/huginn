@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"image/color"
+	"strings"
 
 	"charm.land/lipgloss/v2"
 
@@ -40,17 +41,23 @@ type Theme struct {
 	Pods []lipgloss.Style
 }
 
-// ThemeNames lists the available themes.
-var ThemeNames = []string{"light", "accessible", "classic", "none"}
+// ThemeNames lists the available themes. "auto" is resolved to light or
+// dark from the terminal's background (bootstrap, then the TUI when the
+// terminal answers).
+var ThemeNames = []string{"auto", "light", "dark", "accessible", "classic", "none"}
 
-// NewTheme returns the named theme. The light and accessible themes use the
-// 16 base ANSI colors only, so the user's terminal palette decides the
-// exact shades and any terminal can display them.
+// NewTheme returns the named theme. light and dark take their colors from
+// the fixed 256-color palette (D-051): the 16 base ANSI colors differ too
+// much between terminals (ANSI white is #e5e5e5 in xterm and #555555 in
+// VS Code's light terminal) for backgrounds and dim text to stay readable.
+// accessible keeps the 16 base colors, so the user's palette decides.
 func NewTheme(name string, paintBackground bool) (Theme, error) {
 	var t Theme
 	switch name {
 	case "light":
-		t = ansiTheme(lipgloss.Black, lipgloss.White, lipgloss.Magenta)
+		t = paletteTheme(lightPalette)
+	case "dark":
+		t = paletteTheme(darkPalette)
 	case "accessible":
 		t = ansiTheme(lipgloss.BrightWhite, lipgloss.BrightBlack, lipgloss.Yellow)
 		t.Selected = lipgloss.NewStyle().Background(lipgloss.Blue).Foreground(lipgloss.BrightWhite)
@@ -59,13 +66,111 @@ func NewTheme(name string, paintBackground bool) (Theme, error) {
 	case "none":
 		t = monoTheme()
 	default:
-		return Theme{}, fmt.Errorf("unknown theme %q (available: light, accessible, classic, none)", name)
+		return Theme{}, fmt.Errorf("unknown theme %q (available: %s)", name, strings.Join(ThemeNames, ", "))
 	}
 	t.Name = name
-	if paintBackground && name == "light" {
-		t.Body = t.Body.Background(lipgloss.BrightWhite).Foreground(lipgloss.Black)
+	if paintBackground {
+		switch name {
+		case "light":
+			t.Body = t.Body.Background(lightPalette.bg).Foreground(lightPalette.text)
+		case "dark":
+			t.Body = t.Body.Background(darkPalette.bg).Foreground(darkPalette.text)
+		}
 	}
 	return t, nil
+}
+
+// palette is the colors of a theme for one kind of terminal background.
+// Every text color is chosen for its contrast on that background (checked
+// by TestThemeContrast), every background for the text drawn on it.
+type palette struct {
+	bg, text                 color.Color // the background assumed, the main text
+	dim, bar, barText, crumb color.Color // secondary text; header and status bars
+	chip, chipText           color.Color // mode chips (SERVICES, SELECT, TRACE)
+	ok, warn, bad, info      color.Color // meanings: healthy, degraded, failing, rolling
+	accent                   color.Color // keys, brand, env tag, gutter
+	logger, pid, errText     color.Color // log roles
+	selected, selectedText   color.Color // the cursor row
+	match, matchText         color.Color // text-filter matches
+	prod, prodText           color.Color // production bars and chips
+	onColor                  color.Color // text on the ok, warn and accent chips
+	pods                     []color.Color
+}
+
+// c is a color of the 256-color palette, the same in every terminal.
+func c(n uint8) color.Color { return lipgloss.ANSIColor(n) }
+
+// lightPalette is for terminals with a light background.
+var lightPalette = palette{
+	bg: c(231), text: c(235),
+	dim: c(242), bar: c(254), barText: c(235), crumb: c(241),
+	chip: c(238), chipText: c(231),
+	ok: c(22), warn: c(94), bad: c(160), info: c(25),
+	accent: c(25), logger: c(23), pid: c(127), errText: c(124),
+	selected: c(153), selectedText: c(16),
+	match: c(222), matchText: c(16),
+	prod: c(160), prodText: c(231), onColor: c(231),
+	pods: []color.Color{c(25), c(127), c(23), c(22), c(94), c(91)},
+}
+
+// darkPalette is for terminals with a dark background.
+var darkPalette = palette{
+	bg: c(234), text: c(252),
+	dim: c(246), bar: c(237), barText: c(252), crumb: c(248),
+	chip: c(252), chipText: c(234),
+	ok: c(114), warn: c(214), bad: c(203), info: c(75),
+	accent: c(75), logger: c(80), pid: c(176), errText: c(210),
+	selected: c(24), selectedText: c(231),
+	match: c(178), matchText: c(16),
+	prod: c(160), prodText: c(231), onColor: c(16),
+	pods: []color.Color{c(75), c(176), c(80), c(114), c(215), c(141)},
+}
+
+// paletteTheme builds a theme from a palette.
+func paletteTheme(p palette) Theme {
+	s := lipgloss.NewStyle
+	chip := s().Bold(true).Padding(0, 1)
+	pods := make([]lipgloss.Style, len(p.pods))
+	for i, col := range p.pods {
+		pods[i] = s().Bold(true).Foreground(col)
+	}
+	return Theme{
+		Header:       s().Background(p.bar).Foreground(p.barText),
+		HeaderProd:   s().Background(p.prod).Foreground(p.prodText),
+		Brand:        s().Bold(true).Foreground(p.accent),
+		BrandProd:    s().Bold(true).Foreground(p.prodText),
+		EnvTag:       chip.Background(p.accent).Foreground(p.onColor),
+		EnvTagProd:   chip.Background(p.prodText).Foreground(p.prod),
+		Crumb:        s().Foreground(p.crumb),
+		CrumbCurrent: s().Bold(true),
+		Status:       s().Background(p.bar).Foreground(p.barText),
+		StatusProd:   s().Background(p.bar).Foreground(p.bad),
+		Chip:         chip.Background(p.chip).Foreground(p.chipText),
+		ChipProd:     chip.Background(p.prod).Foreground(p.prodText),
+		ChipLive:     chip.Background(p.ok).Foreground(p.onColor),
+		ChipPaused:   chip.Background(p.warn).Foreground(p.onColor),
+		Key:          s().Bold(true).Foreground(p.accent),
+		Dim:          s().Foreground(p.dim),
+		Bold:         s().Bold(true),
+		Ok:           s().Foreground(p.ok),
+		Warn:         s().Bold(true).Foreground(p.warn),
+		Bad:          s().Bold(true).Foreground(p.bad),
+		Info:         s().Foreground(p.info),
+		Body:         s(),
+		Selected:     s().Background(p.selected).Foreground(p.selectedText),
+		TableHeader:  s().Bold(true).Foreground(p.dim),
+		Prompt:       chip.Background(p.chip).Foreground(p.chipText),
+		Popup:        s().Border(lipgloss.NormalBorder()).BorderForeground(p.dim).Padding(0, 1),
+		PopupTitle:   s().Bold(true).Foreground(p.accent),
+		Timestamp:    s().Foreground(p.dim),
+		Thread:       s().Foreground(p.dim),
+		Logger:       s().Foreground(p.logger),
+		PID:          s().Foreground(p.pid),
+		ErrorText:    s().Foreground(p.errText),
+		Stack:        s().Foreground(p.errText),
+		Highlight:    s().Background(p.match).Foreground(p.matchText).Underline(true),
+		Pods:         pods,
+	}
 }
 
 // ansiTheme builds a 16-color theme; fg is the text color used on bars,
