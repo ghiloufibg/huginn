@@ -4,7 +4,6 @@ import (
 	"path"
 	"regexp"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/ghiloufibg/huginn/internal/core/domain"
@@ -58,25 +57,12 @@ func (d *RegexDecoder) Decode(raw domain.RawLine) domain.LogEntry {
 			continue
 		}
 		v := m[i]
-		switch name {
-		case "time":
+		switch {
+		case name == "time":
 			if t, ok := d.time(v); ok {
 				e.Time = t
 			}
-		case "level":
-			e.Level, _ = domain.ParseLevelWith(v, d.p.LevelAliases)
-		case "logger":
-			e.Logger = v
-		case "thread":
-			e.Thread = strings.TrimSpace(v)
-		case "message":
-			e.Message = v
-		case "trace_id":
-			e.TraceID = v
-		case "app":
-			e.App = v
-		case "pid":
-			e.PID = v
+		case setField(&e, name, v, d.p.LevelAliases):
 		default:
 			if e.Fields == nil {
 				e.Fields = map[string]string{}

@@ -145,7 +145,7 @@
       "type": "object"
     },
     "hidden": {
-      "description": "json decoder: fields (globs on dotted paths) never shown on the stream, only in zoom metadata, e.g. [\"kubernetes.*\"].",
+      "description": "json decoder: fields (globs on dotted paths) never shown on the stream nor searched, only in the hidden fields of zoom, e.g. [\"kubernetes.*\"].",
       "items": {
         "type": "string"
       },
@@ -231,8 +231,15 @@
       "additionalProperties": {
         "additionalProperties": false,
         "properties": {
+          "pairs": {
+            "description": "Groups of pattern holding key=value text, e.g. [before, after]: each key=value becomes a field; empty values are left out.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "pattern": {
-            "description": "Go regular expression with a group named after the field, e.g. (?P\u003cmessage\u003e…): when it matches, the group becomes the field's value; otherwise the value is kept. Use (?:…) for the other parts.",
+            "description": "Go regular expression with a group named after the field, e.g. (?P\u003cmessage\u003e…): when it matches, the group becomes the field's value; otherwise nothing changes. Other named groups become fields of the line (standard ones fill their field when the JSON left it empty); time and stack groups are not allowed.",
             "type": "string"
           }
         },
@@ -241,7 +248,7 @@
         ],
         "type": "object"
       },
-      "description": "json decoder: keep part of a standard field's value, by field, e.g. {message: {pattern: '- (?P\u003cmessage\u003e.*?) -'}}.",
+      "description": "json decoder: keep part of a standard field's value and extract fields from it, by field, e.g. {message: {pattern: '- (?P\u003cmessage\u003e.*?) -'}}.",
       "propertyNames": {
         "enum": [
           "message",

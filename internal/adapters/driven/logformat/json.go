@@ -45,7 +45,32 @@ func (d *JSONDecoder) Decode(raw domain.RawLine) domain.LogEntry {
 	}
 	e := domain.LogEntry{Pod: raw.Pod, Container: raw.Container, Raw: raw.Text, Structured: true, Time: raw.Time, Format: d.p.Name}
 	var usedBuf [16]string
-	used := usedBuf[:0]
+	used := d.standard(&e, root, usedBuf[:0])
+	extracted := transform(&e, d.p.Transforms, d.p.LevelAliases)
+	var hasHidden bool
+	e.Fields, hasHidden = d.rest(root, used)
+	for _, f := range extracted {
+		switch {
+		case lookup(root, f.key) != nil: // a JSON key wins over extracted text
+		case d.hidden(f.key):
+			hasHidden = true
+		default:
+			if e.Fields == nil {
+				e.Fields = map[string]string{}
+			}
+			e.Fields[f.key] = f.value
+		}
+	}
+	if hasHidden {
+		raw := text
+		e.LoadHidden = func() map[string]string { return d.hiddenOf(raw) }
+	}
+	return e
+}
+
+// standard reads the standard fields of the profile from root into e and
+// returns used with the paths it read appended.
+func (d *JSONDecoder) standard(e *domain.LogEntry, root *fastjson.Value, used []string) []string {
 	take := func(paths []string) *fastjson.Value {
 		for _, p := range paths {
 			if v := lookup(root, p); v != nil {
@@ -71,14 +96,7 @@ func (d *JSONDecoder) Decode(raw domain.RawLine) domain.LogEntry {
 	}
 	e.Logger, e.Thread, e.Message = str(d.p.Logger), str(d.p.Thread), str(d.p.Message)
 	e.Stack, e.TraceID, e.App, e.PID = str(d.p.Stack), str(d.p.TraceID), str(d.p.App), str(d.p.PID)
-	transform(&e, d.p.Transforms)
-	var hasHidden bool
-	e.Fields, hasHidden = d.rest(root, used)
-	if hasHidden {
-		raw := text
-		e.LoadHidden = func() map[string]string { return d.hiddenOf(raw) }
-	}
-	return e
+	return used
 }
 
 // rest flattens the visible fields not consumed by the profile. Hidden
@@ -139,6 +157,16 @@ func (d *JSONDecoder) hiddenOf(raw string) map[string]string {
 			out[k] = stringify(v)
 		}
 	})
+	if len(d.p.Transforms) > 0 {
+		var e domain.LogEntry
+		var usedBuf [16]string
+		d.standard(&e, root, usedBuf[:0])
+		for _, f := range transform(&e, d.p.Transforms, d.p.LevelAliases) {
+			if d.hidden(f.key) && lookup(root, f.key) == nil {
+				out[f.key] = f.value
+			}
+		}
+	}
 	return out
 }
 

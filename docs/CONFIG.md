@@ -270,7 +270,7 @@ layout: spring
 | Key | Type | Req. | Meaning |
 |---|---|---|---|
 | `fields.<field>` | paths | `message` is | Where each **standard field** is. Candidates are tried in order and the first one present wins. A path is first looked up as a key (`log.level` as one key), then as a walk into nested objects (`log` → `level`). |
-| `hidden` | list of globs | | Fields never shown on the stream, only in the zoom view's metadata section. Typical use: the Kubernetes metadata your log agent adds. |
+| `hidden` | list of globs | | Fields never shown on the stream, only in the zoom view's hidden fields section (`enter`), and not searched. Typical use: the Kubernetes metadata your log agent adds. |
 
 The standard fields are:
 
@@ -297,29 +297,47 @@ Every other field of the object stays available:
 - text filters search it (`key=value`);
 - layouts can draw it with `{field:<path>}`, where `<path>` is its dotted path, for example `http.status`.
 
-#### `transform`: keep part of a field
+#### `transform`: context inside a field
 
-Some logging stacks write context **into the text** of a field instead of in separate keys, for example a Logback MDC pattern giving `route=/v1/orders method=POST correlation-id= - Order created - user_id= request_id=`. A `transform` keeps only the part you want on the stream:
+Some logging stacks write context **into the text** of a field instead of in separate keys, for example a Logback MDC pattern giving `route=/v1/orders method=POST correlation-id=c1 - Order created - user_id= request_id=r1`. A `transform` reads such a field with a regular expression. It keeps only the part you want on the stream and turns the rest into fields of the line:
 
 ```yaml
 transform:
   message:
-    pattern: '^(?:[\w.-]+=\S*\s+)*-\s+(?P<message>.*?)\s+-\s+(?:[\w.-]+=\S*\s*)*$'
+    pattern: '^(?P<before>(?:[\w.-]+=\S*\s+)*)-\s+(?P<message>.*?)\s+-\s+(?P<after>(?:[\w.-]+=\S*\s*)*)$'
+    pairs: [before, after]
 ```
+
+With this transform, the stream shows `Order created`. The line gets the fields `route`, `method`, `correlation-id` and `request_id`. `user_id` is left out because its value is empty.
 
 | Key | Type | Req. | Meaning |
 |---|---|---|---|
-| `transform.<field>` | map | | The standard field to transform: `message`, `logger`, `thread`, `trace_id`, `app` or `pid`. It must be mapped in `fields`. |
-| `transform.<field>.pattern` | string | yes | A Go regular expression with **one named group, named after the field** (`(?P<message>…)`). Write the other parts as `(?:…)`. |
+| `transform.<field>` | map | | The standard field to read: `message`, `logger`, `thread`, `trace_id`, `app` or `pid`. It must be mapped in `fields`. |
+| `transform.<field>.pattern` | string | yes | A Go regular expression with **a group named after the field** (`(?P<message>…)`). |
+| `transform.<field>.pairs` | list | | Groups of `pattern` holding `key=value` text. |
 
-How it works:
-- The pattern is applied to the field's value after the line is decoded. **When it matches, the group becomes the value**; the example above keeps `Order created`.
-- **When it does not match, the value is left as it is.** Lines without the context are shown unchanged, never as an error.
+When the pattern matches:
+- **The group named after the field becomes its value.** Write the parts you only want to drop as `(?:…)`.
+- **A group listed in `pairs`** is split on spaces. Each `key=value` becomes the field `key`, spelled as written (`{field:correlation-id}`). Keys never need to be listed, so a new key in the logs becomes a new field by itself. If one piece of the text is not `key=value`, the whole group is kept as one field named after the group. Values containing spaces need a named group.
+- **Another named group** becomes a field: `route=(?P<route>\S*)` gives the field `route`. Capture the value, not the `route=` before it.
+- **A group named like a standard field** (`level`, `logger`, `thread`, `trace_id`, `app`, `pid`) fills that field when the JSON left it empty. For example, `correlation-id=(?P<trace_id>\S*)` makes the correlation id the trace id. `time` and `stack` groups are not allowed.
+
+Rules:
+- **Empty values are left out**, so `user_id=` adds no field.
+- **A JSON key wins** over an extracted field of the same name. Between groups, named groups come first, then `pairs` in list order, and the first one wins.
+- **When the pattern does not match, nothing changes.** Lines without the context are shown unchanged, never as an error.
 - **Nothing is lost:** the raw view of zoom (`p`) shows the original line.
-- **Text filters search the new value.** The removed parts are no longer found by `/`, for example `correlation-id=…`.
+- Extracted fields are like the other fields of the object:
+  - zoom lists them;
+  - text filters search them (`correlation-id=c1`);
+  - layouts can draw them;
+  - `hidden` applies to them.
+
+  They are never drawn on the stream unless a layout column names them, so they do not need to be hidden to keep lines short. Hiding them also takes them out of text search.
+- **Without `pairs` or other named groups, the removed parts leave text search.** They stay in the raw view.
 - Several transforms apply in the order `message`, `logger`, `thread`, `trace_id`, `app`, `pid`. Each one reads its own field only.
 - Lines that are not JSON are not transformed.
-- Cost: about 5 µs per transformed line for a pattern like the one above. Give a transformed format a `match` so other containers do not pay it.
+- **Cost:** about 5 µs per transformed line to strip, and about 8 µs with `pairs`, for a context of 13 keys. Give a transformed format a `match` so other containers do not pay it.
 
 ### `decoder: regex`: text lines
 

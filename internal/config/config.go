@@ -152,8 +152,8 @@ type Format struct {
 	Match      Match                `yaml:"match" doc:"Containers read with this format. Formats are tried in file name order; the first match wins. No match section: every container."`
 	Fields     FieldMap             `yaml:"fields" doc:"json decoder: where each standard field is, as candidate JSON paths (first present wins; dots walk into objects)."`
 	Levels     map[string]Paths     `yaml:"levels" doc:"Extra spellings of each level in these logs (case ignored), e.g. {error: [\"50\", FATAL]}. Common spellings are known already." keys:"error,warn,info,debug"`
-	Hidden     []string             `yaml:"hidden" doc:"json decoder: fields (globs on dotted paths) never shown on the stream, only in zoom metadata, e.g. [\"kubernetes.*\"]."`
-	Transform  map[string]Transform `yaml:"transform" doc:"json decoder: keep part of a standard field's value, by field, e.g. {message: {pattern: '- (?P<message>.*?) -'}}." keys:"message,logger,thread,trace_id,app,pid"`
+	Hidden     []string             `yaml:"hidden" doc:"json decoder: fields (globs on dotted paths) never shown on the stream nor searched, only in the hidden fields of zoom, e.g. [\"kubernetes.*\"]."`
+	Transform  map[string]Transform `yaml:"transform" doc:"json decoder: keep part of a standard field's value and extract fields from it, by field, e.g. {message: {pattern: '- (?P<message>.*?) -'}}." keys:"message,logger,thread,trace_id,app,pid"`
 	Pattern    string               `yaml:"pattern" doc:"regex decoder: Go regular expression with named groups; time, level, logger, thread, message, trace_id, app and pid are standard fields, other groups become extra fields. message is required."`
 	TimeFormat string               `yaml:"time_format" doc:"regex decoder: Go reference layout of the time group, e.g. 02/Jan/2006:15:04:05 -0700. Default RFC 3339."`
 	LevelFrom  LevelFrom            `yaml:"level_from" doc:"regex decoder: derive the level from another group, e.g. the HTTP status."`
@@ -179,9 +179,11 @@ type FieldMap struct {
 	PID     Paths `yaml:"pid" doc:"Process id."`
 }
 
-// Transform keeps part of the value of a standard field of a json format.
+// Transform reads the value of a standard field of a json format with a
+// regular expression: it keeps part of the value and extracts fields.
 type Transform struct {
-	Pattern string `yaml:"pattern" doc:"Go regular expression with a group named after the field, e.g. (?P<message>…): when it matches, the group becomes the field's value; otherwise the value is kept. Use (?:…) for the other parts." required:"true"`
+	Pattern string   `yaml:"pattern" doc:"Go regular expression with a group named after the field, e.g. (?P<message>…): when it matches, the group becomes the field's value; otherwise nothing changes. Other named groups become fields of the line (standard ones fill their field when the JSON left it empty); time and stack groups are not allowed." required:"true"`
+	Pairs   []string `yaml:"pairs" doc:"Groups of pattern holding key=value text, e.g. [before, after]: each key=value becomes a field; empty values are left out."`
 }
 
 // byName returns the paths of a standard field by its YAML name, and

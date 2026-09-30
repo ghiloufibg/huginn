@@ -20,7 +20,7 @@ type zoomScreen struct {
 	logs     *logsScreen
 	seq      uint64
 	raw      bool // pretty JSON instead of the structured view
-	metadata bool // Kubernetes metadata expanded
+	metadata bool // hidden fields expanded
 	offset   int
 	height   int
 }
@@ -174,12 +174,12 @@ func (z *zoomScreen) structured(m *Model, e *domain.LogEntry) []string {
 	out = append(out, "")
 	if hidden := e.HiddenFields(); len(hidden) > 0 {
 		if z.metadata {
-			out = append(out, sec("KUBERNETES METADATA", fmt.Sprintf("   %d fields · enter to collapse", len(hidden))))
+			out = append(out, sec("HIDDEN FIELDS", fmt.Sprintf("   %d fields · enter to collapse", len(hidden))))
 			for _, k := range sortedKeys(hidden) {
 				out = append(out, "   "+t.Dim.Render(fmt.Sprintf("%-32s", k))+hidden[k])
 			}
 		} else {
-			out = append(out, t.Dim.Render(fmt.Sprintf(" [+] kubernetes metadata   %d fields · enter to expand", len(hidden))))
+			out = append(out, t.Dim.Render(fmt.Sprintf(" [+] hidden fields   %d fields · enter to expand", len(hidden))))
 		}
 	}
 	return out
@@ -262,7 +262,7 @@ func (z *zoomScreen) statusLeft(m *Model) string {
 func (z *zoomScreen) hints(m *Model) []hint {
 	return []hint{
 		m.pair(ActNextEntry, ActPrevEntry, "next/prev entry"), m.pair(ActDown, ActUp, "scroll"), m.h(ActJSONView, "raw json"),
-		m.h(ActOpen, "metadata"), m.h(ActBack, "back"), m.h(ActHelp, "help"),
+		m.h(ActOpen, "hidden fields"), m.h(ActBack, "back"), m.h(ActHelp, "help"),
 	}
 }
 

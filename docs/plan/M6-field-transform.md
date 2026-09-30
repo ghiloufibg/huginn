@@ -1,4 +1,4 @@
-# M6 — Field transforms: context baked into a JSON field's text  (status: M6.1 done, M6.2 design)
+# M6 — Field transforms: context baked into a JSON field's text  (status: done)
 
 Some logging stacks write their request context **inside the text** of a JSON field instead of in separate keys. A typical case is an MDC pattern of the form `<prefix> - <message> - <suffix>`:
 

@@ -247,11 +247,20 @@ func TestTransform(t *testing.T) {
 		t.Fatalf("transform: %q", got)
 	}
 
+	fsys["formats/app.yaml"].Data = []byte("version: 1\ndecoder: json\nfields: {message: msg}\ntransform:\n  message:\n    pattern: '^route=(?P<route>\\S*) (?P<ctx>.*?) - (?P<message>.*)'\n    pairs: [ctx]\nlayout: basic\n")
+	c, msg = load(t, fsys)
+	if msg != "" {
+		t.Fatal(msg)
+	}
+	if got := c.Formats[0].Transform["message"].Pairs; len(got) != 1 || got[0] != "ctx" {
+		t.Fatalf("pairs: %v", got)
+	}
+
 	fsys["formats/app.yaml"].Data = []byte(`version: 1
 decoder: json
 fields: {message: msg}
 transform:
-  message: {pattern: '(?P<route>\S+) - (?P<message>.*)'}
+  message: {pattern: '(?P<a>\S+) (?P<a>\S+) (?P<time>\S+) - (?P<message>.*)', pairs: [a, b, message]}
   logger: {pattern: '(?P<logger>\S+'}
   thread: {pattern: '(?P<name>.*)'}
   time: {pattern: '(?P<time>.*)'}
@@ -261,11 +270,13 @@ layout: basic
 	fsys["formats/web.yaml"] = &fstest.MapFile{Data: []byte("version: 1\ndecoder: regex\npattern: '(?P<message>.*)'\ntransform: {message: {pattern: '(?P<message>.*)'}}\nlayout: basic\n")}
 	_, msg = load(t, fsys)
 	wantErrors(t, msg,
-		`formats/app.yaml:5:13  transform.message.pattern: named group "route": only (?P<message>…) is allowed; use (?:…) for the other parts`,
+		`formats/app.yaml:5:13  transform.message.pattern: group "a" is named twice`,
+		`transform.message.pattern: group "time": time and stack cannot be set by a transform`,
+		`transform.message.pairs[1]: "b" is not a group of pattern`,
+		`transform.message.pairs[2]: "message" is a standard field, not a group of key=value text`,
 		"formats/app.yaml:6:12  transform.logger.pattern: invalid regular expression",
 		"transform.logger: fields.logger is not mapped",
 		"transform.thread.pattern: missing group (?P<thread>…)",
-		`named group "name": only (?P<thread>…) is allowed`,
 		`transform.time: "time" is not one of: message, logger, thread, trace_id, app, pid`,
 		`transform.app: missing required key "pattern"`,
 		"formats/web.yaml:4:1  transform: transform is for the json decoder",

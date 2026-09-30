@@ -94,12 +94,13 @@ func TestDemoLogsAreOrderedAppOnlyAndDecoded(t *testing.T) {
 	}
 }
 
-// TestDemoTransformStripsContext reads the demo repository whose messages
-// carry an MDC context with the example format that strips it.
-func TestDemoTransformStripsContext(t *testing.T) {
+// TestDemoTransformExtractsContext reads the demo repository whose messages
+// carry an MDC context with the example format that strips it and turns
+// its key=value pairs into fields.
+func TestDemoTransformExtractsContext(t *testing.T) {
 	r := openDemoRepoLogs(t, "order-orchestrator", ports.LogQuery{Window: domain.TimeWindow{Since: 15 * time.Minute}})
 	r.until(10*time.Millisecond, func() bool { return r.history })
-	var app int
+	var withContext, requests int
 	for _, e := range r.entries {
 		if !e.Structured {
 			continue // startup banner
@@ -110,12 +111,22 @@ func TestDemoTransformStripsContext(t *testing.T) {
 		if strings.Contains(e.Message, "correlation-id=") {
 			t.Fatalf("context left in the message: %q", e.Message)
 		}
-		if strings.Contains(e.Raw, "process_instance_id=") {
-			app++
+		if !strings.Contains(e.Raw, "process_instance_id=") {
+			continue
+		}
+		withContext++
+		if _, ok := e.Fields["user_id"]; ok {
+			t.Fatalf("empty values are left out: %v", e.Fields)
+		}
+		if e.TraceID != "" {
+			requests++
+			if e.Fields["correlation-id"] != e.TraceID[:16] || e.Fields["route"] != "/v1/orders" || e.Fields["http_status"] == "" {
+				t.Fatalf("context fields of a request: %v", e.Fields)
+			}
 		}
 	}
-	if app < 50 {
-		t.Fatalf("only %d lines with a context", app)
+	if withContext < 50 || requests < 10 {
+		t.Fatalf("only %d lines with a context, %d requests", withContext, requests)
 	}
 }
 

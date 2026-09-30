@@ -360,8 +360,18 @@ Status: accepted.
 ## D-041 Field transforms: strip (M6.1)
 - **A regular expression on a decoded field, in the JSON decoder.** Context written into a field's text (a Logback MDC pattern such as `key=value… - message - key=value…`) is a decoding concern: `transform.<field>.pattern` runs in `logformat` after the standard fields are read. The core does not change. `decoder: regex` was rejected, because it would re-parse the whole JSON line with one pattern.
 - **One group named after the field** is the new value. No match leaves the value unchanged, as "lines a format cannot parse keep their text". Only text fields can be transformed (`message`, `logger`, `thread`, `trace_id`, `app`, `pid`): `time` and `level` are parsed values, and `stack` is multi-line and large.
-- **Other named groups are rejected for now**, so M6.2 (extracting them as fields, `pairs`) can give them a meaning without changing folders written for M6.1.
+- **Other named groups were rejected in M6.1**, so M6.2 could give them a meaning without changing the folders written for M6.1 (D-042).
 - **Fixed order** (message, logger, thread, trace_id, app, pid), whatever the order of the file.
 - **Search follows the shown value**: the stripped parts leave text search and stay in the raw view. M6.2 brings them back as fields.
 - **Cost**: Go's `regexp` runs in linear time, with no backtracking blow-up. The 13-key MDC line costs about +5 µs per line (2.3 µs → 7.6 µs to decode), all of it in the regexp engine. This is acceptable for a TUI buffer (50 000 lines ≈ 0.25 s), and a `match` keeps other containers free of it.
+Status: accepted.
+
+## D-042 Field transforms: extract (M6.2)
+- **`pairs` instead of a key list.** A group listed in `pairs` is split into `key=value` fields, with keys spelled as written. The MDC keys of a logging stack are open-ended (a service adds one, another drops one), so neither the code nor the config lists them. A group that is not entirely `key=value` is kept whole as one field named after the group, so nothing is dropped. Values containing spaces need a named group.
+- **Other named groups become fields**, as in `decoder: regex`. A group named like a standard field fills it **only when the JSON left it empty**, since an explicit key is more reliable than text. `time` and `stack` groups are rejected, as are duplicate group names.
+- **Empty values are left out.** A context of 13 mostly empty keys would otherwise add 13 empty rows to zoom and `key=` noise to search. The raw view keeps them.
+- **A JSON key wins** over an extracted field of the same name, like "repeated keys: the first occurrence wins". Between extracted fields, named groups come first, then `pairs` in list order.
+- **Extracted fields are ordinary fields**: searchable, drawable, and subject to `hidden`. The lazy hidden-field loader runs the transforms again. They are never drawn on the stream unless a layout names them, so hiding them is never needed for a compact line.
+- **The zoom section "KUBERNETES METADATA" is now "HIDDEN FIELDS"** (key bar: `enter hidden fields`). It always held whatever `hidden` matched, and with transforms that includes fields that do not come from Kubernetes.
+- **Cost**: `pairs` on the 13-key line decodes in about 10.5 µs instead of 2.3 µs. The JSON decode path without transforms is unchanged, with the same allocations.
 Status: accepted.

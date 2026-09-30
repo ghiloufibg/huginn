@@ -21,12 +21,15 @@ fields:
   app:      [app, application, service.name]
   pid:      [pid, process.pid]
 
-# Keep only the text between the " - " separators on the stream; the zoom
-# raw view (p) keeps the whole message. Lines without the context are left
-# as they are.
+# Keep only the text between the " - " separators on the stream, and turn
+# every key=value of the context into a field of the line: zoom lists them,
+# text filters search them (correlation-id=…), layouts can draw them
+# ({field:route}). Empty values are left out; the zoom raw view (p) keeps
+# the whole message. Lines without the context are left as they are.
 transform:
   message:
-    pattern: '^(?:[\w.-]+=\S*\s+)*-\s+(?P<message>.*?)\s+-\s+(?:[\w.-]+=\S*\s*)*$'
+    pattern: '^(?P<before>(?:[\w.-]+=\S*\s+)*)-\s+(?P<message>.*?)\s+-\s+(?P<after>(?:[\w.-]+=\S*\s*)*)$'
+    pairs: [before, after]
 
 hidden:
   - "kubernetes.*"

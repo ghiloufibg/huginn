@@ -2,9 +2,12 @@ package logformat
 
 import (
 	"encoding/json"
+	"maps"
 	"regexp"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/ghiloufibg/huginn/internal/core/domain"
 )
 
 // mdc strips a "key=value… - message - key=value…" context around the
@@ -67,16 +70,123 @@ func TestTransformKeepsValidUTF8(t *testing.T) {
 	}
 }
 
+// mdcPairs keeps the message and turns its context into fields.
+var mdcPairs = FieldTransform{
+	Field:   "message",
+	Pattern: regexp.MustCompile(`^(?P<before>(?:[\w.-]+=\S*\s+)*)-\s+(?P<message>.*?)\s+-\s+(?P<after>(?:[\w.-]+=\S*\s*)*)$`),
+	Pairs:   []string{"before", "after"},
+}
+
+func TestTransformExtractsPairs(t *testing.T) {
+	d := NewJSON(withTransforms(mdcPairs))
+	e := d.Decode(raw(`{"message":"route=/v1/w method=GET correlation-id=c1 business_id= - Widget created - user_id= request_id=r1 http_status=200","spanId":"s1"}`))
+	want := map[string]string{"route": "/v1/w", "method": "GET", "correlation-id": "c1", "request_id": "r1", "http_status": "200", "spanId": "s1"}
+	if e.Message != "Widget created" || !maps.Equal(e.Fields, want) {
+		t.Fatalf("message %q fields %v", e.Message, e.Fields)
+	}
+	if e.LoadHidden != nil {
+		t.Error("nothing is hidden")
+	}
+	if !search(t, &e, "correlation-id=c1") {
+		t.Error("extracted fields are searchable")
+	}
+}
+
+func TestTransformPairsKeepTextThatIsNotPairs(t *testing.T) {
+	d := NewJSON(withTransforms(FieldTransform{
+		Field: "message", Pattern: regexp.MustCompile(`^\[(?P<ctx>[^\]]*)\] (?P<message>.*)`), Pairs: []string{"ctx"},
+	}))
+	for _, tc := range []struct {
+		message string
+		want    map[string]string
+	}{
+		{"[a=1  b=] m", map[string]string{"a": "1"}},
+		{"[a=1 oops] m", map[string]string{"ctx": "a=1 oops"}},
+		{"[=1] m", map[string]string{"ctx": "=1"}},
+		{"[] m", nil},
+	} {
+		e := d.Decode(raw(`{"message":"` + tc.message + `"}`))
+		if e.Message != "m" || !maps.Equal(e.Fields, tc.want) {
+			t.Errorf("%q: message %q fields %v", tc.message, e.Message, e.Fields)
+		}
+	}
+}
+
+func TestTransformNamedGroups(t *testing.T) {
+	d := NewJSON(withTransforms(FieldTransform{
+		Field:   "message",
+		Pattern: regexp.MustCompile(`^route=(?P<route>\S*) corr=(?P<trace_id>\S*) lvl=(?P<level>\S*) th=(?P<thread>\S*) - (?P<message>.*)`),
+	}))
+	e := d.Decode(raw(`{"message":"route=/a corr=c1 lvl=WARN th= - hello","traceId":"json-trace","thread":"t-1"}`))
+	if e.Message != "hello" || e.Fields["route"] != "/a" || len(e.Fields) != 1 {
+		t.Fatalf("message %q fields %v", e.Message, e.Fields)
+	}
+	if e.TraceID != "json-trace" || e.Thread != "t-1" {
+		t.Errorf("a field the JSON set is kept: trace %q thread %q", e.TraceID, e.Thread)
+	}
+	if e.Level != domain.LevelWarn {
+		t.Errorf("an empty standard field is filled: level %v", e.Level)
+	}
+	e = d.Decode(raw(`{"message":"route= corr=c1 lvl=oops th=x - hello"}`))
+	if e.TraceID != "c1" || e.Thread != "x" || e.Level != domain.LevelUnknown || len(e.Fields) != 0 {
+		t.Errorf("got %+v", e)
+	}
+}
+
+func TestTransformJSONKeysWinAndFirstExtractedWins(t *testing.T) {
+	d := NewJSON(withTransforms(FieldTransform{
+		Field: "message", Pattern: regexp.MustCompile(`^(?P<a>\S+) (?P<ctx>.*) - (?P<message>.*)`), Pairs: []string{"ctx"},
+	}))
+	e := d.Decode(raw(`{"message":"g a=p b=p user.id=p severity=p - m","b":"json","user":{"id":"json"},"severity":"INFO"}`))
+	want := map[string]string{"a": "g", "b": "json", "user.id": "json"}
+	if e.Message != "m" || !maps.Equal(e.Fields, want) {
+		t.Fatalf("message %q fields %v", e.Message, e.Fields)
+	}
+}
+
+func TestTransformHiddenExtractedFields(t *testing.T) {
+	p := withTransforms(mdcPairs)
+	p.Hidden = []string{"x-*", "request_id"}
+	d := NewJSON(p)
+	e := d.Decode(raw(`{"message":"route=/a - m - x-forwarded-for=10.0.0.1 request_id=r1 user_id=u"}`))
+	if !maps.Equal(e.Fields, map[string]string{"route": "/a", "user_id": "u"}) {
+		t.Fatalf("fields %v", e.Fields)
+	}
+	if h := e.HiddenFields(); !maps.Equal(h, map[string]string{"x-forwarded-for": "10.0.0.1", "request_id": "r1"}) {
+		t.Errorf("hidden %v", h)
+	}
+	if search(t, &e, "request_id=r1") {
+		t.Error("hidden fields are not searched")
+	}
+}
+
+// search reports whether a text filter for q finds e.
+func search(t *testing.T, e *domain.LogEntry, q string) bool {
+	t.Helper()
+	f, err := domain.ParseTextFilter(q, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return f.Matches(e)
+}
+
 func FuzzTransform(f *testing.F) {
 	for _, s := range []string{"k=v - m - k=v", "", " - ", "k= -  - ", "\xff - \xfe - k="} {
 		f.Add(s)
 	}
-	d := NewJSON(withTransforms(mdc))
+	strip, pairs := NewJSON(withTransforms(mdc)), NewJSON(withTransforms(mdcPairs))
 	f.Fuzz(func(t *testing.T, message string) {
 		q, _ := json.Marshal(message)
-		e := d.Decode(raw(`{"message":` + string(q) + `}`))
-		if !utf8.ValidString(e.Message) {
-			t.Fatalf("invalid UTF-8 %q", e.Message)
+		for _, d := range []*JSONDecoder{strip, pairs} {
+			e := d.Decode(raw(`{"message":` + string(q) + `}`))
+			if !utf8.ValidString(e.Message) {
+				t.Fatalf("invalid UTF-8 %q", e.Message)
+			}
+			for k, v := range e.Fields {
+				if k == "" || v == "" || !utf8.ValidString(k+v) {
+					t.Fatalf("field %q=%q", k, v)
+				}
+			}
 		}
 	})
 }
@@ -88,7 +198,7 @@ func BenchmarkJSONTransform(b *testing.B) {
 	for _, bc := range []struct {
 		name string
 		p    Profile
-	}{{"none", logstash}, {"strip", withTransforms(mdc)}} {
+	}{{"none", logstash}, {"strip", withTransforms(mdc)}, {"pairs", withTransforms(mdcPairs)}} {
 		b.Run(bc.name, func(b *testing.B) {
 			d := NewJSON(bc.p)
 			b.ReportAllocs()

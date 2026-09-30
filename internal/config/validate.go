@@ -256,8 +256,8 @@ func (v *validator) format(f Format) {
 }
 
 // transforms checks the transform section of a json format: each pattern
-// compiles, reads a mapped field and has exactly one named group, named
-// after that field.
+// compiles, reads a mapped field, has a group named after that field, and
+// its pairs are other groups of the pattern.
 func (v *validator) transforms(f Format) {
 	for _, field := range sortedKeys(f.Transform) {
 		at := "transform." + field
@@ -268,11 +268,11 @@ func (v *validator) transforms(f Format) {
 		if len(paths) == 0 {
 			v.add(f.File, at, "fields.%s is not mapped", field)
 		}
-		pattern := f.Transform[field].Pattern
-		if pattern == "" {
+		t := f.Transform[field]
+		if t.Pattern == "" {
 			continue // reported by the required tag
 		}
-		re, err := regexp.Compile(pattern)
+		re, err := regexp.Compile(t.Pattern)
 		if err != nil {
 			v.add(f.File, at+".pattern", "invalid regular expression: %v", err)
 			continue
@@ -281,9 +281,25 @@ func (v *validator) transforms(f Format) {
 		if !slices.Contains(groups, field) {
 			v.add(f.File, at+".pattern", "missing group (?P<%s>…)", field)
 		}
+		seen := map[string]bool{}
 		for _, g := range groups {
-			if g != "" && g != field {
-				v.add(f.File, at+".pattern", "named group %q: only (?P<%s>…) is allowed; use (?:…) for the other parts", g, field)
+			switch {
+			case g == "":
+			case seen[g]:
+				v.add(f.File, at+".pattern", "group %q is named twice", g)
+			case g == "time" || g == "stack":
+				v.add(f.File, at+".pattern", "group %q: time and stack cannot be set by a transform", g)
+			}
+			seen[g] = true
+		}
+		for i, g := range t.Pairs {
+			p := fmt.Sprintf("%s.pairs[%d]", at, i)
+			_, standard := f.Fields.byName(g)
+			switch {
+			case !seen[g]:
+				v.add(f.File, p, "%q is not a group of pattern", g)
+			case standard:
+				v.add(f.File, p, "%q is a standard field, not a group of key=value text", g)
 			}
 		}
 	}
