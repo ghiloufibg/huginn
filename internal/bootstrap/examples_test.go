@@ -24,6 +24,11 @@ func TestExampleFoldersReadTheirLogs(t *testing.T) {
 			want: "17:12:40.104  WARN [nio-8080-exec-7] i.g.p.gateway.GatewayClient    : latency high",
 		},
 		{
+			folder: "config", repo: "order-orchestrator", container: "order-saga",
+			line: `{"@timestamp":"2026-09-26T17:12:40.104Z","level":"INFO","thread_name":"http-nio-8080-exec-7","logger_name":"io.gimle.order.web.SagaController","message":"route=/v1/orders method=POST correlation-id=bc9632dd business_id= - saga step completed - user_id= request_id=0a1b http_status=200 error_code=","kubernetes":{"pod_name":"p"}}`,
+			want: "17:12:40.104  INFO [nio-8080-exec-7] i.g.order.web.SagaController   : saga step completed",
+		},
+		{
 			folder: "config-node", repo: "orders", container: "orders",
 			line: `{"level":40,"time":1790431703123,"pid":1,"hostname":"orders-6f7c9","name":"orders","req":{"id":"req-42","method":"POST"},"msg":"stock low"}`,
 			want: "14:08:23.123 WARN  orders       POST | stock low", hide: []string{"trace"},

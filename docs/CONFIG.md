@@ -297,6 +297,30 @@ Every other field of the object stays available:
 - text filters search it (`key=value`);
 - layouts can draw it with `{field:<path>}`, where `<path>` is its dotted path, for example `http.status`.
 
+#### `transform`: keep part of a field
+
+Some logging stacks write context **into the text** of a field instead of in separate keys, for example a Logback MDC pattern giving `route=/v1/orders method=POST correlation-id= - Order created - user_id= request_id=`. A `transform` keeps only the part you want on the stream:
+
+```yaml
+transform:
+  message:
+    pattern: '^(?:[\w.-]+=\S*\s+)*-\s+(?P<message>.*?)\s+-\s+(?:[\w.-]+=\S*\s*)*$'
+```
+
+| Key | Type | Req. | Meaning |
+|---|---|---|---|
+| `transform.<field>` | map | | The standard field to transform: `message`, `logger`, `thread`, `trace_id`, `app` or `pid`. It must be mapped in `fields`. |
+| `transform.<field>.pattern` | string | yes | A Go regular expression with **one named group, named after the field** (`(?P<message>…)`). Write the other parts as `(?:…)`. |
+
+How it works:
+- The pattern is applied to the field's value after the line is decoded. **When it matches, the group becomes the value**; the example above keeps `Order created`.
+- **When it does not match, the value is left as it is.** Lines without the context are shown unchanged, never as an error.
+- **Nothing is lost:** the raw view of zoom (`p`) shows the original line.
+- **Text filters search the new value.** The removed parts are no longer found by `/`, for example `correlation-id=…`.
+- Several transforms apply in the order `message`, `logger`, `thread`, `trace_id`, `app`, `pid`. Each one reads its own field only.
+- Lines that are not JSON are not transformed.
+- Cost: about 5 µs per transformed line for a pattern like the one above. Give a transformed format a `match` so other containers do not pay it.
+
 ### `decoder: regex`: text lines
 
 ```yaml

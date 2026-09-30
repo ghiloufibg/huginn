@@ -356,3 +356,12 @@ Status: accepted.
   principal's IAM key did not retroactively invalidate an already-issued
   access token within the session's time budget).
 Status: accepted.
+
+## D-041 Field transforms: strip (M6.1)
+- **A regular expression on a decoded field, in the JSON decoder.** Context written into a field's text (a Logback MDC pattern such as `key=value… - message - key=value…`) is a decoding concern: `transform.<field>.pattern` runs in `logformat` after the standard fields are read. The core does not change. `decoder: regex` was rejected, because it would re-parse the whole JSON line with one pattern.
+- **One group named after the field** is the new value. No match leaves the value unchanged, as "lines a format cannot parse keep their text". Only text fields can be transformed (`message`, `logger`, `thread`, `trace_id`, `app`, `pid`): `time` and `level` are parsed values, and `stack` is multi-line and large.
+- **Other named groups are rejected for now**, so M6.2 (extracting them as fields, `pairs`) can give them a meaning without changing folders written for M6.1.
+- **Fixed order** (message, logger, thread, trace_id, app, pid), whatever the order of the file.
+- **Search follows the shown value**: the stripped parts leave text search and stay in the raw view. M6.2 brings them back as fields.
+- **Cost**: Go's `regexp` runs in linear time, with no backtracking blow-up. The 13-key MDC line costs about +5 µs per line (2.3 µs → 7.6 µs to decode), all of it in the regexp engine. This is acceptable for a TUI buffer (50 000 lines ≈ 0.25 s), and a `match` keeps other containers free of it.
+Status: accepted.

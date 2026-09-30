@@ -49,6 +49,11 @@ func (r *logReader) until(step time.Duration, ok func() bool) {
 
 func openDemoLogs(t *testing.T, q ports.LogQuery) *logReader {
 	t.Helper()
+	return openDemoRepoLogs(t, "payment-service", q)
+}
+
+func openDemoRepoLogs(t *testing.T, repo string, q ports.LogQuery) *logReader {
+	t.Helper()
 	c := demoConfig(t)
 	clock := portstest.NewFakeClock(t0)
 	cluster := demo.New(demo.Options{Seed: c.Huginn.Demo.Seed, Rate: c.Huginn.Demo.Rate, Clock: clock})
@@ -57,7 +62,7 @@ func openDemoLogs(t *testing.T, q ports.LogQuery) *logReader {
 		t.Fatal(probs)
 	}
 	s := newLogSessions(c, scopes(c, nil), cluster, clock, containerFilter(c), lp.decoders, diag.Discard())
-	q.Env, q.Repo = domain.Env("rec"), "payment-service"
+	q.Env, q.Repo = domain.Env("rec"), repo
 	ch, err := s.Open(t.Context(), q)
 	if err != nil {
 		t.Fatal(err)
@@ -86,6 +91,31 @@ func TestDemoLogsAreOrderedAppOnlyAndDecoded(t *testing.T) {
 	}
 	if len(pods) != 4 {
 		t.Errorf("lines from %d pods, want 4 (2 workloads x 2 replicas)", len(pods))
+	}
+}
+
+// TestDemoTransformStripsContext reads the demo repository whose messages
+// carry an MDC context with the example format that strips it.
+func TestDemoTransformStripsContext(t *testing.T) {
+	r := openDemoRepoLogs(t, "order-orchestrator", ports.LogQuery{Window: domain.TimeWindow{Since: 15 * time.Minute}})
+	r.until(10*time.Millisecond, func() bool { return r.history })
+	var app int
+	for _, e := range r.entries {
+		if !e.Structured {
+			continue // startup banner
+		}
+		if e.Format != "mdc-json" {
+			t.Fatalf("read with format %q", e.Format)
+		}
+		if strings.Contains(e.Message, "correlation-id=") {
+			t.Fatalf("context left in the message: %q", e.Message)
+		}
+		if strings.Contains(e.Raw, "process_instance_id=") {
+			app++
+		}
+	}
+	if app < 50 {
+		t.Fatalf("only %d lines with a context", app)
 	}
 }
 

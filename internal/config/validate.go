@@ -242,11 +242,49 @@ func (v *validator) format(f Format) {
 		if f.Pattern != "" || f.LevelFrom.Field != "" {
 			v.add(f.File, "decoder", "pattern and level_from are for the regex decoder")
 		}
+		v.transforms(f)
 	case "regex":
 		v.regex(f)
 	case "plain":
 		if len(f.Fields.Message) > 0 || f.Pattern != "" {
 			v.add(f.File, "decoder", "the plain decoder reads no fields or pattern")
+		}
+	}
+	if f.Decoder != "json" && len(f.Transform) > 0 {
+		v.add(f.File, "transform", "transform is for the json decoder")
+	}
+}
+
+// transforms checks the transform section of a json format: each pattern
+// compiles, reads a mapped field and has exactly one named group, named
+// after that field.
+func (v *validator) transforms(f Format) {
+	for _, field := range sortedKeys(f.Transform) {
+		at := "transform." + field
+		paths, known := f.Fields.byName(field)
+		if !known || field == "time" || field == "level" || field == "stack" {
+			continue // reported by the keys tag
+		}
+		if len(paths) == 0 {
+			v.add(f.File, at, "fields.%s is not mapped", field)
+		}
+		pattern := f.Transform[field].Pattern
+		if pattern == "" {
+			continue // reported by the required tag
+		}
+		re, err := regexp.Compile(pattern)
+		if err != nil {
+			v.add(f.File, at+".pattern", "invalid regular expression: %v", err)
+			continue
+		}
+		groups := re.SubexpNames()
+		if !slices.Contains(groups, field) {
+			v.add(f.File, at+".pattern", "missing group (?P<%s>…)", field)
+		}
+		for _, g := range groups {
+			if g != "" && g != field {
+				v.add(f.File, at+".pattern", "named group %q: only (?P<%s>…) is allowed; use (?:…) for the other parts", g, field)
+			}
 		}
 	}
 }

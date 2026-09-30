@@ -227,6 +227,33 @@
       "description": "regex decoder: Go reference layout of the time group, e.g. 02/Jan/2006:15:04:05 -0700. Default RFC 3339.",
       "type": "string"
     },
+    "transform": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "properties": {
+          "pattern": {
+            "description": "Go regular expression with a group named after the field, e.g. (?P\u003cmessage\u003e…): when it matches, the group becomes the field's value; otherwise the value is kept. Use (?:…) for the other parts.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pattern"
+        ],
+        "type": "object"
+      },
+      "description": "json decoder: keep part of a standard field's value, by field, e.g. {message: {pattern: '- (?P\u003cmessage\u003e.*?) -'}}.",
+      "propertyNames": {
+        "enum": [
+          "message",
+          "logger",
+          "thread",
+          "trace_id",
+          "app",
+          "pid"
+        ]
+      },
+      "type": "object"
+    },
     "version": {
       "description": "Structure version of this file; must be 1.",
       "type": "integer"

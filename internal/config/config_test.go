@@ -235,3 +235,39 @@ func TestContainersModeAndStandalonePods(t *testing.T) {
 	_, msg = load(t, fs)
 	wantErrors(t, msg, "containers.yaml", "default_mode")
 }
+
+func TestTransform(t *testing.T) {
+	fsys := valid()
+	fsys["formats/app.yaml"].Data = []byte("version: 1\ndecoder: json\nfields: {message: msg}\ntransform:\n  message:\n    pattern: '^(?:\\S+=\\S*\\s+)*-\\s+(?P<message>.*?)\\s+-'\nlayout: basic\n")
+	c, msg := load(t, fsys)
+	if msg != "" {
+		t.Fatal(msg)
+	}
+	if got := c.Formats[0].Transform["message"].Pattern; !strings.Contains(got, "(?P<message>") {
+		t.Fatalf("transform: %q", got)
+	}
+
+	fsys["formats/app.yaml"].Data = []byte(`version: 1
+decoder: json
+fields: {message: msg}
+transform:
+  message: {pattern: '(?P<route>\S+) - (?P<message>.*)'}
+  logger: {pattern: '(?P<logger>\S+'}
+  thread: {pattern: '(?P<name>.*)'}
+  time: {pattern: '(?P<time>.*)'}
+  app: {}
+layout: basic
+`)
+	fsys["formats/web.yaml"] = &fstest.MapFile{Data: []byte("version: 1\ndecoder: regex\npattern: '(?P<message>.*)'\ntransform: {message: {pattern: '(?P<message>.*)'}}\nlayout: basic\n")}
+	_, msg = load(t, fsys)
+	wantErrors(t, msg,
+		`formats/app.yaml:5:13  transform.message.pattern: named group "route": only (?P<message>…) is allowed; use (?:…) for the other parts`,
+		"formats/app.yaml:6:12  transform.logger.pattern: invalid regular expression",
+		"transform.logger: fields.logger is not mapped",
+		"transform.thread.pattern: missing group (?P<thread>…)",
+		`named group "name": only (?P<thread>…) is allowed`,
+		`transform.time: "time" is not one of: message, logger, thread, trace_id, app, pid`,
+		`transform.app: missing required key "pattern"`,
+		"formats/web.yaml:4:1  transform: transform is for the json decoder",
+	)
+}

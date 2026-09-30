@@ -24,6 +24,7 @@ func decoderRegistry() *ports.Registry[func(config.Format) ports.LogDecoder] {
 		return logformat.NewJSON(logformat.Profile{
 			Name: f.Name, Timestamp: fm.Time, Level: fm.Level, Logger: fm.Logger, Thread: fm.Thread, Message: fm.Message,
 			Stack: fm.Stack, TraceID: fm.TraceID, App: fm.App, PID: fm.PID, LevelAliases: levelAliases(f), Hidden: f.Hidden,
+			Transforms: transforms(f),
 		})
 	})
 	r.Register("regex", func(f config.Format) ports.LogDecoder {
@@ -40,6 +41,22 @@ func decoderRegistry() *ports.Registry[func(config.Format) ports.LogDecoder] {
 	})
 	r.Register("plain", func(f config.Format) ports.LogDecoder { return logformat.NewPlain(f.Name) })
 	return r
+}
+
+// transformOrder is the order transforms apply in, whatever the order of
+// the file.
+var transformOrder = []string{"message", "logger", "thread", "trace_id", "app", "pid"}
+
+// transforms compiles the transform section of a json format. The folder
+// is validated, so the patterns compile.
+func transforms(f config.Format) []logformat.FieldTransform {
+	var out []logformat.FieldTransform
+	for _, field := range transformOrder {
+		if t, ok := f.Transform[field]; ok {
+			out = append(out, logformat.FieldTransform{Field: field, Pattern: regexp.MustCompile(t.Pattern)})
+		}
+	}
+	return out
 }
 
 // levelAliases turns the levels section (level → spellings) into the

@@ -1,0 +1,36 @@
+# yaml-language-server: $schema=../../../docs/schema/format.schema.json
+# Spring Boot services whose Logback pattern writes the MDC context into the
+# message text: "key=value… - message - key=value…", mostly empty values.
+# Tried before spring-json.yaml (file name order), for these repositories only.
+# Reference: docs/CONFIG.md#formatsnameyaml
+version: 1
+
+decoder: json
+
+match:
+  repos: [order-orchestrator]
+
+fields:
+  time:     ["@timestamp", timestamp, time]
+  level:    [level, severity, log.level]
+  logger:   [logger_name, logger, log.logger]
+  thread:   [thread_name, thread]
+  message:  [message, msg]
+  stack:    [stack_trace, error.stack_trace, exception]
+  trace_id: [traceId, trace_id, trace.id]
+  app:      [app, application, service.name]
+  pid:      [pid, process.pid]
+
+# Keep only the text between the " - " separators on the stream; the zoom
+# raw view (p) keeps the whole message. Lines without the context are left
+# as they are.
+transform:
+  message:
+    pattern: '^(?:[\w.-]+=\S*\s+)*-\s+(?P<message>.*?)\s+-\s+(?:[\w.-]+=\S*\s*)*$'
+
+hidden:
+  - "kubernetes.*"
+  - "@version"
+  - level_value
+
+layout: spring

@@ -1,4 +1,4 @@
-# M6 — Field transforms: context baked into a JSON field's text  (status: design)
+# M6 — Field transforms: context baked into a JSON field's text  (status: M6.1 done, M6.2 design)
 
 Some logging stacks write their request context **inside the text** of a JSON field instead of in separate keys. A typical case is an MDC pattern of the form `<prefix> - <message> - <suffix>`:
 
@@ -107,7 +107,7 @@ Each error is reported with its file and position:
   - a non-JSON line.
 - `config`: every error above, with its position, plus a valid folder.
 - `bootstrap`: a folder with a transform yields a decoder that applies it.
-- Benchmark `BenchmarkJSONTransform` on the 13-key line, with and without a transform. The target is under 2× the plain JSON decode.
+- Benchmark `BenchmarkJSONTransform` on the 13-key line, with and without a transform. Measured: 2.3 µs → 7.6 µs per line, all in the regexp engine (D-041). The initial 2× target is not reachable with Go's `regexp` on this pattern.
 - Fuzz `FuzzTransform`: no panic, and the output is valid UTF-8.
 
 ### Docs, demo, decisions (M6.1)

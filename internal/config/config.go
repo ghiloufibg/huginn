@@ -146,17 +146,18 @@ type UI struct {
 // Format is one file of formats/: how to read a log line.
 type Format struct {
 	// Name is the file name without extension; File the path in the folder.
-	Name, File string           `yaml:"-"`
-	Version    int              `yaml:"version" doc:"Structure version of this file; must be 1." required:"true"`
-	Decoder    string           `yaml:"decoder" doc:"json: one JSON object per line; regex: text lines read with pattern; plain: no structure." enum:"json,regex,plain" required:"true"`
-	Match      Match            `yaml:"match" doc:"Containers read with this format. Formats are tried in file name order; the first match wins. No match section: every container."`
-	Fields     FieldMap         `yaml:"fields" doc:"json decoder: where each standard field is, as candidate JSON paths (first present wins; dots walk into objects)."`
-	Levels     map[string]Paths `yaml:"levels" doc:"Extra spellings of each level in these logs (case ignored), e.g. {error: [\"50\", FATAL]}. Common spellings are known already." keys:"error,warn,info,debug"`
-	Hidden     []string         `yaml:"hidden" doc:"json decoder: fields (globs on dotted paths) never shown on the stream, only in zoom metadata, e.g. [\"kubernetes.*\"]."`
-	Pattern    string           `yaml:"pattern" doc:"regex decoder: Go regular expression with named groups; time, level, logger, thread, message, trace_id, app and pid are standard fields, other groups become extra fields. message is required."`
-	TimeFormat string           `yaml:"time_format" doc:"regex decoder: Go reference layout of the time group, e.g. 02/Jan/2006:15:04:05 -0700. Default RFC 3339."`
-	LevelFrom  LevelFrom        `yaml:"level_from" doc:"regex decoder: derive the level from another group, e.g. the HTTP status."`
-	Layout     string           `yaml:"layout" doc:"Layout used to draw these lines: a file name of layouts/ without extension." required:"true"`
+	Name, File string               `yaml:"-"`
+	Version    int                  `yaml:"version" doc:"Structure version of this file; must be 1." required:"true"`
+	Decoder    string               `yaml:"decoder" doc:"json: one JSON object per line; regex: text lines read with pattern; plain: no structure." enum:"json,regex,plain" required:"true"`
+	Match      Match                `yaml:"match" doc:"Containers read with this format. Formats are tried in file name order; the first match wins. No match section: every container."`
+	Fields     FieldMap             `yaml:"fields" doc:"json decoder: where each standard field is, as candidate JSON paths (first present wins; dots walk into objects)."`
+	Levels     map[string]Paths     `yaml:"levels" doc:"Extra spellings of each level in these logs (case ignored), e.g. {error: [\"50\", FATAL]}. Common spellings are known already." keys:"error,warn,info,debug"`
+	Hidden     []string             `yaml:"hidden" doc:"json decoder: fields (globs on dotted paths) never shown on the stream, only in zoom metadata, e.g. [\"kubernetes.*\"]."`
+	Transform  map[string]Transform `yaml:"transform" doc:"json decoder: keep part of a standard field's value, by field, e.g. {message: {pattern: '- (?P<message>.*?) -'}}." keys:"message,logger,thread,trace_id,app,pid"`
+	Pattern    string               `yaml:"pattern" doc:"regex decoder: Go regular expression with named groups; time, level, logger, thread, message, trace_id, app and pid are standard fields, other groups become extra fields. message is required."`
+	TimeFormat string               `yaml:"time_format" doc:"regex decoder: Go reference layout of the time group, e.g. 02/Jan/2006:15:04:05 -0700. Default RFC 3339."`
+	LevelFrom  LevelFrom            `yaml:"level_from" doc:"regex decoder: derive the level from another group, e.g. the HTTP status."`
+	Layout     string               `yaml:"layout" doc:"Layout used to draw these lines: a file name of layouts/ without extension." required:"true"`
 }
 
 // Match selects the containers of a format.
@@ -176,6 +177,37 @@ type FieldMap struct {
 	TraceID Paths `yaml:"trace_id" doc:"Correlation or trace identifier."`
 	App     Paths `yaml:"app" doc:"Application name."`
 	PID     Paths `yaml:"pid" doc:"Process id."`
+}
+
+// Transform keeps part of the value of a standard field of a json format.
+type Transform struct {
+	Pattern string `yaml:"pattern" doc:"Go regular expression with a group named after the field, e.g. (?P<message>…): when it matches, the group becomes the field's value; otherwise the value is kept. Use (?:…) for the other parts." required:"true"`
+}
+
+// byName returns the paths of a standard field by its YAML name, and
+// whether the name is one of the fields.
+func (m FieldMap) byName(name string) (Paths, bool) {
+	switch name {
+	case "time":
+		return m.Time, true
+	case "level":
+		return m.Level, true
+	case "logger":
+		return m.Logger, true
+	case "thread":
+		return m.Thread, true
+	case "message":
+		return m.Message, true
+	case "stack":
+		return m.Stack, true
+	case "trace_id":
+		return m.TraceID, true
+	case "app":
+		return m.App, true
+	case "pid":
+		return m.PID, true
+	}
+	return nil, false
 }
 
 // LevelFrom derives the level of a regex format from a group.

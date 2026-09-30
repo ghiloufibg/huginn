@@ -24,8 +24,41 @@ func (g generator) burst(t time.Time) bool {
 	return g.spec.repo.name == "payment-service" && t.After(g.start.Add(-10*time.Minute)) && t.Before(g.start.Add(-4*time.Minute))
 }
 
+// mdcRepos are the repositories whose messages carry a Logback MDC context
+// written into the text, "key=value… - message - key=value…", most values
+// empty, the way some logging stacks do; examples/config reads them with a
+// transform.
+var mdcRepos = map[string]bool{"order-orchestrator": true}
+
 // at returns the application entry for slot k at time t.
 func (g generator) at(k int64, t time.Time) entry {
+	e := g.plainAt(k, t)
+	if mdcRepos[g.spec.repo.name] {
+		e.message = g.withMDC(k, e)
+	}
+	return e
+}
+
+// withMDC wraps the message of e in its MDC context. Entries of a request
+// (with a trace id) fill part of it; the others leave every key empty.
+func (g generator) withMDC(k int64, e entry) string {
+	var route, method, corr, req, status, result string
+	if e.trace != "" {
+		r := rand.New(rand.NewPCG(uint64(g.seed), hashOf(g.pod, "mdc", k)))
+		route, method = "/v1/"+noun(g.spec.repo.name)+"s", []string{"GET", "POST", "PUT"}[r.IntN(3)]
+		corr, req = e.trace[:16], fmt.Sprintf("%08x", r.Uint32())
+		status, result = "200", "OK"
+		if e.level == "ERROR" {
+			status, result = "500", "KO"
+		}
+	}
+	return fmt.Sprintf("route=%s method=%s correlation-id=%s business_id= - %s - user_id= x-forwarded-for= request_id=%s http_status=%s result=%s status_code= error_code= activity_id= activity_name= process_instance_id=",
+		route, method, corr, e.message, req, status, result)
+}
+
+// plainAt returns the application entry for slot k at time t, without
+// context in its message.
+func (g generator) plainAt(k int64, t time.Time) entry {
 	r := g.rng(k)
 	pkg, cls := g.spec.repo.pkg, domainClass(g.spec.workload)
 	thread := fmt.Sprintf("http-nio-8080-exec-%d", 1+r.IntN(10))

@@ -71,6 +71,7 @@ func (d *JSONDecoder) Decode(raw domain.RawLine) domain.LogEntry {
 	}
 	e.Logger, e.Thread, e.Message = str(d.p.Logger), str(d.p.Thread), str(d.p.Message)
 	e.Stack, e.TraceID, e.App, e.PID = str(d.p.Stack), str(d.p.TraceID), str(d.p.App), str(d.p.PID)
+	transform(&e, d.p.Transforms)
 	var hasHidden bool
 	e.Fields, hasHidden = d.rest(root, used)
 	if hasHidden {
