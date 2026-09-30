@@ -47,13 +47,13 @@ func (d *JSONDecoder) Decode(raw domain.RawLine) domain.LogEntry {
 	var usedBuf [16]string
 	used := d.standard(&e, root, usedBuf[:0])
 	extracted := transform(&e, d.p.Transforms, d.p.LevelAliases)
-	var hasHidden bool
+	var hasHidden, hiddenExtracted bool
 	e.Fields, hasHidden = d.rest(root, used)
 	for _, f := range extracted {
 		switch {
 		case lookup(root, f.key) != nil: // a JSON key wins over extracted text
 		case d.hidden(f.key):
-			hasHidden = true
+			hasHidden, hiddenExtracted = true, true
 		default:
 			if e.Fields == nil {
 				e.Fields = map[string]string{}
@@ -63,7 +63,7 @@ func (d *JSONDecoder) Decode(raw domain.RawLine) domain.LogEntry {
 	}
 	if hasHidden {
 		raw := text
-		e.LoadHidden = func() map[string]string { return d.hiddenOf(raw) }
+		e.LoadHidden = func() map[string]string { return d.hiddenOf(raw, hiddenExtracted) }
 	}
 	return e
 }
@@ -143,21 +143,29 @@ func (d *JSONDecoder) rest(root *fastjson.Value, used []string) (fields map[stri
 	return fields, hasHidden
 }
 
-// hiddenOf decodes the hidden fields of a line again, for the zoom view.
-func (d *JSONDecoder) hiddenOf(raw string) map[string]string {
+// hiddenOf decodes the hidden fields of a line again, for the zoom view
+// and layout columns; transforms run again only when they extracted hidden
+// fields. It runs on the UI goroutine, where a panic would end the
+// program, so a line it cannot read gives no hidden fields instead.
+func (d *JSONDecoder) hiddenOf(raw string, transformed bool) (out map[string]string) {
+	defer func() {
+		if recover() != nil {
+			out = nil
+		}
+	}()
 	p := parsers.Get()
 	defer parsers.Put(p)
 	root, err := p.Parse(raw)
 	if err != nil {
 		return nil
 	}
-	out := map[string]string{}
+	out = map[string]string{}
 	flatten("", true, root, func(k string, v *fastjson.Value) {
 		if d.hidden(k) {
 			out[k] = stringify(v)
 		}
 	})
-	if len(d.p.Transforms) > 0 {
+	if transformed {
 		var e domain.LogEntry
 		var usedBuf [16]string
 		d.standard(&e, root, usedBuf[:0])

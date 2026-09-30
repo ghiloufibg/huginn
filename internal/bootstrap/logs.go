@@ -53,7 +53,9 @@ func transforms(f config.Format) []logformat.FieldTransform {
 	var out []logformat.FieldTransform
 	for _, field := range transformOrder {
 		if t, ok := f.Transform[field]; ok {
-			ft := logformat.FieldTransform{Field: field, Pattern: regexp.MustCompile(t.Pattern), Pairs: t.Pairs}
+			ft := logformat.FieldTransform{
+				Field: field, Pattern: regexp.MustCompile(t.Pattern), Pairs: t.Pairs, MaxBytes: t.MaxBytes, MaxFields: t.MaxFields,
+			}
 			if t.PairPattern != "" {
 				ft.PairPattern = regexp.MustCompile(t.PairPattern)
 			}

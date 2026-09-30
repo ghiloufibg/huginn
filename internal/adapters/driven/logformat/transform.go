@@ -27,6 +27,9 @@ type FieldTransform struct {
 	// PairPattern reads one pair of a Pairs group with its groups key and
 	// value; nil means key=value separated by white space.
 	PairPattern *regexp.Regexp
+	// MaxBytes: a longer value is left as it is. MaxFields: at most this
+	// many fields are extracted per line. Zero means no limit.
+	MaxBytes, MaxFields int
 }
 
 // field is an extracted key and value.
@@ -36,17 +39,13 @@ type field struct{ key, value string }
 // they extract, each key once (the first one wins): named groups in
 // pattern order, then pairs groups in list order. Empty values are left
 // out. Each transform reads the value its field had after the JSON was
-// decoded or an earlier transform ran; empty fields are left alone.
+// decoded or an earlier transform ran; empty fields and values longer
+// than MaxBytes are left alone. It never panics, whatever the transforms.
 func transform(e *domain.LogEntry, ts []FieldTransform, aliases map[string]domain.Level) []field {
-	var out []field
-	add := func(k, v string) {
-		if v != "" && !slices.ContainsFunc(out, func(f field) bool { return f.key == k }) {
-			out = append(out, field{k, v})
-		}
-	}
+	var x extracted
 	for _, t := range ts {
 		v := textField(e, t.Field)
-		if v == nil || *v == "" {
+		if v == nil || *v == "" || t.Pattern == nil || (t.MaxBytes > 0 && len(*v) > t.MaxBytes) {
 			continue
 		}
 		m := t.Pattern.FindStringSubmatchIndex(*v)
@@ -55,11 +54,12 @@ func transform(e *domain.LogEntry, ts []FieldTransform, aliases map[string]domai
 		}
 		value, names := *v, t.Pattern.SubexpNames()
 		group := func(i int) string {
-			if m[2*i] < 0 {
+			if i < 0 || 2*i+1 >= len(m) || m[2*i] < 0 {
 				return ""
 			}
 			return value[m[2*i]:m[2*i+1]]
 		}
+		x.left, x.limited = t.MaxFields, t.MaxFields > 0
 		for i, name := range names {
 			switch {
 			case name == "" || slices.Contains(t.Pairs, name):
@@ -70,23 +70,59 @@ func transform(e *domain.LogEntry, ts []FieldTransform, aliases map[string]domai
 					setField(e, name, g, aliases)
 				}
 			default:
-				add(name, group(i))
+				x.add(name, group(i))
 			}
 		}
 		for _, p := range t.Pairs {
 			g := strings.TrimSpace(group(t.Pattern.SubexpIndex(p)))
 			var split bool
 			if t.PairPattern != nil {
-				split = splitPairsWith(t.PairPattern, g, add)
+				split = splitPairsWith(t.PairPattern, g, x.add)
 			} else {
-				split = splitPairs(g, add)
+				split = splitPairs(g, x.add)
 			}
 			if !split {
-				add(p, g)
+				x.add(p, g)
 			}
 		}
 	}
-	return out
+	return x.fields
+}
+
+// extracted collects extracted fields, each key once, in linear time.
+type extracted struct {
+	fields  []field
+	seen    map[string]bool // keys, once there are too many to scan
+	limited bool            // the current transform has a MaxFields
+	left    int             // fields the current transform may still add
+}
+
+// linearKeys is how many keys are searched by scanning before a map is
+// built.
+const linearKeys = 16
+
+func (x *extracted) add(k, v string) {
+	if v == "" || (x.limited && x.left == 0) || x.has(k) {
+		return
+	}
+	x.fields = append(x.fields, field{k, v})
+	x.left--
+	switch {
+	case x.seen != nil:
+		x.seen[k] = true
+	case len(x.fields) > linearKeys:
+		x.seen = make(map[string]bool, 2*len(x.fields))
+		for _, f := range x.fields {
+			x.seen[f.key] = true
+		}
+	}
+}
+
+func (x *extracted) has(k string) bool {
+	if x.seen != nil {
+		return x.seen[k]
+	}
+	return slices.ContainsFunc(x.fields, func(f field) bool { return f.key == k })
 }
 
 // splitPairs calls add for each key=value token of s, separated by white
@@ -118,6 +154,9 @@ func splitPairs(s string, add func(k, v string)) bool {
 func splitPairsWith(re *regexp.Regexp, s string, add func(k, v string)) bool {
 	ms := re.FindAllStringSubmatchIndex(s, -1)
 	ki, vi := re.SubexpIndex("key"), re.SubexpIndex("value")
+	if ki < 0 {
+		return false
+	}
 	last := 0
 	for _, m := range ms {
 		if !blank(s[last:m[0]]) || m[2*ki] < 0 || m[2*ki] == m[2*ki+1] {
@@ -130,7 +169,7 @@ func splitPairsWith(re *regexp.Regexp, s string, add func(k, v string)) bool {
 	}
 	for _, m := range ms {
 		var v string
-		if m[2*vi] >= 0 {
+		if vi >= 0 && m[2*vi] >= 0 {
 			v = s[m[2*vi]:m[2*vi+1]]
 		}
 		add(s[m[2*ki]:m[2*ki+1]], v)

@@ -255,6 +255,9 @@ func TestTransform(t *testing.T) {
 	if got := c.Formats[0].Transform["message"].Pairs; len(got) != 1 || got[0] != "ctx" {
 		t.Fatalf("pairs: %v", got)
 	}
+	if tr := c.Formats[0].Transform["message"]; tr.MaxBytes != DefaultTransformMaxBytes || tr.MaxFields != DefaultTransformMaxFields {
+		t.Fatalf("default limits: %+v", tr)
+	}
 
 	fsys["formats/app.yaml"].Data = []byte(`version: 1
 decoder: json
@@ -271,6 +274,18 @@ layout: basic
 		"transform.logger.pair_pattern: invalid regular expression",
 		"transform.thread.pair_pattern: name exactly the groups (?P<key>…) and (?P<value>…), once each",
 	)
+
+	fsys["formats/app.yaml"].Data = []byte("version: 1\ndecoder: json\nfields: {message: msg}\ntransform:\n  message: {pattern: '(?P<message>.*)', max_bytes: -1, max_fields: -5}\nlayout: basic\n")
+	_, msg = load(t, fsys)
+	wantErrors(t, msg, "transform.message.max_bytes: must be at least 1", "transform.message.max_fields: must be at least 1")
+	fsys["formats/app.yaml"].Data = []byte("version: 1\ndecoder: json\nfields: {message: msg}\ntransform:\n  message: {pattern: '(?P<message>.*)', max_bytes: 100, max_fields: 3}\nlayout: basic\n")
+	c, msg = load(t, fsys)
+	if msg != "" {
+		t.Fatal(msg)
+	}
+	if tr := c.Formats[0].Transform["message"]; tr.MaxBytes != 100 || tr.MaxFields != 3 {
+		t.Fatalf("limits set in the file win: %+v", tr)
+	}
 	if strings.Contains(msg, "transform.message") {
 		t.Errorf("a valid pair_pattern is accepted:\n%s", msg)
 	}

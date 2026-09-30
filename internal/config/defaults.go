@@ -7,6 +7,14 @@ package config
 // DefaultWindowPresets are bound to keys 1…7 when windows.presets is empty.
 var DefaultWindowPresets = []string{"15m", "30m", "40m", "45m", "1h", "1d", "2d"}
 
+// Default limits of a transform (formats/*.yaml): a value longer than
+// DefaultTransformMaxBytes is not read, which bounds a line to about 1 ms;
+// DefaultTransformMaxFields bounds the fields one line adds to the buffer.
+const (
+	DefaultTransformMaxBytes  = 16 << 10
+	DefaultTransformMaxFields = 64
+)
+
 func applyDefaults(c *Config) {
 	h := &c.Huginn
 	if len(h.Windows.Presets) == 0 {
@@ -36,6 +44,17 @@ func applyDefaults(c *Config) {
 	}
 	if c.UI.KeyBar == "" {
 		c.UI.KeyBar = "compact"
+	}
+	for i := range c.Formats {
+		for field, t := range c.Formats[i].Transform {
+			if t.MaxBytes == 0 {
+				t.MaxBytes = DefaultTransformMaxBytes
+			}
+			if t.MaxFields == 0 {
+				t.MaxFields = DefaultTransformMaxFields
+			}
+			c.Formats[i].Transform[field] = t
+		}
 	}
 	for name, l := range c.Layouts {
 		if len(l.Zoom.Columns) == 0 {

@@ -2,10 +2,13 @@ package logformat
 
 import (
 	"encoding/json"
+	"fmt"
 	"maps"
 	"regexp"
 	"slices"
+	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/ghiloufibg/huginn/internal/core/domain"
@@ -213,6 +216,59 @@ func search(t *testing.T, e *domain.LogEntry, q string) bool {
 		t.Fatal(err)
 	}
 	return f.Matches(e)
+}
+
+func TestTransformLimits(t *testing.T) {
+	limited := mdcPairs
+	limited.MaxBytes, limited.MaxFields = 40, 2
+	d := NewJSON(withTransforms(limited))
+	e := d.Decode(raw(`{"message":"a=1 b=2 c=3 - m - d=4"}`))
+	if e.Message != "m" || !maps.Equal(e.Fields, map[string]string{"a": "1", "b": "2"}) {
+		t.Errorf("max_fields: message %q fields %v", e.Message, e.Fields)
+	}
+	long := "a=1 - " + strings.Repeat("x", 40) + " - b=2"
+	if e := d.Decode(raw(`{"message":"` + long + `"}`)); e.Message != long || len(e.Fields) != 0 {
+		t.Errorf("max_bytes: a longer value is left as it is: %q %v", e.Message, e.Fields)
+	}
+}
+
+func TestTransformManyPairsIsLinear(t *testing.T) {
+	var sb strings.Builder
+	for i := range 20000 {
+		fmt.Fprintf(&sb, "k%d=v%d ", i%5000, i)
+	}
+	d := NewJSON(withTransforms(mdcPairs))
+	start := time.Now()
+	e := d.Decode(raw(`{"message":"` + sb.String() + `- m - a=b"}`))
+	if took := time.Since(start); took > 2*time.Second {
+		t.Fatalf("20000 pairs took %v", took)
+	}
+	if e.Message != "m" || len(e.Fields) != 5001 || e.Fields["k7"] != "v7" {
+		t.Errorf("message %q, %d fields, k7=%q: the first value of a key wins", e.Message, len(e.Fields), e.Fields["k7"])
+	}
+}
+
+// TestTransformNeverPanics feeds transforms the validation would reject:
+// the adapter must not rely on it, since hidden fields are decoded again
+// on the UI goroutine.
+func TestTransformNeverPanics(t *testing.T) {
+	bad := []FieldTransform{
+		{Field: "message"},
+		{Field: "stack", Pattern: regexp.MustCompile(`(?P<stack>.*)`)},
+		{Field: "message", Pattern: regexp.MustCompile(`(?P<x>.*)`), Pairs: []string{"missing", "x"}},
+		{Field: "message", Pattern: regexp.MustCompile(`(?P<message>.*)`), Pairs: []string{"message"}},
+		{Field: "message", Pattern: regexp.MustCompile(`(?P<ctx>.*)`), Pairs: []string{"ctx"}, PairPattern: regexp.MustCompile(`(\w+)=(\w*)`)},
+		{Field: "message", Pattern: regexp.MustCompile(`(?P<ctx>.*)`), Pairs: []string{"ctx"}, PairPattern: regexp.MustCompile(`(?P<key>\w+)=\w*`)},
+		{Field: "message", Pattern: regexp.MustCompile(`(?P<ctx>.*)`), Pairs: []string{"ctx"}, PairPattern: regexp.MustCompile(`(?P<key>)`)},
+		{Field: "message", Pattern: regexp.MustCompile(`(?P<time>\S+) (?P<stack>\S+) (?P<level>\S+)`)},
+	}
+	p := withTransforms(bad...)
+	p.Hidden = []string{"*"}
+	d := NewJSON(p)
+	for _, line := range []string{`{"message":"a=1 b=2 c"}`, `{"message":""}`, `{"message":7}`, `{"message":{"a":1}}`, `{}`} {
+		e := d.Decode(raw(line))
+		_ = e.HiddenFields()
+	}
 }
 
 func FuzzTransform(f *testing.F) {

@@ -316,6 +316,8 @@ With this transform, the stream shows `Order created`. The line gets the fields 
 | `transform.<field>.pattern` | string | yes | A Go regular expression with **a group named after the field** (`(?P<message>…)`). |
 | `transform.<field>.pairs` | list | | Groups of `pattern` holding pairs, by default `key=value` separated by spaces. |
 | `transform.<field>.pair_pattern` | string | | A Go regular expression reading **one pair** of a `pairs` group, with the groups `(?P<key>…)` and `(?P<value>…)`. Default: `key=value` separated by white space. |
+| `transform.<field>.max_bytes` | int | | Values longer than this are left as they are (still shown, just not transformed). Default `16384`. |
+| `transform.<field>.max_fields` | int | | At most this many fields extracted per line; the others stay in the raw view. Default `64`. |
 
 When the pattern matches:
 - **The group named after the field becomes its value.** Write the parts you only want to drop as `(?:…)`.
@@ -343,7 +345,7 @@ Rules:
 - **Without `pairs` or other named groups, the removed parts leave text search.** They stay in the raw view.
 - Several transforms apply in the order `message`, `logger`, `thread`, `trace_id`, `app`, `pid`. Each one reads its own field only.
 - Lines that are not JSON are not transformed.
-- **Cost:** about 5 µs per transformed line to strip, and about 8 µs with `pairs`, for a context of 13 keys. Give a transformed format a `match` so other containers do not pay it.
+- **Cost:** the regular expression reads about 20 MB/s. That is 5 to 10 µs per line for a context of 13 keys, and about 50 µs per KiB of value. `max_bytes` bounds a line to about 1 ms, and `max_fields` bounds the memory a line adds to the buffer. Give a transformed format a `match` so other containers do not pay the cost.
 
 ### `decoder: regex`: text lines
 

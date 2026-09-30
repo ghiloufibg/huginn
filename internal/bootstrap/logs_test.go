@@ -199,14 +199,14 @@ func TestClosedSessionsLeaveNoGoroutines(t *testing.T) {
 func TestTransformsCarryEverySetting(t *testing.T) {
 	f := config.Format{Transform: map[string]config.Transform{
 		"logger":  {Pattern: `(?P<logger>.*)`},
-		"message": {Pattern: `(?P<ctx>.*) - (?P<message>.*)`, Pairs: []string{"ctx"}, PairPattern: `(?P<key>\w+): (?P<value>\S*)`},
+		"message": {Pattern: `(?P<ctx>.*) - (?P<message>.*)`, Pairs: []string{"ctx"}, PairPattern: `(?P<key>\w+): (?P<value>\S*)`, MaxBytes: 100, MaxFields: 3},
 	}}
 	got := transforms(f)
 	if len(got) != 2 || got[0].Field != "message" || got[1].Field != "logger" {
 		t.Fatalf("order: %+v", got)
 	}
 	m := got[0]
-	if m.Pattern.String() != f.Transform["message"].Pattern || !slices.Equal(m.Pairs, []string{"ctx"}) || m.PairPattern == nil || m.PairPattern.String() != f.Transform["message"].PairPattern {
+	if m.Pattern.String() != f.Transform["message"].Pattern || !slices.Equal(m.Pairs, []string{"ctx"}) || m.PairPattern == nil || m.PairPattern.String() != f.Transform["message"].PairPattern || m.MaxBytes != 100 || m.MaxFields != 3 {
 		t.Errorf("message transform: %+v", m)
 	}
 	if got[1].PairPattern != nil {

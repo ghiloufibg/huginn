@@ -381,3 +381,11 @@ Status: accepted.
 - **The default stays hand-written**, not a regular expression: `key=value` split on white space is the common case and costs less without a regexp. A fuzz test checks that it agrees with the same syntax written as `pair_pattern` (`(?P<key>[^\s=]+)=(?P<value>\S*)`). That test found and fixed one difference (a group of white space only).
 - **Zoom labels the trace id `trace_id`**, the standard field's name, instead of `traceId`, the key of one encoder, whatever path the format reads it from. `internal/archtest` now forbids `traceid` in generic code.
 Status: accepted.
+
+## D-044 Field transforms: limits and hardening (M6 QA)
+- **Limits per transform, in the config** (`max_bytes`, default 16 KiB; `max_fields`, default 64). With submatches, Go's `regexp` reads about 20 MB/s, so a 1 MiB value took 45 to 60 ms per line and could stall ingestion. Past `max_bytes` the value is shown as it is, and a 1 MiB line costs 0.8 ms, its JSON parse. `max_fields` bounds what one line adds to the buffer. Both are resource limits, not application knowledge, so neutral defaults are allowed (`config/defaults.go`).
+- **Linear de-duplication**: extracted keys were checked by scanning, which is quadratic (10 000 pairs took 162 ms). A set now takes over past 16 keys, and the same line takes 12 ms, all of it regexp time.
+- **The adapter never panics**, whatever `FieldTransform` it is given (missing groups, a `pair_pattern` without `key`, fields that cannot be transformed). It does not rely on validation, and a test feeds it transforms the validation rejects. `hiddenOf` also recovers, since it runs on the UI goroutine, from the zoom view and layout columns.
+- **Hidden fields are decoded again without the transforms** unless one of them extracted a hidden field. A layout column naming a hidden field costs 2.6 µs per drawn row, as before M6, instead of 12 µs.
+- Measured end to end (15 min demo window, 50 000 lines): the transforms add no measurable time over line generation. Retained memory goes from 2 103 to 2 110 B/line with 6.1 extracted fields per line, because extracted values are substrings of the message and small maps share one group. See `docs/plan/M6-qa.md`.
+Status: accepted.

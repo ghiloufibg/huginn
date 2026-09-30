@@ -187,6 +187,10 @@ type Transform struct {
 	// PairPattern reads the pairs groups; empty means key=value separated by
 	// white space.
 	PairPattern string `yaml:"pair_pattern" doc:"Go regular expression reading one pair of a pairs group, with the groups key and value, e.g. '(?P<key>[\\w.-]+): (?P<value>[^;]*);?'. The matches must cover the group except white space, otherwise the group is kept whole. Default: key=value separated by white space."`
+	// MaxBytes and MaxFields bound the cost of one line; zero means the
+	// default.
+	MaxBytes  int `yaml:"max_bytes" doc:"Values longer than this many bytes are left as they are (the regular expression costs about 50 µs per KiB). At least 1. Default 16384."`
+	MaxFields int `yaml:"max_fields" doc:"At most this many fields extracted per line; the rest stays in the raw view. At least 1. Default 64."`
 }
 
 // byName returns the paths of a standard field by its YAML name, and

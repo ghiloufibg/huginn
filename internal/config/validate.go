@@ -293,6 +293,12 @@ func (v *validator) transforms(f Format) {
 			seen[g] = true
 		}
 		v.pairPattern(f.File, at, t)
+		if t.MaxBytes < 1 {
+			v.add(f.File, at+".max_bytes", "must be at least 1")
+		}
+		if t.MaxFields < 1 {
+			v.add(f.File, at+".max_fields", "must be at least 1")
+		}
 		for i, g := range t.Pairs {
 			p := fmt.Sprintf("%s.pairs[%d]", at, i)
 			_, standard := f.Fields.byName(g)
