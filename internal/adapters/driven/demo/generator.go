@@ -3,6 +3,7 @@ package demo
 import (
 	"fmt"
 	"math/rand/v2"
+	"strings"
 	"time"
 )
 
@@ -50,6 +51,15 @@ func (g generator) withMDC(k int64, e entry) string {
 		status, result = "200", "OK"
 		if e.level == "ERROR" {
 			status, result = "500", "KO"
+		}
+		// Agree with the message when it names the request.
+		for _, m := range []string{"GET", "POST", "PUT"} {
+			if strings.Contains(e.message, " "+m+" /") {
+				method = m
+			}
+		}
+		if _, after, ok := strings.Cut(e.message, " status="); ok && len(after) >= 3 {
+			status = after[:3]
 		}
 	}
 	return fmt.Sprintf("route=%s method=%s correlation-id=%s business_id= - %s - user_id= x-forwarded-for= request_id=%s http_status=%s result=%s status_code= error_code= activity_id= activity_name= process_instance_id=",
