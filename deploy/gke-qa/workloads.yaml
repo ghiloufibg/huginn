@@ -192,9 +192,13 @@ spec:
               value: "150"
           ports:
             - containerPort: 8080
+          # Same request shape as payment-service (not 200m): a distinct
+          # shape triggered a new Autopilot node-pool bucket that hit this
+          # project's zero PREEMPTIBLE_CPUS quota. See noisy-fixture's note
+          # below.
           resources:
             requests:
-              cpu: 200m
+              cpu: 100m
               memory: 256Mi
             limits:
               memory: 384Mi
@@ -249,10 +253,16 @@ spec:
                 echo '{"sev":"error","message":"user: \"bob\"; action: \"checkout\"; route: \"/v1/checkout\"; status: \"500\"; - Payment gateway unreachable"}'
                 sleep 4
               done
+          # Matches payment-service's own request shape on purpose (a
+          # busybox loop needs far less): a distinct cpu/memory shape from
+          # every already-scheduled pod made Autopilot provision a new,
+          # separate node-pool bucket, which hit this project's zero
+          # PREEMPTIBLE_CPUS quota on its first M10 run. Reusing an
+          # already-proven shape packs onto the existing node instead.
           resources:
             requests:
-              cpu: 20m
-              memory: 32Mi
+              cpu: 100m
+              memory: 256Mi
 ---
 # qa-restricted: a trivial fixture the read-only identity is deliberately NOT
 # granted access to (no Role/RoleBinding here), to exercise a real "forbidden"
