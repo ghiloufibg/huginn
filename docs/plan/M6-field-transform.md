@@ -9,39 +9,58 @@ Some logging stacks write their request context **inside the text** of a JSON fi
 
 `decoder: json` maps `message` to the whole string. The stream line is dense: up to 13 `key=` tokens around the real text, most of them empty. `hidden:` cannot help, because it works on JSON keys and not on part of a value. `decoder: regex` cannot help either: it would parse the whole line with one fragile pattern and lose the JSON extraction of the other fields.
 
-This milestone adds a **field transform** to JSON formats. It is a regular expression applied to the value of one standard field after the JSON is decoded. It can:
-- **A. strip** the value: the group named after the field becomes the new value;
-- **B. extract** fields: other named groups become fields of the line, and `pairs` groups are split into `key=value` fields **without naming any key in the config**.
+The feature is delivered in **two milestones**. Each one ships on its own, passes `go test ./...` and `golangci-lint run`, and is usable by itself:
 
-Both options use one key and one mechanism. Option A is a transform with only the field's own group.
+| Milestone | Option | What it gives |
+|---|---|---|
+| **M6.1** | A: strip | A regular expression keeps one part of a field's value. The stream line becomes compact. |
+| **M6.2** | B: extract | The other parts become fields of the line: searchable, drawable in layouts, shown in zoom. `pairs` splits `key=value` text without listing any key. |
 
-## 1. What the user writes
+M6.2 **extends** M6.1's config key. It does not replace it: a folder written for M6.1 behaves the same after M6.2.
+
+---
+
+## Common ground (both milestones)
+
+### Config surface
+
+A new optional key in `formats/*.yaml`, for the `json` decoder only:
 
 ```yaml
-# formats/30-mdc.yaml
-version: 1
-decoder: json
-fields:
-  time:    time
-  level:   severity
-  logger:  logger
-  thread:  thread
-  message: message
 transform:
-  message:
-    pattern: '^(?P<before>(?:[\w.-]+=\S*\s+)*)-\s+(?P<message>.*?)\s+-\s+(?P<after>(?:[\w.-]+=\S*\s*)*)$'
-    pairs: [before, after]
-layout: spring
+  <standard field>:
+    pattern: '<Go regular expression>'
+    pairs: [<group>, …]        # M6.2 only
 ```
 
-The stream line becomes `… INFO  WidgetService : Widget created`. The context values become fields of the line:
-- zoom shows them in its FIELDS section;
-- text filters search them (`correlation-id=fake_corr`);
-- layouts can draw them (`{field:route}`).
+- Field keys: `message`, `logger`, `thread`, `trace_id`, `app`, `pid`. `time` and `level` are left out because they are parsed values; `stack` is left out because it is multi-line and large.
+- The pattern **must** contain a group named after the field: its match becomes the field's new value.
+- **Forward-compatibility rule:** in M6.1, any other named group, or `pairs`, is a validation error. M6.2 then gives them a meaning without changing the behaviour of any folder that was valid in M6.1.
 
-Empty values (`business_id=`) are dropped. The zoom raw view (`p`) keeps the original line untouched.
+### Where it lives (architecture)
 
-### Option A: strip only
+This is a decoding concern, so it lives in the JSON decoder adapter. Nothing crosses the hexagon, and `internal/core` does not change.
+
+| Package | Role |
+|---|---|
+| `internal/config` | `Format.Transform map[string]Transform` (`keys:"message,logger,thread,trace_id,app,pid"`), `Transform` struct (plain data), validation |
+| `internal/bootstrap/logs.go` | The `json` factory compiles each pattern into `logformat.Profile.Transforms`. The patterns are already validated. |
+| `internal/adapters/driven/logformat` | New `transform.go`, called by `JSONDecoder.Decode` after the standard fields are read |
+| `internal/archtest` | No new package, so no new rule. Keys and patterns stay in `examples/`, never in code. |
+
+### Shared rules
+
+- **No match:** the field is left unchanged and no error is raised ("lines a format cannot parse keep their text").
+- **Nothing is lost:** zoom's raw view (`p`) always shows the original line.
+- **Several transforms** apply in a fixed order: message, logger, thread, trace_id, app, pid. Each one reads the JSON value of its own field, so there are no chains.
+- **Only JSON lines** are transformed. Non-JSON lines (plain fallback) are not.
+- **Performance:** Go's `regexp` runs in linear time, so there is no catastrophic backtracking. Use `FindStringSubmatchIndex` and take substrings of the value, with no copy per group.
+
+---
+
+## M6.1 — Option A: strip
+
+### What the user writes and sees
 
 ```yaml
 transform:
@@ -49,9 +68,73 @@ transform:
     pattern: '^(?:[\w.-]+=\S*\s+)*-\s+(?P<message>.*?)\s+-\s+(?:[\w.-]+=\S*\s*)*$'
 ```
 
-Only the `message` group exists, so the prefix and suffix are removed from the line and from text search. They are still in the raw view. This is documented as a trade-off: use `pairs` to keep them searchable.
+- Stream: `… INFO  WidgetService : Widget created`.
+- Zoom: the transformed message on the first line; `p` shows the raw JSON with the full text.
+- Text search now works on the **transformed** value, so the prefix and suffix are no longer found by `/`. This trade-off is documented, and M6.2 lifts it.
+- A message containing ` - ` is kept whole thanks to the lazy group: `Widget created - successfully` stays intact.
 
-### Option B1: explicit groups
+### Changes
+
+| Package | Change |
+|---|---|
+| `config/config.go` | `Transform{Pattern string}` and `Format.Transform` |
+| `config/validate.go` | Errors listed in "Validation (M6.1)" below |
+| `bootstrap/logs.go` | Compiles the patterns into `Profile.Transforms []logformat.FieldTransform{Field, Pattern}` |
+| `logformat/transform.go` | `strip(e *domain.LogEntry, t FieldTransform)`: sets the field to its group when the pattern matches. It uses a small `field(e, name) *string` accessor. |
+| `logformat/json.go` | `Decode` calls the transforms after the standard fields, before `rest()` |
+
+### Validation (M6.1)
+
+Each error is reported with its file and position:
+- `transform` on a non-json decoder: `transform is for the json decoder`.
+- Key not in the list: handled by the `keys` tag.
+- `transform.<f>` whose field has no `fields.<f>` mapping: `fields.<f> is not mapped`.
+- Empty or invalid pattern: `invalid regular expression: …`.
+- No group named after the field: `missing group (?P<message>…)`.
+- Any other named group: `named group "x": only (?P<message>…) is allowed; use (?:…) for other parts`.
+- `pairs` is present: this falls out of the unknown-key check, since the struct does not have it yet.
+
+### Tests (M6.1)
+
+- `logformat`, table-driven:
+  - strip on `message`;
+  - strip on `logger`;
+  - no match;
+  - message containing ` - `;
+  - empty group, which gives an empty message (allowed, since the pattern says so);
+  - invalid UTF-8;
+  - a line without the field;
+  - a non-JSON line.
+- `config`: every error above, with its position, plus a valid folder.
+- `bootstrap`: a folder with a transform yields a decoder that applies it.
+- Benchmark `BenchmarkJSONTransform` on the 13-key line, with and without a transform. The target is under 2× the plain JSON decode.
+- Fuzz `FuzzTransform`: no panic, and the output is valid UTF-8.
+
+### Docs, demo, decisions (M6.1)
+
+- `docs/CONFIG.md` §8: a new "`transform`: keep part of a field" subsection, including the search trade-off.
+- `make schema`.
+- Demo: a repository whose messages carry the `prefix - message - suffix` context, with a format in `examples/config/formats/` matched on it.
+- `docs/DECISIONS.md` **D-041 Field transforms (strip)**:
+  - json only;
+  - the list of fields;
+  - the forward-compatibility rule;
+  - no match leaves the value unchanged.
+
+### Delivery order (M6.1)
+
+1. Config, validation and schema, with tests.
+2. The `logformat` strip, with tests, benchmark and fuzz.
+3. Bootstrap wiring.
+4. Demo, example, CONFIG.md and D-041.
+
+---
+
+## M6.2 — Option B: extract
+
+### What the user writes and sees
+
+**B1: explicit groups.** Named groups other than the field's own become fields:
 
 ```yaml
 transform:
@@ -59,103 +142,88 @@ transform:
     pattern: '^route=(?P<route>\S*)\s+method=(?P<method>\S*)\s+correlation-id=(?P<trace_id>\S*).*?-\s+(?P<message>.*?)\s+-\s+.*$'
 ```
 
-A named group becomes a field. A group named like a **standard field** (`trace_id`, `logger`, `thread`, `app`, `pid`, `level`) fills that field, as in `decoder: regex`. For example, the correlation id can feed the trace view. The group should capture the **value** (`route=(?P<route>\S*)`), not `route=…`.
+**B2: `pairs`, generic key=value.** Each listed group is split on white space, and each `key=value` token becomes the field `key`, spelled as written:
 
-### Option B2: `pairs`, generic key=value
+```yaml
+transform:
+  message:
+    pattern: '^(?P<before>(?:[\w.-]+=\S*\s+)*)-\s+(?P<message>.*?)\s+-\s+(?P<after>(?:[\w.-]+=\S*\s*)*)$'
+    pairs: [before, after]
+```
 
-Each group listed in `pairs` is split on white space. Every token `key=value` becomes the field `key`, spelled as written (`correlation-id`, `x-forwarded-for`). This answers the "non-exhaustive key list" question: a service that adds an MDC key gets a new field without any config change.
+The result:
+- The stream stays compact. Extra fields are **never drawn** unless a layout column names them (`{field:route}`).
+- Zoom's FIELDS section lists `route`, `correlation-id`, `user_id`, …
+- Text search finds them: `correlation-id=fake_corr`. This lifts the M6.1 trade-off.
+- A new MDC key in the logs becomes a field **without any config change**. This answers the request's "non-exhaustive key list" question.
 
-## 2. Rules
+### Rules
 
 | Topic | Rule | Why |
 |---|---|---|
-| Fields that can be transformed | `message`, `logger`, `thread`, `trace_id`, `app`, `pid`. Not `time`, `level` (parsed values) or `stack` (multi-line, large). | Keeps the pass on short text. |
-| Required group | The pattern needs a group named after the transformed field. To keep the value, write `(?P<thread>.*)`. | One way to say "the new value". |
-| No match | The field is left as it is and no field is added. This is never an error. | "Lines a format cannot parse keep their text." |
-| Empty group or pair value | Not added. For a standard field, an empty group keeps the JSON value. | 13 empty `key=` would come back as 13 empty rows in zoom. The raw view keeps them. |
-| Tokens of a `pairs` group without `=` | The whole group is kept as one field named after the group. | Nothing is dropped. |
-| Standard field already set by the JSON | Other groups (not the transformed field's own) **fill a standard field only when it is empty**. | An explicit JSON key is more reliable than text. |
-| Name clash with a JSON key | The JSON key wins, and the extracted value is in the raw view only. | Same as "repeated keys: the first occurrence wins". |
-| Clash between groups or pairs | Named groups first, then `pairs` groups in list order. The first one wins. | Deterministic. |
-| Several transforms | Applied in the order message, logger, thread, trace_id, app, pid. One transform does not see another's fields. | Deterministic, no chains. |
-| `hidden` | Extracted fields go through `hidden` like any other field. A hidden one leaves the search and moves to zoom metadata. | One rule for every field. See §4 note. |
-| Decoders | `json` only. `regex` already has named groups, and `plain` reads nothing. | Validation error otherwise. |
+| Group capture | The group captures the **value**, `route=(?P<route>\S*)`, not `route=…`. | Documented, with an example. |
+| Group named like a standard field (`trace_id`, `logger`, `thread`, `app`, `pid`, `level`) | Fills that field **only when the JSON left it empty**; `level` is parsed with `levels`. `time` and `stack` groups are rejected. | An explicit JSON key is more reliable than text. The correlation id can feed the trace view. |
+| Empty group or pair value (`user_id=`) | Not added. | Otherwise 13 empty rows would appear in zoom. The raw view keeps the text. |
+| `pairs` group with a token without `=` | The whole group is kept as one field named after the group. | Nothing is dropped. |
+| `pairs` group itself | Not added as a field when it splits cleanly. | Avoids duplicating its pairs. |
+| Name clash with a JSON key | The JSON key wins. | Same as "repeated keys: the first occurrence wins". |
+| Clash between groups and pairs | Named groups first, then `pairs` groups in list order. The first one wins. | Deterministic. |
+| `hidden` | Extracted fields go through `hidden` like any other field. | One rule. The docs say that hiding them removes them from search, and that it is not needed for a compact stream line. |
 
-**Note on the feature request's `hidden:` list.** Extra fields are **never drawn on the stream** unless a layout column names them, so the extracted fields do not need to be hidden to get a compact line. Hiding them would *remove* them from text search. The documentation will say so.
-
-## 3. Where it lives (architecture)
-
-Nothing crosses the hexagon: this is a decoding concern, in the JSON decoder adapter.
+### Changes
 
 | Package | Change |
 |---|---|
-| `internal/config` | `Format.Transform map[string]Transform` with `keys:"message,logger,thread,trace_id,app,pid"`. `Transform{Pattern string; Pairs []string}` (plain data). Validation in `validate.go` (§5). |
-| `internal/bootstrap/logs.go` | The `json` factory compiles each pattern (`regexp.MustCompile`, already validated) into `logformat.Profile.Transforms`. |
-| `internal/adapters/driven/logformat` | New `transform.go`: `type FieldTransform struct{ Field string; Pattern *regexp.Regexp; Pairs []string }` and `apply(e *domain.LogEntry, …)`. `JSONDecoder.Decode` calls it after the standard fields are read and before `rest()`. The group assignment of `RegexDecoder.Decode` moves to a shared helper (`setGroup`) used by both. |
-| `internal/core/*` | **No change**: extracted values are plain `LogEntry.Fields` and standard fields. |
-| `internal/adapters/driving/tui` | Rename the zoom section `KUBERNETES METADATA` to `HIDDEN FIELDS`. It already holds any hidden field, and with transforms it can hold non-Kubernetes ones. Golden files are updated. |
-| `internal/archtest` | No new package, so no new rule. No application string in code: keys, patterns and examples stay in `examples/`. |
+| `config` | `Transform.Pairs []string`. Validation: other named groups are now allowed; `time`/`stack` groups are rejected; each `pairs` entry must be a group of `pattern` and must not be the field's own group. |
+| `logformat/transform.go` | `strip` becomes `apply`. It returns the extra fields and fills the empty standard fields. It adds `splitPairs(group string) (map[string]string, ok bool)`, a `strings.Cut` loop with no `strings.Fields` allocation. |
+| `logformat/regex.go` | The group → standard field switch moves into a helper, `setGroup(e, name, v, levelAliases)`, shared with the transform. The regex decoder's behaviour is unchanged. |
+| `logformat/json.go` | Extracted fields are merged into `e.Fields` after `rest()`, with JSON keys winning and `hidden` applied. `hiddenOf(raw)`, the lazy zoom metadata, runs the transforms again so hidden extracted fields appear. `hasHidden` accounts for them. |
+| `tui/zoom.go` | The zoom section `KUBERNETES METADATA` becomes `HIDDEN FIELDS`, since it can now hold non-Kubernetes fields. Golden files are updated with `-update`, then the diff is reviewed. |
+| `core/*` | No change. Extracted values are ordinary `LogEntry.Fields` and standard fields, so `searchText`, layouts and zoom already handle them. |
 
-Decode order in `JSONDecoder.Decode`:
-1. Parse and map the standard fields (as today).
-2. **Transforms**: for each one, `FindStringSubmatchIndex` on the field value; set the field, the standard fields and the extra fields per §2. The extra fields go to a small map merged into `e.Fields` after `rest()`, and the JSON keys win.
-3. `rest()` flattens the remaining JSON keys (as today), then the extracted fields are merged, with `hidden` applied to them.
-4. `hiddenOf(raw)` (lazy zoom metadata) runs the transforms again, so hidden extracted fields appear in zoom. `hasHidden` accounts for them.
+### Tests (M6.2)
 
-## 4. Performance
+- `logformat`:
+  - B1 groups;
+  - a standard field filled only when empty;
+  - `level` from a group;
+  - B2 pairs with empty values;
+  - tokens without `=`;
+  - a clash with a JSON key;
+  - a clash between groups and pairs;
+  - a hidden extracted field (in `hiddenOf`, not in `Fields`);
+  - the regex decoder's existing tests, unchanged after the helper refactor.
+- `config`: the new errors, with positions. A folder valid in M6.1 still loads identically.
+- `domain`, existing `searchText`: an extracted pair is found.
+- `tui` golden: the section rename, and the zoom of an entry with extracted fields.
+- The benchmark and fuzz tests are extended to `pairs`.
 
-The transform runs on every line of the containers the format matches, on the ingestion hot path.
-- Go's `regexp` runs in linear time: there is no catastrophic backtracking.
-- Use `FindStringSubmatchIndex` and substrings of the value, with no copy per group. The `pairs` split uses `strings.Cut` on a loop, not `strings.Fields`.
-- New benchmark `BenchmarkJSONTransform` next to the existing decoder benchmarks, with and without a transform, on the 13-key line. Target: less than 2× the plain JSON decode.
-- The fuzz target `FuzzFastjsonMatchesEncodingJSON` is unchanged. A new fuzz target `FuzzTransform` checks for no panic and that the output is valid UTF-8.
+### Docs, demo, decisions (M6.2)
 
-## 5. Validation (errors with file and position)
+- `docs/CONFIG.md` §8: the "`transform`" subsection gains B1, B2, the rules table, and the note on `hidden`.
+- `make schema`.
+- Demo: the M6.1 example format switches to B2, so `--demo` shows the fields in zoom and `correlation-id=` search.
+- `docs/DECISIONS.md` **D-042 Field transforms (extract)**:
+  - `pairs` instead of a key list;
+  - empty values dropped;
+  - JSON keys win;
+  - standard fields filled only when empty;
+  - the zoom section rename.
 
-- `transform` on a format whose decoder is not `json`: `transform is for the json decoder`.
-- Key not in the list: handled by the `keys` tag (schema and validator).
-- `transform.<f>` whose field has no `fields.<f>` mapping: `transform.<f>: fields.<f> is not mapped`.
-- `pattern` empty or invalid: `invalid regular expression: …`.
-- Missing group named after the field: `missing group (?P<message>…)`.
-- `pairs` entry that is not a group of `pattern`: `"x" is not a group of pattern`.
-- A group named `time` or `stack`: `time and stack cannot be set by a transform`.
+### Delivery order (M6.2)
 
-## 6. Documentation and schema
+1. The `setGroup` helper refactor. The regex decoder's tests must be green, with no behaviour change.
+2. Config `pairs` and the relaxed validation, then `make schema`.
+3. `logformat` extract: B1, then B2, then hidden handling.
+4. The zoom rename and golden files.
+5. Demo, CONFIG.md and D-042.
 
-- `docs/CONFIG.md` §8, under `decoder: json`: a "`transform`: context inside a field" part with the table of §2, options A, B1 and B2, and the search trade-off of option A.
-- `make schema` regenerates `docs/schema/format.schema.json`.
-- `examples/config-mdc/formats/…yaml`, or a second file in `examples/config/formats/` matched on a demo repo, shows B2.
-- `docs/DECISIONS.md`: **D-041 Field transforms**, which records the choices of §2. The main ones are one key for strip and extract, `pairs` instead of a key list, empty values dropped, JSON keys win, and json decoder only.
+---
 
-## 7. Demo
-
-The demo generator (`adapters/driven/demo`) gets one repository whose messages carry the `prefix - message - suffix` context, with mostly empty values and a few set. `examples/config` gets a format matched on that repo with the B2 transform. `./bin/huginn --demo` then shows the compact line, the fields in zoom and `correlation-id=` search.
-
-## 8. Tests
-
-| Level | Tests |
-|---|---|
-| `logformat` (table-driven) | Strip (A); explicit groups (B1), including a standard field filled only when empty; `pairs` (B2) with empty values and tokens without `=`; no match; name clash with a JSON key; transform on `logger`; message containing ` - `; hidden extracted field (present in `hiddenOf`, absent from `Fields`); invalid UTF-8. |
-| `config` | Every validation error of §5, with positions; a valid transform loads. |
-| `bootstrap` | A format folder with a transform produces a decoder applying it. |
-| `domain` (existing) | `searchText` finds an extracted pair (`correlation-id=…`). |
-| `tui` golden | The zoom section rename, and a zoom of a transformed entry (`-update`, then review the diff). |
-| Benchmark / fuzz | See §4. |
-
-## 9. Delivery order
-
-1. Config struct, validation, schema, and tests.
-2. `logformat`: transform, shared group helper, and tests, benchmark and fuzz.
-3. Bootstrap wiring.
-4. Zoom rename, and golden files.
-5. Demo repo, example format, CONFIG.md, and D-041.
-
-Each step passes `go test ./...` and `golangci-lint run`.
-
-## 10. Non-goals
+## Non-goals (both milestones)
 
 - Message classification, or collapsing noisy periodic loggers.
 - Any change to `hidden` or `levels` for top-level JSON keys.
-- Transforms on `decoder: regex` or `plain`, or on `time`, `level` and `stack`.
-- Chained transforms, or transforms on extra (non-standard) fields. Both are possible later by extending the `keys` list, and are not needed now.
+- Transforms on `decoder: regex` or `plain`; on `time`, `level` or `stack`; or on extra (non-standard) fields.
+- Chained transforms.
 - Values containing spaces inside `pairs` (`key=a b`). Use explicit groups (B1) for those.
