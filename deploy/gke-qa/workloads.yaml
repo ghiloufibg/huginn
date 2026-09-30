@@ -162,6 +162,98 @@ spec:
     - port: 80
       targetPort: 8080
 ---
+# payment-service-loadgen: same image as payment-service, deployed a second
+# time with its processing interval overridden much lower, to produce real
+# sustained log volume for the NFR pass without a second application. See
+# docs/plan/M10-gke-qa.md §3.4.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-service-loadgen
+  namespace: qa-rec
+  labels:
+    app.kubernetes.io/part-of: payment-service-loadgen
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: payment-service-loadgen
+  template:
+    metadata:
+      labels:
+        app: payment-service-loadgen
+        app.kubernetes.io/part-of: payment-service-loadgen
+    spec:
+      containers:
+        - name: payment-service-loadgen
+          image: us-central1-docker.pkg.dev/huginn-kube-tui/huginn-qa/payment-service:1.0
+          env:
+            - name: PAYMENT_PROCESSING_INTERVAL_MS
+              value: "150"
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              memory: 384Mi
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 15
+---
+# noisy-fixture: a cheap busybox loop (no JVM needed) emitting JSON lines
+# shaped for what none of the real services naturally produce: a
+# non-standard level field (level_from, M7), a non-default pairs syntax
+# (pair_pattern, M6.1/M6.2), and an embedded fake email/bearer token to
+# exercise ui.yaml's redact (D-050) in a copy/save. See
+# docs/plan/M10-gke-qa.md §3.3.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: noisy-fixture
+  namespace: qa-rec
+  labels:
+    app.kubernetes.io/part-of: noisy-fixture
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: noisy-fixture
+  template:
+    metadata:
+      labels:
+        app: noisy-fixture
+        app.kubernetes.io/part-of: noisy-fixture
+    spec:
+      containers:
+        - name: noisy-fixture
+          image: busybox:1.36
+          command: ["sh", "-c"]
+          args:
+            - |
+              while true; do
+                echo '{"sev":"info","message":"user: \"carol\"; action: \"browse\"; route: \"/v1/catalog\"; status: \"200\"; - Catalog page viewed"}'
+                sleep 4
+                echo '{"sev":"warn","message":"user: \"alice\"; action: \"login\"; route: \"/v1/login\"; status: \"200\"; - User signed in (contact alice.debug@example.invalid, token Bearer aaaaaaaaaaaaaaaaaaaa1111)"}'
+                sleep 4
+                echo '{"sev":"error","message":"user: \"bob\"; action: \"checkout\"; route: \"/v1/checkout\"; status: \"500\"; - Payment gateway unreachable"}'
+                sleep 4
+              done
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+---
 # qa-restricted: a trivial fixture the read-only identity is deliberately NOT
 # granted access to (no Role/RoleBinding here), to exercise a real "forbidden"
 # response from the Kubernetes API rather than a lab stand-in.
