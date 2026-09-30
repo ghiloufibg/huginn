@@ -39,7 +39,7 @@ func helpActions(s screen) (string, []Action) {
 			ActOrder, ActCycleColumns, ActTimestamps, ActPodID, ActColumns, ActFocus, ActResetDisplay, ActWrap, ActPanLeft, ActPanRight, ActPanLeftHalf, ActPanRightHalf, ActFullscreen,
 		}
 	case *zoomScreen:
-		return "Zoom", []Action{ActUp, ActDown, ActPageUp, ActPageDown, ActTop, ActNextEntry, ActPrevEntry, ActJSONView, ActOpen}
+		return "Zoom", []Action{ActUp, ActDown, ActPageUp, ActPageDown, ActTop, ActNextEntry, ActPrevEntry, ActJSONView, ActOpen, ActFieldNext, ActFieldPrev, ActFieldKeep, ActFieldExclude}
 	case *podSelector:
 		return "Pod selector", []Action{ActUp, ActDown, ActAllLevels, ActFilter, ActOpen}
 	}

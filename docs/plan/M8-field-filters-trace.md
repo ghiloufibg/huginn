@@ -1,4 +1,4 @@
-# M8 — Filter on a field, and the trace view  (status: design)
+# M8 — Filter on a field, and the trace view  (status: M8.1 done, M8.2 design; decisions accepted)
 
 Two navigation features answer the same question: **"show me every line about the same thing as this one"**.
 

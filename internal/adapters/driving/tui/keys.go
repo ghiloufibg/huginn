@@ -84,6 +84,10 @@ const (
 	ActCopy          Action = "copy"
 	ActSave          Action = "save"
 	ActBugReport     Action = "bug_report"
+	ActFieldNext     Action = "field_next"
+	ActFieldPrev     Action = "field_prev"
+	ActFieldKeep     Action = "field_keep"
+	ActFieldExclude  Action = "field_exclude"
 )
 
 // defaultKeys are the default bindings (docs/DECISIONS.md D-007, D-008,
@@ -109,6 +113,7 @@ var defaultKeys = map[Action][]string{
 	ActErrorGroups: {"E"}, ActPodScope: {"tab"}, ActPodSelector: {"S"}, ActFullscreen: {"F"},
 	ActWrap: {"W"}, ActTimestamps: {"ctrl+t"}, ActCycleColumns: {"c"}, ActResetDisplay: {"R"}, ActPodID: {"I"}, ActMark: {"m"}, ActAllContainers: {"A"},
 	ActCopy: {"ctrl+y"}, ActSave: {"ctrl+s"}, ActBugReport: {"B"},
+	ActFieldNext: {"tab"}, ActFieldPrev: {"shift+tab"}, ActFieldKeep: {"="}, ActFieldExclude: {"!"},
 }
 
 // Keymap binds actions to keys.
@@ -153,6 +158,14 @@ func NewKeymap(overrides map[string][]string) (Keymap, error) {
 
 // Keys returns the keys bound to a.
 func (k Keymap) Keys(a Action) []string { return k.keys[a] }
+
+// First returns the first key bound to a, for inline hints.
+func (k Keymap) First(a Action) string {
+	if ks := k.keys[a]; len(ks) > 0 {
+		return ks[0]
+	}
+	return ""
+}
 
 // Is reports whether key is bound to a.
 func (k Keymap) Is(key string, a Action) bool { return slices.Contains(k.byKey[key], a) }

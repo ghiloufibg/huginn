@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -119,6 +120,17 @@ func (l *logsScreen) filterKey(m *Model, k tea.KeyPressMsg) tea.Cmd {
 func (l *logsScreen) startEditing() {
 	l.editing = true
 	l.before = l.input.String()
+}
+
+// addFilter stacks f on the filters, the one of the prompt included, and
+// puts the cursor on the entry keep when it still shows.
+func (l *logsScreen) addFilter(m *Model, f domain.TextFilter, keep uint64) {
+	l.committed = append(slices.Clone(l.filter.Texts), f)
+	l.input.Clear()
+	l.editing = false
+	l.setTexts()
+	l.rebuildFrom(keep)
+	m.flash("filter " + f.String())
 }
 
 // clearLastFilter removes the filter being edited, else the last stacked.

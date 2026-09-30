@@ -396,3 +396,10 @@ Status: accepted.
 - **Cost**: about +0.2 µs and 2 allocations per JSON line with `level_from` (stringifying the value).
 - The plain decoder rejects `level_from`, and `field` and `map` must be set together.
 Status: accepted.
+
+## D-046 Filter on a field from zoom (M8.1)
+- **Equality, not a substring.** A text filter searches a substring of the searchable text, so `request_id=d04b1995` also matched `request_id=d04b19951` and `x_request_id=…`. A field filter (`domain.FieldFilter`, a `TextFilter` with `Field` set) matches when the field is exactly the value, case-sensitive, since ids are. `≠` keeps the lines without the field. It stacks with text filters in the same list, so `esc`, `x`, `n`/`N` and `X` work unchanged. It highlights nothing inside the line, since the value may not be drawn.
+- **The fields are those zoom lists**: `trace_id`, then the visible fields. `domain.FieldValue` also reads `logger`, `thread`, `app` and `pid` for later uses. **Hidden fields cannot be filtered**, because that would decode every buffered line again (about 12 µs per line with transforms, D-044), and they are already out of text search. A visible field named like a standard one is shadowed by the standard field.
+- **Keys** (remappable): `tab`/`shift+tab` select a field. There is no cursor until then, so zoom reads as before. `=` keeps and `!` excludes. Both then go back to the logs, on the zoomed entry when it still shows. `enter` keeps toggling the hidden fields.
+- **Cost**: one map lookup per line. `Select` over 50 000 lines takes 3.0 ms with a field filter, against 9.3 ms with a text filter.
+Status: accepted.

@@ -101,7 +101,7 @@ The pod strip shows each pod's state: a container that is not running says `wait
 |---|---|
 | `j` `k` `pgup` `pgdn` `g` `G`, mouse wheel | move (`G` returns to the live tail) |
 | `>` `<` | next / previous ERROR |
-| `enter` | zoom on the entry (`J`/`K` next/previous, `p` raw JSON, `enter` hidden fields) |
+| `enter` | zoom on the entry (`J`/`K` next/previous, `p` raw JSON, `enter` hidden fields, `tab`/`shift+tab` select a field, then `=` keep or `!` hide the lines whose field has exactly this value) |
 | `f` | follow on/off |
 | `space` | pause / resume (the screen keeps its lines; new ones wait, up to the buffer size, and the lines dropped beyond are counted) |
 | `P` | previous instance of the restarted containers (why it crashed, OOM, exit); again for the current logs |
