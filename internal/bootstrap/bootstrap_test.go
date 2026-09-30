@@ -168,3 +168,12 @@ func TestContainersFlag(t *testing.T) {
 		t.Fatalf("bad value: %v", err)
 	}
 }
+
+func TestSystemClipboardByMode(t *testing.T) {
+	if systemClipboard("off") != nil || systemClipboard("osc52") != nil {
+		t.Error("off and osc52 use no system clipboard")
+	}
+	if systemClipboard("system") == nil {
+		t.Error("system always uses it, and reports a missing command on copy")
+	}
+}

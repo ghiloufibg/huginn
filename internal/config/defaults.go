@@ -11,6 +11,9 @@ var DefaultWindowPresets = []string{"15m", "30m", "40m", "45m", "1h", "1d", "2d"
 // DefaultTransformMaxBytes is not read, which bounds a line to about 1 ms;
 // DefaultTransformMaxFields bounds the fields one line adds to the buffer.
 const (
+	// DefaultCopyMaxBytes bounds one copy (ui.yaml copy.max_bytes).
+	DefaultCopyMaxBytes = 1 << 20
+
 	DefaultTransformMaxBytes  = 16 << 10
 	DefaultTransformMaxFields = 64
 )
@@ -44,6 +47,12 @@ func applyDefaults(c *Config) {
 	}
 	if c.UI.KeyBar == "" {
 		c.UI.KeyBar = "compact"
+	}
+	if c.UI.Clipboard == "" {
+		c.UI.Clipboard = "auto"
+	}
+	if c.UI.Copy.MaxBytes == 0 {
+		c.UI.Copy.MaxBytes = DefaultCopyMaxBytes
 	}
 	for i := range c.Formats {
 		for field, t := range c.Formats[i].Transform {

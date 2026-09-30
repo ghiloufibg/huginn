@@ -1,4 +1,4 @@
-# M9 — Select and copy log lines  (status: design)
+# M9 — Select and copy log lines  (status: M9.1 done (D-049); M9.2 and M9.3 design)
 
 Today, getting lines out of Huginn into a ticket, a chat or an editor is awkward:
 - **Huginn captures the mouse** (wheel scrolling, `MouseModeCellMotion`), so the terminal's own selection needs `shift`+drag in most terminals, and many users do not know that.

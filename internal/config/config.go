@@ -141,6 +141,13 @@ type UI struct {
 	KeyBar          string              `yaml:"key_bar" doc:"Key bar at the bottom. Default compact." enum:"compact,full,hidden"`
 	Keymap          map[string][]string `yaml:"keymap" doc:"Action name to keys, replacing the default keys of that action, e.g. {follow: [f, ctrl+l]}."`
 	LogColumns      []string            `yaml:"log_columns" doc:"Columns shown when a logs screen opens: pod and names of layout columns. Empty: every visible column, narrowed automatically."`
+	Clipboard       string              `yaml:"clipboard" doc:"Where y copies: auto (the terminal, via OSC 52, and the system clipboard command when there is one), osc52 (the terminal only), system (pbcopy, wl-copy, xclip, xsel or clip.exe only), off. Default auto." enum:"auto,osc52,system,off"`
+	Copy            Copy                `yaml:"copy" doc:"Copying log lines (y, Y)."`
+}
+
+// Copy bounds what y and Y copy.
+type Copy struct {
+	MaxBytes int `yaml:"max_bytes" doc:"Largest copy, in bytes: terminals cap what OSC 52 carries. Past it nothing is copied and the flash says so. At least 1. Default 1048576."`
 }
 
 // Format is one file of formats/: how to read a log line.

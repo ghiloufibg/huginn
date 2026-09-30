@@ -2,6 +2,27 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
+    "clipboard": {
+      "description": "Where y copies: auto (the terminal, via OSC 52, and the system clipboard command when there is one), osc52 (the terminal only), system (pbcopy, wl-copy, xclip, xsel or clip.exe only), off. Default auto.",
+      "enum": [
+        "auto",
+        "osc52",
+        "system",
+        "off"
+      ],
+      "type": "string"
+    },
+    "copy": {
+      "additionalProperties": false,
+      "description": "Copying log lines (y, Y).",
+      "properties": {
+        "max_bytes": {
+          "description": "Largest copy, in bytes: terminals cap what OSC 52 carries. Past it nothing is copied and the flash says so. At least 1. Default 1048576.",
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
     "key_bar": {
       "description": "Key bar at the bottom. Default compact.",
       "enum": [

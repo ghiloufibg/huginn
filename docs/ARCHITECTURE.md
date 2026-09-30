@@ -88,6 +88,7 @@ internal/
   adapters/driven/demo/         synthetic cluster + log generator (--demo)
   adapters/driven/kubernetes/   client-go adapter (M4; placeholder until then)
   adapters/driven/clock/        system clock
+  adapters/driven/clipboard/    Clipboard: the system clipboard command (pbcopy, wl-copy, xclip, xsel, clip.exe)
   adapters/driven/logformat/    LogDecoder: json, regex, plain; Selector (format per container)
   adapters/driven/layout/       LogLayout from templates (layouts/*.yaml)
   adapters/driving/cli/         cobra command tree -> cli.Options

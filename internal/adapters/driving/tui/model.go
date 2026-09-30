@@ -65,6 +65,12 @@ type Options struct {
 	// LogColumns are the columns shown before the message (time, pod,
 	// level, thread, class); empty means automatic narrowing.
 	LogColumns []string
+	// ClipboardOSC52 sends copies to the terminal's clipboard; Clipboard,
+	// when set, is the system one (ui.yaml clipboard). CopyMaxBytes bounds
+	// one copy.
+	ClipboardOSC52 bool
+	Clipboard      ports.Clipboard
+	CopyMaxBytes   int
 }
 
 // screen is one page of the UI. The root model routes messages to the
@@ -252,6 +258,9 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		return tea.Batch(m.broadcast(msg), waitSnapshot(msg.gen, msg.ch))
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
+	case clipboardDoneMsg:
+		m.clipboardDone(msg)
+		return nil
 	case flashDoneMsg:
 		if msg.id == m.flashID {
 			m.flashText = ""

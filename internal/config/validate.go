@@ -203,6 +203,9 @@ func (v *validator) services() {
 }
 
 func (v *validator) ui() {
+	if v.c.UI.Copy.MaxBytes < 1 {
+		v.add(FileUI, "copy.max_bytes", "must be at least 1")
+	}
 	known := map[string]bool{"pod": true}
 	for _, l := range v.c.Layouts {
 		for _, col := range l.Stream.Columns {

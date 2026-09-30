@@ -424,3 +424,12 @@ Status: accepted.
 - Also: splitting pairs scans bytes, the lazy hidden loader captures nothing extra, and rebuilds skip the scope test when no pod or container is chosen.
 - The full report, with before/after numbers and the review findings (trace after a reload, regex mode), is `docs/plan/perf-pass-M8.md`.
 Status: accepted.
+
+## D-049 Select and copy log lines (M9.1)
+- **Selection by entries, not screen rows.** A range (`V`) and marks (`m`) hold sequence numbers, so wrapping, panning and folded stack traces do not matter. **Only displayed lines are copied.** Outside a trace, the range is every displayed entry between its two ends, found by binary search since rows are in sequence order, even when a filter hides an end. Inside a trace (time order), both ends must be displayed. Evicted entries leave the selection. `esc` clears a selection before anything else.
+- **Two forms.** `y` copies **as shown**: the pod id and the columns the user did not hide, uncolored, never truncated or wrapped, with whole stack traces, plus the delta in a trace. Columns hidden only because the terminal is narrow (`hide_below`) are copied, since a copy is not bound by the width. `Y` copies **raw**: the line as received, for `jq`. With no selection, both copy the cursor line; in zoom, the zoomed entry.
+- **Control characters are removed** from copies, except tab and new line: log text is untrusted (D-037), and a pasted escape sequence could act on the terminal it is pasted into.
+- **Clipboards (D-012):** the terminal's, through OSC 52 (`tea.SetClipboard`, written by the TUI, which owns the terminal). The system's goes through the new driven port `ports.Clipboard` and the adapter `adapters/driven/clipboard`, which runs the first command found. `ui.yaml clipboard: auto | osc52 | system | off`: `auto` sends OSC 52 and uses the system command only when one is installed, so SSH and containers get no warning on every copy. `copy.max_bytes` (1 MiB) refuses larger copies with a message, since terminals cap OSC 52; M9.2's save will take those.
+- **Cost:** a frame with a range over the screen and 1 000 marks takes 0.61 ms against 0.52 ms (`BenchmarkLogsFrameSelecting`). A 10 000-line copy is built in about 15 ms, only on `y`/`Y` (`BenchmarkCopy10000`).
+- **Deviation from the M9 plan:** selected rows get the gutter only, not a background, which would fight the level colors (D-020's `*` gutter).
+Status: accepted.

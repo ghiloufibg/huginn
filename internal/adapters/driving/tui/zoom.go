@@ -90,6 +90,16 @@ func (z *zoomScreen) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 		z.moveField(-1)
 	case keys.Is(key, ActFieldKeep), keys.Is(key, ActFieldExclude):
 		z.filterOnField(m, keys.Is(key, ActFieldExclude))
+	case keys.Is(key, ActCopy), keys.Is(key, ActCopyRaw):
+		e, ok := z.entry()
+		if !ok {
+			return true, nil
+		}
+		form := copyShown
+		if keys.Is(key, ActCopyRaw) {
+			form = copyRaw
+		}
+		return true, z.logs.copyLines(m, []*domain.LogEntry{e}, form)
 	case keys.Is(key, ActViewTrace):
 		l, seq := z.logs, z.seq
 		m.pop()

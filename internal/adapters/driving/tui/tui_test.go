@@ -2,6 +2,7 @@ package tui
 
 import (
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -60,6 +61,9 @@ func newTestModel(t testing.TB, env int, repo string) (*Model, *fakeCatalog) {
 // run executes a command, feeding watch-start messages back. Commands
 // that block (snapshot and batch waits, timers) are abandoned: tests send
 // snapshots, batches and ticks themselves.
+// osc52Sent records the OSC 52 copies the commands asked for.
+var osc52Sent []string
+
 func run(m *Model, cmd tea.Cmd) {
 	if cmd == nil {
 		return
@@ -84,6 +88,12 @@ func run(m *Model, cmd tea.Cmd) {
 	case tea.BatchMsg:
 		for _, c := range msg {
 			run(m, c)
+		}
+	case clipboardDoneMsg:
+		m.Update(msg)
+	default:
+		if strings.Contains(fmt.Sprintf("%T", msg), "setClipboard") {
+			osc52Sent = append(osc52Sent, fmt.Sprint(msg))
 		}
 	}
 }

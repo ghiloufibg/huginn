@@ -118,6 +118,7 @@ type logsScreen struct {
 	pending   bool   // a debounce tick is scheduled
 
 	trace *traceState // the trace view (trace.go), nil outside it
+	sel   selection   // lines selected for copying (selection.go)
 }
 
 // viewRow is one displayed entry.
@@ -369,6 +370,9 @@ func (l *logsScreen) ingest(entries []domain.LogEntry) {
 // the same entry.
 func (l *logsScreen) evict() {
 	first := l.buf.FirstSeq()
+	if l.sel.active() {
+		l.pruneSelection()
+	}
 	if l.trace != nil && len(l.rows) > 0 && !slices.ContainsFunc(l.rows, func(r viewRow) bool { return r.seq < first }) {
 		return
 	}
@@ -693,11 +697,21 @@ func (l *logsScreen) key(m *Model, k tea.KeyPressMsg) (bool, tea.Cmd) {
 		l.pan = max(l.pan-max(m.width/2, 8), 0)
 	case keys.Is(key, ActFullscreen):
 		l.fullscreen = !l.fullscreen
+	case keys.Is(key, ActBack) && l.sel.active():
+		l.clearSelection(m)
 	case keys.Is(key, ActBack) && l.fullscreen:
 		l.fullscreen = false
 	case keys.Is(key, ActBack) && l.trace != nil && !l.traceHasExtraFilters():
 		l.exitTrace(m)
 	case keys.Is(key, ActBack) && l.clearLastFilter(m):
+	case keys.Is(key, ActSelect):
+		l.toggleRange(m)
+	case keys.Is(key, ActMark):
+		l.toggleMark(m)
+	case keys.Is(key, ActCopy):
+		return true, l.copyLines(m, l.selected(), copyShown)
+	case keys.Is(key, ActCopyRaw):
+		return true, l.copyLines(m, l.selected(), copyRaw)
 	case keys.Is(key, ActViewTrace):
 		if e, ok := l.entryAt(l.displayCursor()); ok {
 			l.enterTrace(m, e.Seq)
@@ -875,6 +889,10 @@ func (l *logsScreen) lines(m *Model, w, h int) string {
 	cur := l.displayCursor()
 	f := l.frame(m, w)
 	cache := map[int][]string{}
+	// With a selection, a one-column gutter marks the range (▌) and the
+	// marked lines (*); the range is located once per frame.
+	selecting := l.sel.active()
+	lo, hi, inRange := l.rangeBounds()
 	render := func(i int) []string {
 		if rows, ok := cache[i]; ok {
 			return rows
@@ -882,7 +900,15 @@ func (l *logsScreen) lines(m *Model, w, h int) string {
 		var rows []string
 		if e, ok := l.entryAt(i); ok {
 			r, _ := l.rowAt(i)
-			rows = l.renderRows(m, e, r, w, f)
+			if selecting {
+				rows = l.renderRows(m, e, r, max(w-1, 1), f)
+				mark := m.ink("key", func() lipgloss.Style { return m.opts.Theme.Key }).paint(l.gutter(i, e.Seq, lo, hi, inRange))
+				for j := range rows {
+					rows[j] = mark + rows[j]
+				}
+			} else {
+				rows = l.renderRows(m, e, r, w, f)
+			}
 		}
 		cache[i] = rows
 		return rows
@@ -1188,6 +1214,8 @@ func (l *logsScreen) statusLeft(m *Model) string {
 	switch {
 	case l.trace != nil:
 		chip = t.Chip.Render("TRACE")
+	case l.sel.active():
+		chip = t.Chip.Render("SELECT")
 	case l.err != nil:
 		chip = t.Chip.Render("NOT LOADED")
 	case gone != "":
@@ -1236,6 +1264,9 @@ func (l *logsScreen) statusLeft(m *Model) string {
 	} else if f := l.filterSummary(); f != "" {
 		fields = append(fields, f)
 	}
+	if l.sel.active() {
+		fields = append([]string{l.selectionSummary()}, fields...)
+	}
 	// Most useful first: a narrow terminal truncates the end.
 	if gone == "REMOVED" {
 		fields = append(fields, l.repo+" no longer exists in "+m.env.Name)
@@ -1271,6 +1302,11 @@ func (l *logsScreen) hints(m *Model) []hint {
 		}
 	case l.paused:
 		return []hint{m.h(ActPause, "resume"), m.pair(ActDown, ActUp, "scroll"), m.h(ActOpen, "zoom"), m.h(ActFilter, "filter"), m.h(ActHelp, "help")}
+	case l.sel.active():
+		return []hint{
+			m.h(ActCopy, "copy"), m.h(ActCopyRaw, "copy raw"), m.h(ActSelect, "range"), m.h(ActMark, "mark"),
+			m.pair(ActDown, ActUp, "move"), m.h(ActBack, "clear"), m.h(ActHelp, "help"),
+		}
 	case l.trace != nil:
 		return []hint{
 			m.h(ActBack, "back to the logs"), m.h(ActOpen, "zoom"), m.h(ActFilter, "filter"), m.pair(ActNextError, ActPrevError, "error"),

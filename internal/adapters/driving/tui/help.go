@@ -35,11 +35,11 @@ func helpActions(s screen) (string, []Action) {
 			ActUp, ActDown, ActPageUp, ActPageDown, ActTop, ActBottom, ActNextError, ActPrevError,
 			ActFollow, ActPause, ActPreviousLogs, ActWindowNext, ActWindowPick, ActWindow1, ActWindow2, ActWindow3, ActWindow4, ActWindow5, ActWindow6, ActWindow7, ActWindowTail, ActWindowHead,
 			ActFilter, ActFilterMode, ActRegex, ActAddFilter, ActContext, ActNextMatch, ActPrevMatch, ActLevels, ActErrorsOnly, ActWarnAndError, ActAllLevels,
-			ActOpen, ActViewTrace, ActPodScope, ActPodSelector, ActAllContainers,
+			ActOpen, ActViewTrace, ActSelect, ActMark, ActCopy, ActCopyRaw, ActPodScope, ActPodSelector, ActAllContainers,
 			ActOrder, ActCycleColumns, ActTimestamps, ActPodID, ActColumns, ActFocus, ActResetDisplay, ActWrap, ActPanLeft, ActPanRight, ActPanLeftHalf, ActPanRightHalf, ActFullscreen,
 		}
 	case *zoomScreen:
-		return "Zoom", []Action{ActUp, ActDown, ActPageUp, ActPageDown, ActTop, ActNextEntry, ActPrevEntry, ActJSONView, ActOpen, ActViewTrace, ActFieldNext, ActFieldPrev, ActFieldKeep, ActFieldExclude}
+		return "Zoom", []Action{ActUp, ActDown, ActPageUp, ActPageDown, ActTop, ActNextEntry, ActPrevEntry, ActJSONView, ActOpen, ActViewTrace, ActCopy, ActCopyRaw, ActFieldNext, ActFieldPrev, ActFieldKeep, ActFieldExclude}
 	case *podSelector:
 		return "Pod selector", []Action{ActUp, ActDown, ActAllLevels, ActFilter, ActOpen}
 	}

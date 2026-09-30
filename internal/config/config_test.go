@@ -340,3 +340,21 @@ func TestLevelFromJSON(t *testing.T) {
 		"formats/c.yaml:2:1  decoder: the plain decoder reads no fields, pattern or level_from",
 	)
 }
+
+func TestUICopy(t *testing.T) {
+	c, msg := load(t, valid())
+	if msg != "" {
+		t.Fatal(msg)
+	}
+	if c.UI.Clipboard != "auto" || c.UI.Copy.MaxBytes != DefaultCopyMaxBytes {
+		t.Fatalf("defaults: %q %d", c.UI.Clipboard, c.UI.Copy.MaxBytes)
+	}
+	fsys := valid()
+	fsys["ui.yaml"] = &fstest.MapFile{Data: []byte("version: 1\nclipboard: system\ncopy: {max_bytes: 4096}\n")}
+	if c, msg = load(t, fsys); msg != "" || c.UI.Clipboard != "system" || c.UI.Copy.MaxBytes != 4096 {
+		t.Fatalf("set: %q %+v %s", c.UI.Clipboard, c.UI.Copy, msg)
+	}
+	fsys["ui.yaml"].Data = []byte("version: 1\nclipboard: xclip\ncopy: {max_bytes: -1}\n")
+	_, msg = load(t, fsys)
+	wantErrors(t, msg, `ui.yaml:2:1  clipboard: "xclip" is not one of: auto, osc52, system, off`, "ui.yaml:3:8  copy.max_bytes: must be at least 1")
+}
