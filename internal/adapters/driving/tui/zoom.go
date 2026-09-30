@@ -175,7 +175,7 @@ func byteSize(n int) string {
 
 func (z *zoomScreen) view(m *Model, w, h int) string {
 	z.height = h
-	t := m.opts.Theme
+	t := &m.opts.Theme
 	e, ok := z.entry()
 	if !ok {
 		return centered(t.Dim.Render("this entry left the buffer"), w, h)
@@ -231,7 +231,7 @@ func (z *zoomScreen) rawLines(e *domain.LogEntry) []string {
 }
 
 func (z *zoomScreen) structured(m *Model, e *domain.LogEntry) []string {
-	t := m.opts.Theme
+	t := &m.opts.Theme
 	l := z.logs
 	sec := func(title, note string) string { return " " + t.Bold.Render(title) + t.Dim.Render(note) }
 	pos := slices.Index(l.seqList(), e.Seq) + 1
@@ -281,7 +281,7 @@ func (z *zoomScreen) structured(m *Model, e *domain.LogEntry) []string {
 	return out
 }
 
-func (z *zoomScreen) stack(t Theme, layout ports.LogLayout, stack string) []string {
+func (z *zoomScreen) stack(t *Theme, layout ports.LogLayout, stack string) []string {
 	var out []string
 	for _, line := range strings.Split(strings.TrimRight(stack, "\n"), "\n") {
 		trimmed := strings.TrimSpace(line)
@@ -302,7 +302,7 @@ func (z *zoomScreen) stack(t Theme, layout ports.LogLayout, stack string) []stri
 
 // context renders the entries of the same pod around e.
 func (z *zoomScreen) context(m *Model, e *domain.LogEntry) []string {
-	t := m.opts.Theme
+	t := &m.opts.Theme
 	buf := z.logs.buf
 	idx, _ := buf.Index(e.Seq)
 	var before, after []*domain.LogEntry

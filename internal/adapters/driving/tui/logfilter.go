@@ -261,7 +261,7 @@ func (l *logsScreen) filterSummary() string {
 
 // promptLine is the filter input line shown above the status bar.
 func (l *logsScreen) promptLine(m *Model) string {
-	t := m.opts.Theme
+	t := &m.opts.Theme
 	bar := t.Status
 	chip := func(on bool, s string) string {
 		if on {

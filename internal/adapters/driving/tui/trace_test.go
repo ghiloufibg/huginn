@@ -128,6 +128,46 @@ func TestTraceViewShowsFromItsStart(t *testing.T) {
 	}
 }
 
+// TestTraceViewAfterReload: the logs reloaded during the trace (another
+// window), so the entry v was pressed on is gone: esc goes back to the
+// newest lines, not to the oldest.
+func TestTraceViewAfterReload(t *testing.T) {
+	m, l := openLogs(t)
+	feed(m, l, traceBatch())
+	for i := range l.shown() {
+		if e, _ := l.entryAt(i); e.Message == "Request processing failed" {
+			l.cursor, l.tail = i, false
+		}
+	}
+	press(m, "v", "t") // t: next window, which reopens the session
+	feed(m, l, paymentBatch())
+	feed(m, l, traceBatch())
+	if l.trace == nil || len(l.rows) != 4 {
+		t.Fatalf("the trace stays through a reload: %d rows", len(l.rows))
+	}
+	press(m, "esc")
+	if l.trace != nil || !l.tail {
+		t.Fatalf("esc after a reload follows the newest lines (tail %v)", l.tail)
+	}
+}
+
+// TestTraceViewRestoresRegexMode: ctrl+r inside the trace does not change
+// how the filter restored by esc is read.
+func TestTraceViewRestoresRegexMode(t *testing.T) {
+	m, l := openLogs(t)
+	feed(m, l, traceBatch())
+	press(m, "/", "f", "a", "i", "l", "e", "d", "enter")
+	for i := range l.shown() {
+		if e, _ := l.entryAt(i); e.Message == "Request processing failed" {
+			l.cursor, l.tail = i, false
+		}
+	}
+	press(m, "v", "ctrl+r", "esc")
+	if l.regex || len(l.filter.Texts) != 1 || l.filter.Texts[0].Regex || l.filter.Texts[0].Pattern != "failed" {
+		t.Fatalf("the text filter comes back as it was: regex %v, %+v", l.regex, l.filter.Texts)
+	}
+}
+
 func TestTraceViewWithoutTraceID(t *testing.T) {
 	m, l := openLogs(t)
 	press(m, "v")

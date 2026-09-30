@@ -52,12 +52,12 @@ func (m *Model) ink(key string, style func() lipgloss.Style) ink {
 
 // segmentInk is segmentStyle as an ink.
 func (m *Model) segmentInk(e *domain.LogEntry, r ports.Role) ink {
-	t := m.opts.Theme
+	t := &m.opts.Theme // not a copy: the theme is dozens of styles, and this runs per drawn segment
 	switch r {
 	case ports.RoleTimestamp:
 		return m.ink("ts", func() lipgloss.Style { return t.Timestamp })
 	case ports.RoleLevel:
-		return m.ink("level:"+strconv.Itoa(int(e.Level)), func() lipgloss.Style { return t.levelStyle(e.Level) })
+		return m.ink(levelInkKey(e.Level), func() lipgloss.Style { return t.levelStyle(e.Level) })
 	case ports.RoleThread:
 		return m.ink("thread", func() lipgloss.Style { return t.Thread })
 	case ports.RoleLogger:
@@ -78,5 +78,35 @@ func (m *Model) dim() ink { return m.ink("dim", func() lipgloss.Style { return m
 
 func (m *Model) podInk(i int) ink {
 	n := i % max(len(m.opts.Theme.Pods), 1)
-	return m.ink("pod:"+strconv.Itoa(n), func() lipgloss.Style { return m.opts.Theme.podStyle(n) })
+	return m.ink(podInkKey(n), func() lipgloss.Style { return m.opts.Theme.podStyle(n) })
+}
+
+// Ink keys built once: concatenating them on every drawn row allocated.
+var (
+	levelInkKeys = func() (k [domain.LevelError + 1]string) {
+		for i := range k {
+			k[i] = "level:" + strconv.Itoa(i)
+		}
+		return k
+	}()
+	podInkKeys = func() (k [32]string) {
+		for i := range k {
+			k[i] = "pod:" + strconv.Itoa(i)
+		}
+		return k
+	}()
+)
+
+func levelInkKey(l domain.Level) string {
+	if l >= 0 && int(l) < len(levelInkKeys) {
+		return levelInkKeys[l]
+	}
+	return "level:" + strconv.Itoa(int(l))
+}
+
+func podInkKey(n int) string {
+	if n >= 0 && n < len(podInkKeys) {
+		return podInkKeys[n]
+	}
+	return "pod:" + strconv.Itoa(n)
 }

@@ -416,3 +416,11 @@ Status: accepted.
 - **Cost**: `v` then `esc` on a full buffer of 50 000 lines take 5.9 ms together, two rebuilds with a field filter (`BenchmarkTraceView`). A live line costs one map lookup, plus a sort of the trace rows only when it arrives out of order. There is no new goroutine and no copy of entries: the view holds sequence numbers.
 - The demo shares a trace id between neighbouring requests of every `order-orchestrator` pod, so `--demo` shows real multi-pod traces.
 Status: accepted.
+
+## D-048 Performance pass after M6–M8
+- **Hidden decisions are cached per JSON decoder.** `path.Match` over the `hidden` globs was about a quarter of every JSON line, for keys that repeat on every line. The cache holds "hidden" and "hidden with everything below" per key, behind a read lock, and is bounded to 4 096 keys. A copy-on-write map was measured and rejected: filling it is quadratic. Decoding went from 3.95 to 2.9 µs per line.
+- **Filter selection hoists the level set into a table.** The `LevelSet` map type and its semantics are unchanged, since an empty set must keep showing nothing. Only the loop over the buffer stops hashing.
+- **The theme is passed by pointer.** Copying it per drawn segment was a tenth of a frame.
+- Also: splitting pairs scans bytes, the lazy hidden loader captures nothing extra, and rebuilds skip the scope test when no pod or container is chosen.
+- The full report, with before/after numbers and the review findings (trace after a reload, regex mode), is `docs/plan/perf-pass-M8.md`.
+Status: accepted.

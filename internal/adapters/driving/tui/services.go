@@ -219,7 +219,7 @@ func (s *servicesScreen) key(m *Model, k tea.KeyPressMsg, rows []domain.ServiceS
 
 func (s *servicesScreen) view(m *Model, w, h int) string {
 	s.height = h
-	t := m.opts.Theme
+	t := &m.opts.Theme
 	switch {
 	case m.watchErr != nil:
 		return centered(t.Bad.Render("Cannot watch "+m.env.Name+": "+errKind(m.watchErr))+"\n\n"+
@@ -300,7 +300,7 @@ func (s *servicesScreen) groupTitles(rows []domain.ServiceSummary) map[int]strin
 	return titles
 }
 
-func (s *servicesScreen) cells(r domain.ServiceSummary, now time.Time, t Theme, filter domain.ContainerFilter) []cell {
+func (s *servicesScreen) cells(r domain.ServiceSummary, now time.Time, t *Theme, filter domain.ContainerFilter) []cell {
 	name := cell{text: r.Repo, style: t.Bold}
 	if r.Unassigned {
 		name = cell{text: r.Repo + " (no repo)", style: t.Dim}
@@ -343,7 +343,7 @@ func (s *servicesScreen) cells(r domain.ServiceSummary, now time.Time, t Theme, 
 }
 
 func (s *servicesScreen) statusLeft(m *Model) string {
-	t := m.opts.Theme
+	t := &m.opts.Theme
 	bar := t.Status
 	if m.env.Production {
 		bar = t.StatusProd
@@ -401,7 +401,7 @@ func (s *servicesScreen) prompt(m *Model) string {
 	if !s.editing && s.filter.String() == "" {
 		return ""
 	}
-	t := m.opts.Theme
+	t := &m.opts.Theme
 	text := " " + s.filter.String()
 	if s.editing {
 		text += "_"

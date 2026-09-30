@@ -1,7 +1,6 @@
 package logformat
 
 import (
-	"path"
 	"slices"
 	"strings"
 	"time"
@@ -23,12 +22,13 @@ import (
 type JSONDecoder struct {
 	p     Profile
 	plain *PlainDecoder
+	hc    *hiddenCache
 }
 
 // NewJSON returns a decoder for profile p.
 func NewJSON(p Profile) *JSONDecoder {
 	p.LevelRules = sortRules(p.LevelRules)
-	return &JSONDecoder{p: p, plain: NewPlain(p.Name)}
+	return &JSONDecoder{p: p, plain: NewPlain(p.Name), hc: newHiddenCache(p.Hidden)}
 }
 
 // parsers are reused across lines and goroutines.
@@ -71,7 +71,13 @@ func (d *JSONDecoder) Decode(raw domain.RawLine) domain.LogEntry {
 	}
 	if hasHidden {
 		raw := text
-		e.LoadHidden = func() map[string]string { return d.hiddenOf(raw, hiddenExtracted) }
+		// Two closures rather than one capturing the flag: this one is
+		// kept for every buffered line, so each byte counts.
+		if hiddenExtracted {
+			e.LoadHidden = func() map[string]string { return d.hiddenOf(raw, true) }
+		} else {
+			e.LoadHidden = func() map[string]string { return d.hiddenOf(raw, false) }
+		}
 	}
 	return e
 }
@@ -147,7 +153,7 @@ func (d *JSONDecoder) rest(root *fastjson.Value, used []string) (fields map[stri
 			}
 			if v.Type() == fastjson.TypeObject {
 				child, _ := v.Object()
-				if d.hidden(p + ".\x00") { // every key below is hidden
+				if d.hc.get(p).below { // every key below is hidden
 					hasHidden = hasHidden || child.Len() > 0
 					return
 				}
@@ -200,14 +206,7 @@ func (d *JSONDecoder) hiddenOf(raw string, transformed bool) (out map[string]str
 	return out
 }
 
-func (d *JSONDecoder) hidden(k string) bool {
-	for _, g := range d.p.Hidden {
-		if ok, _ := path.Match(g, k); ok {
-			return true
-		}
-	}
-	return false
-}
+func (d *JSONDecoder) hidden(k string) bool { return d.hc.get(k).self }
 
 // lookup finds p as a literal key, then as a dotted path through objects.
 // null counts as absent.

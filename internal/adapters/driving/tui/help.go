@@ -148,7 +148,7 @@ func (h *helpScreen) visible() []helpLine {
 
 func (h *helpScreen) view(m *Model, w, height int) string {
 	h.height = height
-	t := m.opts.Theme
+	t := &m.opts.Theme
 	lines := h.visible()
 	width := 0
 	for _, l := range lines {
@@ -188,6 +188,6 @@ func (h *helpScreen) prompt(m *Model) string {
 	if !h.editing && h.search.String() == "" {
 		return ""
 	}
-	t := m.opts.Theme
+	t := &m.opts.Theme
 	return t.Prompt.Render("search help") + t.Bold.Inherit(t.Status).Render(" "+h.search.String()+"_")
 }

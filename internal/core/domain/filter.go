@@ -196,6 +196,21 @@ func (f LogFilter) Active() bool {
 	return false
 }
 
+// levelTable is a LevelSet as an array, for loops over many entries.
+type levelTable [LevelError + 1]bool
+
+func (t *levelTable) has(l Level) bool { return l >= 0 && int(l) < len(t) && t[l] }
+
+// levelTable returns the selected levels as a table; a nil set selects
+// every level, as LevelOK.
+func (f LogFilter) levelTable() *levelTable {
+	var t levelTable
+	for l := range t {
+		t[l] = f.Levels == nil || f.Levels[Level(l)]
+	}
+	return &t
+}
+
 // LevelOK reports whether the entry's level is selected.
 func (f LogFilter) LevelOK(e *LogEntry) bool { return f.Levels == nil || f.Levels[e.Level] }
 
@@ -242,14 +257,18 @@ func (f LogFilter) Select(n int, get func(int) *LogEntry) []Row {
 // many times a second can reuse its buffer.
 func (f LogFilter) SelectAppend(dst []Row, n int, get func(int) *LogEntry) []Row {
 	rows := dst[:0]
-	if f.Mode == ModeHighlight || !f.Active() || f.Context <= 0 {
+	// Hoisted out of the loop over every buffered entry: the level set
+	// as a table (a map lookup per entry was a quarter of a rebuild), and
+	// whether any text filter is set.
+	levels, active := f.levelTable(), f.Active()
+	if f.Mode == ModeHighlight || !active || f.Context <= 0 {
 		for i := range n {
 			e := get(i)
-			if !f.LevelOK(e) {
+			if !levels.has(e.Level) {
 				continue
 			}
-			match := f.Active() && f.TextOK(e)
-			if f.Mode == ModeFilter && f.Active() && !match {
+			match := active && f.TextOK(e)
+			if f.Mode == ModeFilter && active && !match {
 				continue
 			}
 			rows = append(rows, Row{Index: i, Match: match})
@@ -258,7 +277,8 @@ func (f LogFilter) SelectAppend(dst []Row, n int, get func(int) *LogEntry) []Row
 	}
 	matched := make([]bool, n)
 	for i := range n {
-		matched[i] = f.Match(get(i))
+		e := get(i)
+		matched[i] = levels.has(e.Level) && f.TextOK(e)
 	}
 	last := -1 // last index emitted
 	for i := range n {

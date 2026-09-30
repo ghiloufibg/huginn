@@ -477,8 +477,9 @@ func (l *logsScreen) rebuildFrom(keep uint64) {
 		}
 	}
 	idx := l.idxBuf[:0]
+	all := l.scope == nil && l.containerScope == nil // no pod or container chosen
 	for i := range l.buf.Len() {
-		if l.entryInScope(l.buf.At(i)) {
+		if all || l.entryInScope(l.buf.At(i)) {
 			idx = append(idx, i)
 		}
 	}
@@ -818,7 +819,7 @@ func (l *logsScreen) jumpError(dir int) {
 // --- rendering ---
 
 func (l *logsScreen) view(m *Model, w, h int) string {
-	t := m.opts.Theme
+	t := &m.opts.Theme
 	var parts []string
 	if !l.fullscreen {
 		parts = append(parts, l.podStrip(m, w))
@@ -841,7 +842,7 @@ func (l *logsScreen) view(m *Model, w, h int) string {
 
 // emptyMessage explains an empty view and offers the next step.
 func (l *logsScreen) emptyMessage(m *Model) string {
-	t := m.opts.Theme
+	t := &m.opts.Theme
 	switch {
 	case l.buf.Len() > 0 && (l.filter.Active() || levelsLabel(l.filter.Levels) != "all"):
 		return t.Dim.Render(fmt.Sprintf("no line out of %d matches the filters", l.buf.Len())) + "\n\n" +
@@ -859,7 +860,7 @@ func (l *logsScreen) emptyMessage(m *Model) string {
 
 // keyHint formats key/description pairs: "t longer window  ·  0 last lines".
 func (l *logsScreen) keyHint(m *Model, pairs ...any) string {
-	t := m.opts.Theme
+	t := &m.opts.Theme
 	var parts []string
 	for i := 0; i+1 < len(pairs); i += 2 {
 		parts = append(parts, t.Key.Render(m.label(pairs[i].(Action)))+" "+t.Dim.Render(pairs[i+1].(string)))
@@ -1029,7 +1030,7 @@ func (l *logsScreen) renderRows(m *Model, e *domain.LogEntry, row viewRow, w int
 	return rows
 }
 
-func (l *logsScreen) segmentStyle(t Theme, e *domain.LogEntry, r ports.Role) lipgloss.Style {
+func (l *logsScreen) segmentStyle(t *Theme, e *domain.LogEntry, r ports.Role) lipgloss.Style {
 	switch r {
 	case ports.RoleTimestamp:
 		return t.Timestamp
@@ -1067,7 +1068,7 @@ func (l *logsScreen) podLabel(pod string) string {
 }
 
 func (l *logsScreen) podStrip(m *Model, w int) string {
-	t := m.opts.Theme
+	t := &m.opts.Theme
 	scope := "all " + fmt.Sprint(len(l.pods))
 	if l.scope != nil {
 		scope = fmt.Sprintf("%d of %d", len(l.scope), len(l.pods))
@@ -1176,7 +1177,7 @@ func (l *logsScreen) bar(m *Model) lipgloss.Style {
 }
 
 func (l *logsScreen) statusLeft(m *Model) string {
-	t := m.opts.Theme
+	t := &m.opts.Theme
 	bar := l.bar(m)
 	live := "LIVE"
 	if r := l.rate.label(m.opts.Now()); r != "" {

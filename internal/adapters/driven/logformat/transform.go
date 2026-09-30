@@ -177,22 +177,36 @@ func splitPairsWith(re *regexp.Regexp, s string, add func(k, v string)) bool {
 	return true
 }
 
-// spaces are the white space characters of regexp's \s, which separate
-// pairs.
-const spaces = " \t\n\f\r"
-
-func blank(s string) bool { return strings.Trim(s, spaces) == "" }
+func blank(s string) bool {
+	for i := range len(s) {
+		if !isSpace(s[i]) {
+			return false
+		}
+	}
+	return true
+}
 
 // cutSpace returns the first token of s and the text after it, skipping
-// white space around it.
+// white space around it. It scans bytes: strings.TrimLeft and IndexAny
+// rebuilt their character set on every call, a sixth of a line's cost.
 func cutSpace(s string) (tok, rest string) {
-	s = strings.TrimLeft(s, spaces)
-	i := strings.IndexAny(s, spaces)
-	if i < 0 {
-		return s, ""
+	i := 0
+	for i < len(s) && isSpace(s[i]) {
+		i++
 	}
-	return s[:i], strings.TrimLeft(s[i:], spaces)
+	j := i
+	for j < len(s) && !isSpace(s[j]) {
+		j++
+	}
+	k := j
+	for k < len(s) && isSpace(s[k]) {
+		k++
+	}
+	return s[i:j], s[k:]
 }
+
+// isSpace reports the white space of regexp's \s: space, \t, \n, \f, \r.
+func isSpace(c byte) bool { return c == ' ' || c == '\t' || c == '\n' || c == '\f' || c == '\r' }
 
 // isField reports whether name is a standard field a transform can set.
 func isField(name string) bool {

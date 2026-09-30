@@ -424,7 +424,7 @@ func (m *Model) header() string {
 
 // connection describes the watch state on the right of the header.
 func (m *Model) connection(bar lipgloss.Style) string {
-	t := m.opts.Theme
+	t := &m.opts.Theme
 	src := bar.Render(m.opts.Source + " · ")
 	switch {
 	case m.watchErr != nil:
@@ -446,7 +446,7 @@ func (m *Model) connection(bar lipgloss.Style) string {
 }
 
 func (m *Model) statusBar() string {
-	t := m.opts.Theme
+	t := &m.opts.Theme
 	bar, left := t.Status, ""
 	if m.env.Production {
 		bar, left = t.StatusProd, t.ChipProd.Render("PRODUCTION")+bar.Render(" ")

@@ -154,7 +154,7 @@ func monoTheme() Theme {
 // statusStyle returns the style of a service status word. Failures are red
 // and bold, degraded states use the warning color, rollouts the info
 // color; the word itself always carries the meaning.
-func (t Theme) statusStyle(s domain.ServiceStatus) lipgloss.Style {
+func (t *Theme) statusStyle(s domain.ServiceStatus) lipgloss.Style {
 	switch s {
 	case domain.StatusCrashLoopBackOff, domain.StatusOOMKilled, domain.StatusImagePullBackOff:
 		return t.Bad
@@ -170,7 +170,7 @@ func (t Theme) statusStyle(s domain.ServiceStatus) lipgloss.Style {
 }
 
 // levelStyle returns the style of a level word.
-func (t Theme) levelStyle(l domain.Level) lipgloss.Style {
+func (t *Theme) levelStyle(l domain.Level) lipgloss.Style {
 	switch l {
 	case domain.LevelError:
 		return t.Bad
@@ -186,4 +186,4 @@ func (t Theme) levelStyle(l domain.Level) lipgloss.Style {
 }
 
 // podStyle returns the identity style of the i-th pod.
-func (t Theme) podStyle(i int) lipgloss.Style { return t.Pods[i%len(t.Pods)] }
+func (t *Theme) podStyle(i int) lipgloss.Style { return t.Pods[i%len(t.Pods)] }

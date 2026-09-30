@@ -158,7 +158,7 @@ func (p *preview) store(m *Model, msg eventsMsg) {
 
 // render draws the preview of svc in exactly w×h cells.
 func (p *preview) render(m *Model, svc domain.ServiceSummary, w, h int) string {
-	t := m.opts.Theme
+	t := &m.opts.Theme
 	now := m.opts.Now()
 	title := " " + t.Bold.Render(svc.Repo) + " "
 	title = t.Dim.Render(" ─") + title + t.Dim.Render(strings.Repeat("─", max(w-ansi.StringWidth(title)-2, 0)))
@@ -225,7 +225,7 @@ func (p *preview) render(m *Model, svc domain.ServiceSummary, w, h int) string {
 }
 
 func (p *preview) workloads(m *Model, svc domain.ServiceSummary) []string {
-	t := m.opts.Theme
+	t := &m.opts.Theme
 	var out []string
 	for _, w := range svc.WorkloadStates {
 		line := fmt.Sprintf("%s %s  %d/%d ready  %d/%d updated", w.Ref.Kind, t.Bold.Render(w.Ref.Name),
@@ -242,7 +242,7 @@ func (p *preview) workloads(m *Model, svc domain.ServiceSummary) []string {
 }
 
 func (p *preview) pods(m *Model, svc domain.ServiceSummary, now time.Time) []string {
-	t := m.opts.Theme
+	t := &m.opts.Theme
 	if len(svc.Pods) == 0 {
 		return []string{t.Dim.Render("no pod")}
 	}
@@ -297,7 +297,7 @@ func stackWrap(w int) int {
 }
 
 func (p *preview) warnings(m *Model, now time.Time, wrap int) []string {
-	t := m.opts.Theme
+	t := &m.opts.Theme
 	if m.opts.Events == nil || p.target.pod == "" {
 		return nil
 	}

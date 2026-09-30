@@ -204,7 +204,7 @@ func (s *podSelector) apply(m *Model) tea.Cmd {
 }
 
 func (s *podSelector) view(m *Model, w, h int) string {
-	t := m.opts.Theme
+	t := &m.opts.Theme
 	out := []string{t.Bold.Render(fmt.Sprintf(" Select pods and containers of %s", s.logs.repo)) +
 		t.Dim.Render(fmt.Sprintf("   %s · %s", plural(len(s.names), "pod"), plural(len(s.ctrs), "container"))), ""}
 	header := func(title string, section int) string {
@@ -293,7 +293,7 @@ func (s *podSelector) prompt(m *Model) string {
 	if !s.editing {
 		return ""
 	}
-	t := m.opts.Theme
+	t := &m.opts.Theme
 	what := "pods"
 	if s.section == 1 {
 		what = "containers"

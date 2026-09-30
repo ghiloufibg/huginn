@@ -20,6 +20,7 @@ type traceState struct {
 	filter         domain.LogFilter
 	committed      []domain.TextFilter
 	input          string
+	regex          bool
 	scope          map[string]bool
 	containerScope map[string]bool
 	seq            uint64 // the entry v was pressed on
@@ -46,7 +47,7 @@ func (l *logsScreen) enterTrace(m *Model, seq uint64) {
 	}
 	if l.trace == nil {
 		l.trace = &traceState{
-			filter: l.filter, committed: l.committed, input: l.input.String(),
+			filter: l.filter, committed: l.committed, input: l.input.String(), regex: l.regex,
 			scope: l.scope, containerScope: l.containerScope, seq: seq, tail: l.tail, offset: l.offset,
 		}
 	}
@@ -68,12 +69,14 @@ func (l *logsScreen) exitTrace(m *Model) {
 	t := l.trace
 	l.trace = nil
 	l.filter, l.committed = t.filter, t.committed
-	l.input = lineEdit{text: []rune(t.input)}
+	l.input, l.regex = lineEdit{text: []rune(t.input)}, t.regex
 	l.scope, l.containerScope = t.scope, t.containerScope
 	l.setTexts()
 	keep := t.seq
-	if t.tail {
-		keep = 0
+	if _, held := l.buf.Index(keep); t.tail || !held {
+		// The entry left the buffer, or the logs were reloaded (a new
+		// window): follow the newest lines rather than land on the oldest.
+		keep, t.tail = 0, true
 	}
 	l.tail, l.offset = t.tail, t.offset
 	l.rebuildFrom(keep)
