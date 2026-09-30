@@ -1,4 +1,4 @@
-# M7 — `level_from` for JSON formats  (status: design)
+# M7 — `level_from` for JSON formats  (status: done)
 
 A JSON line can carry its real severity somewhere other than its level key. A request logged at `INFO` can say `http_status=500` in its MDC context, or in a JSON key. Huginn then shows it as INFO:
 - `e` (errors only) does not keep it;
@@ -36,7 +36,7 @@ level_from:
 | A rule matches | **The level can only go up**: the result is the more severe of the JSON level and the mapped level. An unknown level takes the mapped one. | Lowering would hide real errors: an ERROR logged during a request that answered 200 must stay visible to `e`. |
 | Value types | Numbers and strings are compared as written (`500`, `"500"`). | Same as `stringify` today. |
 
-**Choice to confirm (§6):** "only raise" versus "override". Override is what `regex` does today, and with a `*` rule it can lower an ERROR to INFO. I recommend **only raise** for JSON. §4 covers what happens to `regex`.
+**Decided (D-045):** "only raise" versus "override". Override is what `regex` does today, and with a `*` rule it can lower an ERROR to INFO. I recommend **only raise** for JSON. §4 covers what happens to `regex`.
 
 ## 3. Where it lives (architecture)
 

@@ -389,3 +389,10 @@ Status: accepted.
 - **Hidden fields are decoded again without the transforms** unless one of them extracted a hidden field. A layout column naming a hidden field costs 2.6 µs per drawn row, as before M6, instead of 12 µs.
 - Measured end to end (15 min demo window, 50 000 lines): the transforms add no measurable time over line generation. Retained memory goes from 2 103 to 2 110 B/line with 6.1 extracted fields per line, because extracted values are substrings of the message and small maps share one group. See `docs/plan/M6-qa.md`.
 Status: accepted.
+
+## D-045 `level_from` for JSON; it only raises the level (M7)
+- **Same key for `json` as for `regex`.** A JSON line's severity can live elsewhere than its level key, for example in an HTTP status that is a JSON key or a field extracted by a transform (M6). `level_from.field` is read as a JSON path, like `fields` and including hidden keys, since hiding is about display. Otherwise it is read as an extracted field. The rules are shared with `regex` in `logformat/levelfrom.go`. The core and the TUI do not change: the level is a plain `LogEntry.Level`.
+- **Only raises.** The line takes the more severe of its level and the matching rule's level. Override was rejected because a `*` rule would turn an ERROR logged during a request that answered 200 into INFO, which hides real errors from `e`, `>` and the counts. A value that matches no rule, or a missing field, keeps the level. `regex` did override, and gave UNKNOWN when no rule matched. It now follows the same rule, so one key has one meaning. The example folders are unchanged: nginx has no level group and uses a `*` rule, which a test checks.
+- **Cost**: about +0.2 µs and 2 allocations per JSON line with `level_from` (stringifying the value).
+- The plain decoder rejects `level_from`, and `field` and `map` must be set together.
+Status: accepted.

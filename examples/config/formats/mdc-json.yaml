@@ -31,6 +31,13 @@ transform:
     pattern: '^(?P<before>(?:[\w.-]+=\S*\s+)*)-\s+(?P<message>.*?)\s+-\s+(?P<after>(?:[\w.-]+=\S*\s*)*)$'
     pairs: [before, after]
 
+# A request that answered 5xx is an error even when its line was logged at
+# INFO or WARN (and 4xx a warning); the level is never lowered, and lines
+# without http_status keep theirs.
+level_from:
+  field: http_status
+  map: { "5*": error, "4*": warn }
+
 hidden:
   - "kubernetes.*"
   - "@version"

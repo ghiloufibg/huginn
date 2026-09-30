@@ -316,3 +316,27 @@ layout: basic
 		"formats/web.yaml:4:1  transform: transform is for the json decoder",
 	)
 }
+
+func TestLevelFromJSON(t *testing.T) {
+	fsys := valid()
+	fsys["formats/app.yaml"].Data = []byte("version: 1\ndecoder: json\nfields: {message: msg}\nlevel_from:\n  field: http.status\n  map: {\"5*\": error, \"4*\": warn}\nlayout: basic\n")
+	c, msg := load(t, fsys)
+	if msg != "" {
+		t.Fatal(msg)
+	}
+	if lf := c.Formats[0].LevelFrom; lf.Field != "http.status" || lf.Map["5*"] != "error" {
+		t.Fatalf("level_from: %+v", lf)
+	}
+
+	fsys["formats/app.yaml"].Data = []byte("version: 1\ndecoder: json\nfields: {message: msg}\nlevel_from:\n  map: {\"[\": fatal}\nlayout: basic\n")
+	fsys["formats/b.yaml"] = &fstest.MapFile{Data: []byte("version: 1\ndecoder: json\nfields: {message: msg}\nlevel_from: {field: status}\nlayout: basic\n")}
+	fsys["formats/c.yaml"] = &fstest.MapFile{Data: []byte("version: 1\ndecoder: plain\nlevel_from: {field: status, map: {\"5*\": error}}\nlayout: basic\n")}
+	_, msg = load(t, fsys)
+	wantErrors(t, msg,
+		"formats/app.yaml:4:1  level_from: level_from.map needs level_from.field",
+		`formats/app.yaml:5:9  level_from.map.[: invalid glob "["`,
+		`level_from.map.[: "fatal" is not one of: error, warn, info, debug`,
+		"formats/b.yaml:4:1  level_from: level_from.field needs a map with at least one rule",
+		"formats/c.yaml:2:1  decoder: the plain decoder reads no fields, pattern or level_from",
+	)
+}

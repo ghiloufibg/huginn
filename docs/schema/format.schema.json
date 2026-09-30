@@ -157,17 +157,17 @@
     },
     "level_from": {
       "additionalProperties": false,
-      "description": "regex decoder: derive the level from another group, e.g. the HTTP status.",
+      "description": "json and regex decoders: raise the level from another field, e.g. the HTTP status. It never lowers the level.",
       "properties": {
         "field": {
-          "description": "Group whose value decides the level, e.g. status.",
+          "description": "Field whose value decides the level, e.g. status: a group of pattern (regex), or a JSON path or a field extracted by a transform (json).",
           "type": "string"
         },
         "map": {
           "additionalProperties": {
             "type": "string"
           },
-          "description": "Glob on the value to level (error, warn, info, debug), tried longest glob first, e.g. {\"5*\": error, \"4*\": warn, \"*\": info}.",
+          "description": "Glob on the value to level (error, warn, info, debug), tried longest glob first, e.g. {\"5*\": error, \"4*\": warn}. The line takes the more severe of its level and the matched one; no match keeps its level.",
           "type": "object"
         }
       },

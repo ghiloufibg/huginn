@@ -156,7 +156,7 @@ type Format struct {
 	Transform  map[string]Transform `yaml:"transform" doc:"json decoder: keep part of a standard field's value and extract fields from it, by field, e.g. {message: {pattern: '- (?P<message>.*?) -'}}." keys:"message,logger,thread,trace_id,app,pid"`
 	Pattern    string               `yaml:"pattern" doc:"regex decoder: Go regular expression with named groups; time, level, logger, thread, message, trace_id, app and pid are standard fields, other groups become extra fields. message is required."`
 	TimeFormat string               `yaml:"time_format" doc:"regex decoder: Go reference layout of the time group, e.g. 02/Jan/2006:15:04:05 -0700. Default RFC 3339."`
-	LevelFrom  LevelFrom            `yaml:"level_from" doc:"regex decoder: derive the level from another group, e.g. the HTTP status."`
+	LevelFrom  LevelFrom            `yaml:"level_from" doc:"json and regex decoders: raise the level from another field, e.g. the HTTP status. It never lowers the level."`
 	Layout     string               `yaml:"layout" doc:"Layout used to draw these lines: a file name of layouts/ without extension." required:"true"`
 }
 
@@ -219,10 +219,10 @@ func (m FieldMap) byName(name string) (Paths, bool) {
 	return nil, false
 }
 
-// LevelFrom derives the level of a regex format from a group.
+// LevelFrom raises the level of a line from the value of another field.
 type LevelFrom struct {
-	Field string            `yaml:"field" doc:"Group whose value decides the level, e.g. status."`
-	Map   map[string]string `yaml:"map" doc:"Glob on the value to level (error, warn, info, debug), tried longest glob first, e.g. {\"5*\": error, \"4*\": warn, \"*\": info}."`
+	Field string            `yaml:"field" doc:"Field whose value decides the level, e.g. status: a group of pattern (regex), or a JSON path or a field extracted by a transform (json)."`
+	Map   map[string]string `yaml:"map" doc:"Glob on the value to level (error, warn, info, debug), tried longest glob first, e.g. {\"5*\": error, \"4*\": warn}. The line takes the more severe of its level and the matched one; no match keeps its level."`
 }
 
 // Layout is one file of layouts/: how to draw a log line.

@@ -102,7 +102,7 @@ func TestDemoLogsAreOrderedAppOnlyAndDecoded(t *testing.T) {
 func TestDemoTransformExtractsContext(t *testing.T) {
 	r := openDemoRepoLogs(t, "order-orchestrator", ports.LogQuery{Window: domain.TimeWindow{Since: 15 * time.Minute}})
 	r.until(10*time.Millisecond, func() bool { return r.history })
-	var withContext, requests int
+	var withContext, requests, failed int
 	for _, e := range r.entries {
 		if !e.Structured {
 			continue // startup banner
@@ -120,6 +120,12 @@ func TestDemoTransformExtractsContext(t *testing.T) {
 		if _, ok := e.Fields["user_id"]; ok {
 			t.Fatalf("empty values are left out: %v", e.Fields)
 		}
+		if strings.HasPrefix(e.Fields["http_status"], "5") {
+			failed++
+			if e.Level != domain.LevelError {
+				t.Fatalf("a 5xx request is an error (level_from): %v %q", e.Level, e.Raw)
+			}
+		}
 		if e.TraceID != "" {
 			requests++
 			if e.Fields["correlation-id"] != e.TraceID[:16] || e.Fields["route"] != "/v1/orders" || e.Fields["http_status"] == "" {
@@ -127,8 +133,8 @@ func TestDemoTransformExtractsContext(t *testing.T) {
 			}
 		}
 	}
-	if withContext < 50 || requests < 10 {
-		t.Fatalf("only %d lines with a context, %d requests", withContext, requests)
+	if withContext < 50 || requests < 10 || failed < 5 {
+		t.Fatalf("only %d lines with a context, %d requests, %d failed", withContext, requests, failed)
 	}
 }
 

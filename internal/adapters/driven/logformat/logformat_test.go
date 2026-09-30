@@ -154,6 +154,29 @@ func TestRegexLevelGroup(t *testing.T) {
 	}
 }
 
+// TestRegexLevelFromOnlyRaises: level_from raises the level of the level
+// group, never lowers it, and a value no rule matches keeps it (D-045).
+func TestRegexLevelFromOnlyRaises(t *testing.T) {
+	d := NewRegex(RegexProfile{
+		Name: "app", Pattern: regexp.MustCompile(`^(?P<level>\w+) (?P<status>\d+) (?P<message>.*)$`), LevelField: "status",
+		LevelRules: []LevelRule{{"5*", domain.LevelError}, {"2*", domain.LevelInfo}},
+	})
+	for _, tc := range []struct {
+		line string
+		want domain.Level
+	}{
+		{"INFO 503 m", domain.LevelError},
+		{"ERROR 200 m", domain.LevelError},
+		{"WARN 404 m", domain.LevelWarn},
+		{"NOTALEVEL 200 m", domain.LevelInfo},
+		{"NOTALEVEL 404 m", domain.LevelUnknown},
+	} {
+		if e := d.Decode(raw(tc.line)); e.Level != tc.want {
+			t.Errorf("%q: %v, want %v", tc.line, e.Level, tc.want)
+		}
+	}
+}
+
 func TestSelector(t *testing.T) {
 	a, b, fb := NewPlain("a"), NewPlain("b"), NewPlain("fallback")
 	s := Selector{Rules: []Rule{

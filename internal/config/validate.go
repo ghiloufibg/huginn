@@ -239,15 +239,16 @@ func (v *validator) format(f Format) {
 		for i, g := range f.Hidden {
 			v.glob(f.File, fmt.Sprintf("hidden[%d]", i), g)
 		}
-		if f.Pattern != "" || f.LevelFrom.Field != "" {
-			v.add(f.File, "decoder", "pattern and level_from are for the regex decoder")
+		if f.Pattern != "" {
+			v.add(f.File, "decoder", "pattern is for the regex decoder")
 		}
 		v.transforms(f)
+		v.levelFrom(f, nil)
 	case "regex":
 		v.regex(f)
 	case "plain":
-		if len(f.Fields.Message) > 0 || f.Pattern != "" {
-			v.add(f.File, "decoder", "the plain decoder reads no fields or pattern")
+		if len(f.Fields.Message) > 0 || f.Pattern != "" || f.LevelFrom.Field != "" || len(f.LevelFrom.Map) > 0 {
+			v.add(f.File, "decoder", "the plain decoder reads no fields, pattern or level_from")
 		}
 	}
 	if f.Decoder != "json" && len(f.Transform) > 0 {
@@ -353,19 +354,33 @@ func (v *validator) regex(f Format) {
 	if !slices.Contains(groups, "message") {
 		v.add(f.File, "pattern", "missing group (?P<message>…)")
 	}
-	if lf := f.LevelFrom; lf.Field != "" {
-		if !slices.Contains(groups, lf.Field) {
-			v.add(f.File, "level_from.field", "%q is not a group of pattern", lf.Field)
-		}
-		for glob, lvl := range lf.Map {
-			v.glob(f.File, "level_from.map."+glob, glob)
-			if !slices.Contains([]string{"error", "warn", "info", "debug"}, lvl) {
-				v.add(f.File, "level_from.map."+glob, "%q is not one of: error, warn, info, debug", lvl)
-			}
-		}
-	}
+	v.levelFrom(f, groups)
 	if len(f.Fields.Message) > 0 || len(f.Hidden) > 0 {
 		v.add(f.File, "fields", "fields and hidden are for the json decoder; name regex groups instead")
+	}
+}
+
+// levelFrom checks level_from: a field and a map go together, the globs
+// and levels are valid, and for a regex format (groups set) the field is
+// a group of its pattern. A json format's field is a path or an extracted
+// field, which only the lines can tell.
+func (v *validator) levelFrom(f Format, groups []string) {
+	lf := f.LevelFrom
+	switch {
+	case lf.Field == "" && len(lf.Map) == 0:
+		return
+	case lf.Field == "":
+		v.add(f.File, "level_from", "level_from.map needs level_from.field")
+	case len(lf.Map) == 0:
+		v.add(f.File, "level_from", "level_from.field needs a map with at least one rule")
+	case groups != nil && !slices.Contains(groups, lf.Field):
+		v.add(f.File, "level_from.field", "%q is not a group of pattern", lf.Field)
+	}
+	for _, glob := range sortedKeys(lf.Map) {
+		v.glob(f.File, "level_from.map."+glob, glob)
+		if lvl := lf.Map[glob]; !slices.Contains([]string{"error", "warn", "info", "debug"}, lvl) {
+			v.add(f.File, "level_from.map."+glob, "%q is not one of: error, warn, info, debug", lvl)
+		}
 	}
 }
 

@@ -61,6 +61,11 @@ func (g generator) withMDC(k int64, e entry) string {
 		if _, after, ok := strings.Cut(e.message, " status="); ok && len(after) >= 3 {
 			status = after[:3]
 		}
+		// A slow downstream call ends the request with 503, while the line
+		// is only a warning: level_from shows it as an error.
+		if strings.HasPrefix(e.message, "downstream latency") {
+			status, result = "503", "KO"
+		}
 	}
 	return fmt.Sprintf("route=%s method=%s correlation-id=%s business_id= - %s - user_id= x-forwarded-for= request_id=%s http_status=%s result=%s status_code= error_code= activity_id= activity_name= process_instance_id=",
 		route, method, corr, e.message, req, status, result)

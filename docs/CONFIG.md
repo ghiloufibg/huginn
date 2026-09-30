@@ -244,7 +244,21 @@ Common keys:
 | `match.repos` | list of globs | | Repositories read with this format; empty means any. |
 | `match.containers` | list of globs | | Containers read with this format; empty means any. Both lists must accept a container when both are given. |
 | `levels` | map level → spellings | | Extra spellings of each level in these logs, case ignored. The keys are `error`, `warn`, `info` and `debug`. Common spellings are already understood: `ERROR`, `ERR`, `FATAL`, `SEVERE`, `CRITICAL`, `WARN`, `WARNING`, `INFO`, `NOTICE`, `DEBUG`, `TRACE`, `FINE`, and klog letters. |
+| `level_from.field` | string | | `json` and `regex` decoders: a field whose value can **raise** the level of a line, for example an HTTP status. For `regex`, a group of `pattern`. For `json`, a JSON path, read like `fields`, hidden or not; if absent, a field extracted by a `transform`. |
+| `level_from.map` | map glob → level | with `field` | Value glob to `error`, `warn`, `info` or `debug`; the longest glob is tried first. |
 | `layout` | string | yes | Layout drawing these lines: a file name of `layouts/` without extension. |
+
+**`level_from`** helps when a line's level is not its real severity, for example a request logged at `INFO` that answered 500:
+
+```yaml
+level_from:
+  field: http_status
+  map: { "5*": error, "4*": warn }
+```
+
+- The line takes **the more severe** of its own level and the level of the matching rule. `INFO` with `503` becomes `ERROR`. The level is **never lowered**: `ERROR` with `200` stays `ERROR`, so a real error is always kept by `e` and found by `>`.
+- A line whose value matches no rule, or that has no such field, keeps its level. A catch-all `"*"` rule is only useful to give a level to lines that have none.
+- A line with no level at all takes the level of the matching rule.
 
 ### `decoder: json`: one JSON object per line
 
@@ -365,8 +379,7 @@ layout: access
 |---|---|---|---|
 | `pattern` | string | yes | A Go regular expression ([syntax](https://pkg.go.dev/regexp/syntax)) with **named groups** `(?P<name>…)`. Write it between single quotes in YAML. Groups named like standard fields fill them (`time`, `level`, `logger`, `thread`, `message`, `trace_id`, `app`, `pid`). Other groups become extra fields (`{field:status}`). A `message` group is required. |
 | `time_format` | string | | Layout of the `time` group in Go's reference-date notation, as described under `time_format` in [Layouts](#9-layoutsnameyaml). Default: RFC 3339. |
-| `level_from.field` | string | | A group whose value decides the level, for example an HTTP status. It must be a group of `pattern`. |
-| `level_from.map` | map glob → level | | Value glob to `error`, `warn`, `info` or `debug`; the longest glob is tried first. |
+| `level_from` | | | Raise the level from a group, for example the HTTP status, as described in the common keys above. |
 
 `fields` and `hidden` are not used by this decoder.
 

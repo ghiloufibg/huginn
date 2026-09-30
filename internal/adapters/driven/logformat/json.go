@@ -26,7 +26,10 @@ type JSONDecoder struct {
 }
 
 // NewJSON returns a decoder for profile p.
-func NewJSON(p Profile) *JSONDecoder { return &JSONDecoder{p: p, plain: NewPlain(p.Name)} }
+func NewJSON(p Profile) *JSONDecoder {
+	p.LevelRules = sortRules(p.LevelRules)
+	return &JSONDecoder{p: p, plain: NewPlain(p.Name)}
+}
 
 // parsers are reused across lines and goroutines.
 var parsers fastjson.ParserPool
@@ -61,11 +64,30 @@ func (d *JSONDecoder) Decode(raw domain.RawLine) domain.LogEntry {
 			e.Fields[f.key] = f.value
 		}
 	}
+	if d.p.LevelField != "" {
+		if v, ok := levelValue(root, d.p.LevelField, extracted); ok {
+			e.Level = raise(e.Level, d.p.LevelRules, v)
+		}
+	}
 	if hasHidden {
 		raw := text
 		e.LoadHidden = func() map[string]string { return d.hiddenOf(raw, hiddenExtracted) }
 	}
 	return e
+}
+
+// levelValue is the value of the level_from field of a line: the JSON
+// path p, hidden or not, else the field p extracted by a transform.
+func levelValue(root *fastjson.Value, p string, extracted []field) (string, bool) {
+	if v := lookup(root, p); v != nil {
+		return stringify(v), true
+	}
+	for _, f := range extracted {
+		if f.key == p {
+			return f.value, true
+		}
+	}
+	return "", false
 }
 
 // standard reads the standard fields of the profile from root into e and

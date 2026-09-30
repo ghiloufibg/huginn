@@ -309,3 +309,34 @@ func BenchmarkJSONTransform(b *testing.B) {
 		})
 	}
 }
+
+func TestJSONLevelFrom(t *testing.T) {
+	p := withTransforms(mdcPairs)
+	p.LevelField, p.LevelRules = "http_status", []LevelRule{{"4*", domain.LevelWarn}, {"5*", domain.LevelError}}
+	p.Hidden = append([]string{"hidden_status"}, p.Hidden...)
+	d := NewJSON(p)
+	for _, tc := range []struct {
+		name, line string
+		want       domain.Level
+	}{
+		{"raised from a JSON key", `{"level":"INFO","message":"m","http_status":503}`, domain.LevelError},
+		{"string value", `{"level":"INFO","message":"m","http_status":"404"}`, domain.LevelWarn},
+		{"never lowered", `{"level":"ERROR","message":"m","http_status":404}`, domain.LevelError},
+		{"no rule matches", `{"level":"WARN","message":"m","http_status":200}`, domain.LevelWarn},
+		{"field absent", `{"level":"INFO","message":"m"}`, domain.LevelInfo},
+		{"unknown level takes the mapped one", `{"message":"m","http_status":503}`, domain.LevelError},
+		{"extracted by the transform", `{"level":"INFO","message":"route=/a - m - http_status=502"}`, domain.LevelError},
+		{"a JSON key wins over extracted text", `{"level":"INFO","message":"a=1 - m - http_status=502","http_status":200}`, domain.LevelInfo},
+	} {
+		if e := d.Decode(raw(tc.line)); e.Level != tc.want {
+			t.Errorf("%s: %v, want %v", tc.name, e.Level, tc.want)
+		}
+	}
+	nested := logstash
+	nested.LevelField, nested.LevelRules = "http.status", []LevelRule{{"5*", domain.LevelError}}
+	nested.Hidden = []string{"http.*"}
+	e := NewJSON(nested).Decode(raw(`{"level":"INFO","message":"m","http":{"status":500}}`))
+	if e.Level != domain.LevelError || len(e.Fields) != 0 {
+		t.Errorf("a nested, hidden path: %v %v", e.Level, e.Fields)
+	}
+}

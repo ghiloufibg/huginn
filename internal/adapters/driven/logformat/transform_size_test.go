@@ -111,3 +111,22 @@ func BenchmarkHiddenFieldsTransformed(b *testing.B) {
 		})
 	}
 }
+
+// BenchmarkJSONLevelFrom is the cost level_from adds to a JSON line.
+func BenchmarkJSONLevelFrom(b *testing.B) {
+	line := raw(`{"@timestamp":"2026-09-26T18:53:10.729Z","message":"request completed","level":"INFO","http":{"status":503},"traceId":"bc9632dd","app":"payment-service","pid":"1"}`)
+	with := logstash
+	with.LevelField, with.LevelRules = "http.status", []LevelRule{{"5*", domain.LevelError}, {"4*", domain.LevelWarn}, {"2*", domain.LevelInfo}}
+	for _, bc := range []struct {
+		name string
+		p    Profile
+	}{{"none", logstash}, {"level_from", with}} {
+		b.Run(bc.name, func(b *testing.B) {
+			d := NewJSON(bc.p)
+			b.ReportAllocs()
+			for b.Loop() {
+				d.Decode(line)
+			}
+		})
+	}
+}
