@@ -359,7 +359,8 @@ func TestUICopy(t *testing.T) {
 	}
 	fsys["ui.yaml"].Data = []byte("version: 1\nmouse: false\nsave: {dir: ~/logs}\nredact: ['(?i)bearer \\S+']\n")
 	c, msg = load(t, fsys)
-	if msg != "" || *c.UI.Mouse || !strings.HasSuffix(c.UI.Save.Dir, "/logs") || strings.HasPrefix(c.UI.Save.Dir, "~") || len(c.UI.Redact) != 1 {
+	wantSuffix := string(filepath.Separator) + "logs"
+	if msg != "" || *c.UI.Mouse || !strings.HasSuffix(c.UI.Save.Dir, wantSuffix) || strings.HasPrefix(c.UI.Save.Dir, "~") || len(c.UI.Redact) != 1 {
 		t.Fatalf("set: mouse %v save %q redact %v %s", *c.UI.Mouse, c.UI.Save.Dir, c.UI.Redact, msg)
 	}
 	fsys["ui.yaml"].Data = []byte("version: 1\nclipboard: xclip\ncopy: {max_bytes: -1}\nredact: [ok, '(']\n")
