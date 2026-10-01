@@ -133,6 +133,7 @@ type Model struct {
 	keyBar        keyBarSize
 	resyncing     bool
 	watchErr      error
+	watchStart    time.Time // when the current watch was started
 }
 
 // Messages from watch plumbing. gen identifies the watch so that messages
@@ -212,6 +213,7 @@ func (m *Model) startWatch() tea.Cmd {
 		return nil
 	}
 	m.gen++
+	m.watchStart = m.opts.Now()
 	ctx, cancel := context.WithCancel(m.opts.Context)
 	m.cancel = cancel
 	gen, env, catalog := m.gen, domain.Env(m.env.Name), m.opts.Catalog
@@ -464,10 +466,26 @@ func (m *Model) header() string {
 		current = current.Foreground(bar.GetForeground())
 	}
 	path += current.Inherit(bar).Render(crumbs[len(crumbs)-1])
-	right := m.connection(bar) + bar.Render(" ")
-	head := brand.Inherit(bar).Render(" huginn ") + tag.Render(strings.ToUpper(e.Name)) + bar.Render(" ")
-	// The context is the first thing to shorten on narrow terminals: the
-	// environment and the breadcrumb matter more.
+	envTag := tag.Render(strings.ToUpper(e.Name)) + bar.Render(" ")
+	head := brand.Inherit(bar).Render(" huginn ") + envTag
+	// On narrow terminals the environment never goes: it says where the
+	// user is, production above all. The context shortens first, then the
+	// connection state loses its source, then the brand goes, then the
+	// connection state is cut.
+	right := m.connection(bar, false) + bar.Render(" ")
+	fits := func() bool { return lipgloss.Width(head)+lipgloss.Width(path)+1+lipgloss.Width(right) <= m.width }
+	if !fits() {
+		right = m.connection(bar, true) + bar.Render(" ")
+	}
+	if !fits() {
+		head = bar.Render(" ") + envTag
+	}
+	if avail := m.width - lipgloss.Width(head) - lipgloss.Width(path) - 1; !fits() {
+		right = ""
+		if avail >= 10 {
+			right = ansi.Truncate(m.connection(bar, true), avail-2, "…") + bar.Render(" ")
+		}
+	}
 	room := m.width - lipgloss.Width(head) - lipgloss.Width(path) - lipgloss.Width(right) - 6
 	if room < 8 {
 		where = ""
@@ -481,10 +499,14 @@ func (m *Model) header() string {
 	return fill(bar, left+path, right, m.width)
 }
 
-// connection describes the watch state on the right of the header.
-func (m *Model) connection(bar lipgloss.Style) string {
+// connection describes the watch state on the right of the header;
+// compact leaves out the source, for narrow terminals.
+func (m *Model) connection(bar lipgloss.Style, compact bool) string {
 	t := &m.opts.Theme
 	src := bar.Render(m.opts.Source + " · ")
+	if compact {
+		src = ""
+	}
 	switch {
 	case m.watchErr != nil:
 		return src + t.Bad.Inherit(bar).Render("error: "+errKind(m.watchErr))
@@ -500,7 +522,11 @@ func (m *Model) connection(bar lipgloss.Style) string {
 		if !m.snap.Synced || len(m.snap.Warnings) > 0 {
 			state = "partial"
 		}
-		return src + bar.Render(state+" · synced "+m.snap.UpdatedAt.In(time.Local).Format("15:04:05"))
+		synced := " · synced "
+		if compact {
+			synced = " · "
+		}
+		return src + bar.Render(state+synced+m.snap.UpdatedAt.In(time.Local).Format("15:04:05"))
 	}
 }
 

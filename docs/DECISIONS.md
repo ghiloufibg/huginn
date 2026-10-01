@@ -468,3 +468,10 @@ Status: accepted.
 - **The log is not flooded.** A failing plugin prints the same advice on every retry, for each namespace. Lines are logged without their klog header, and a line already logged is not logged again for 10 minutes.
 - **Error screens:** one layout, `tui.errorPanel`, for the services and logs error screens: a headline in the error's terms ("Not logged in to rec"), the message, what to do, the keys. Each part is wrapped to at most 76 columns; on a short terminal the message is cut first, so the advice and keys stay visible, and nothing goes past the screen.
 Status: accepted.
+
+## D-054 Narrow terminals: the environment always shows; one size test for every screen
+- **The header never drops the environment.** Below about 50 columns the connection state on the right took the room first, and `fill` cut the left side: at 40 columns `PRD` and the breadcrumb were gone, only the red bar was left. Now, as the width shrinks: the context goes (as before), the connection state loses its source and the word "synced", the brand goes, then the connection state is cut, then dropped. The environment tag and the breadcrumb stay.
+- **Popups wider than the terminal are clipped** (`placeOver`) instead of pushing the lines past the screen: the environment picker was 75 columns wide whatever the terminal.
+- **`TestLayoutFitsEverySize`** renders every screen and popup, and the loading and error states, from 20×5 to 220×60, and checks that each fills the terminal exactly, that no line is wider, and that the header names the environment. It found both bugs above. `TestLayoutScreensOpen` checks that its table still opens what it says.
+- **Waiting on a cluster that does not answer** shows the elapsed time after 2 s (`connecting to dev · 7s`): the dial times out after 10 s, which looked like a hang. The unreachable error screen says to check the network or VPN.
+Status: accepted.

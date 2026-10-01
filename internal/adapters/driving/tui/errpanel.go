@@ -96,6 +96,8 @@ func errFix(t *Theme, err error) string {
 		return "Log in again: on GKE, run " + t.Key.Render("gcloud auth login") + "."
 	case errors.Is(err, domain.ErrForbidden):
 		return "Ask for read access to this namespace."
+	case errors.Is(err, domain.ErrUnreachable):
+		return "Check your network or VPN access to the cluster."
 	}
 	return ""
 }

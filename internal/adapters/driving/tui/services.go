@@ -225,7 +225,13 @@ func (s *servicesScreen) view(m *Model, w, h int) string {
 		return errorPanel(t, errTitle("Cannot watch", m.env.Name, m.watchErr), m.watchErr, errFix(t, m.watchErr),
 			t.Dim.Render("press ")+t.Key.Render(m.label(ActRefresh))+t.Dim.Render(" to retry"), w, h)
 	case m.snap == nil:
-		return centered(t.Key.Render(m.spinner())+t.Dim.Render(" connecting to "+m.env.Name), w, h)
+		msg := " connecting to " + m.env.Name
+		// A cluster that does not answer takes a while to time out: the
+		// elapsed time shows that something is going on.
+		if d := m.opts.Now().Sub(m.watchStart); d >= 2*time.Second {
+			msg += fmt.Sprintf(" · %ds", int(d.Seconds()))
+		}
+		return centered(t.Key.Render(m.spinner())+t.Dim.Render(msg), w, h)
 	case m.snap.Err != nil && len(m.snap.Services) == 0:
 		return errorPanel(t, errTitle("Cannot reach", m.env.Name, m.snap.Err), m.snap.Err, errFix(t, m.snap.Err), m.retryKeys(m.snap.Err), w, h)
 	}

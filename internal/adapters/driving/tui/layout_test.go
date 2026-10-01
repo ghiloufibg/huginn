@@ -1,0 +1,141 @@
+package tui
+
+import (
+	"fmt"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/charmbracelet/x/ansi"
+
+	"github.com/ghiloufibg/huginn/internal/core/domain"
+	"github.com/ghiloufibg/huginn/internal/core/ports"
+)
+
+// layoutSizes go from a split pane to a wide screen.
+var layoutSizes = [][2]int{{20, 5}, {30, 8}, {40, 10}, {60, 12}, {80, 24}, {120, 30}, {220, 60}}
+
+// layoutScreens open every screen and popup, and the error and loading
+// states, each on a fresh model.
+var layoutScreens = []struct {
+	name string
+	env  string // the environment the header must always name
+	open func(t *testing.T) *Model
+}{
+	{"connecting", "REC", func(t *testing.T) *Model { m, _ := newTestModel(t, 1, ""); return m }},
+	{"services", "REC", services(1, "rec")},
+	{"services prd", "PRD", services(3, "prd")},
+	{"preview", "REC", services(1, "rec", "p")},
+	{"filter", "REC", services(1, "rec", "/", "p", "a")},
+	{"env picker", "PRD", services(3, "prd", "ctrl+e")},
+	{"help", "REC", services(1, "rec", "?")},
+	{"not logged in", "REC", failing(errNotLoggedIn)},
+	{"unreachable", "REC", failing(fmt.Errorf("namespace app-rec: %w", domain.KindError(domain.ErrUnreachable,
+		`Get "https://10.255.255.1:6443/apis/apps/v1/namespaces/app-rec/deployments?limit=1": dial tcp 10.255.255.1:6443: i/o timeout`)))},
+	{"configuration", "REC", failing(domain.KindError(domain.ErrConfig, "kube context gke_acme_europe-west1_main: context was not found for specified context: gke_acme_europe-west1_main"))},
+	{"logs", "REC", logs()},
+	{"pod selector", "REC", logs("S")},
+	{"logs fullscreen", "REC", logs("F")},
+	{"zoom", "REC", logs("enter")},
+	{"window picker", "REC", logs("T")},
+	{"level picker", "REC", logs("l")},
+	{"columns picker", "REC", logs("C")},
+	{"logs error", "REC", func(t *testing.T) *Model {
+		m, l := openLogs(t)
+		l.err = fmt.Errorf("logs of payment-service-7d9f8b6c5d-m8q7v/app: %w", domain.ErrForbidden)
+		return m
+	}},
+}
+
+func services(env int, name string, keys ...string) func(t *testing.T) *Model {
+	return func(t *testing.T) *Model {
+		m, _ := newTestModel(t, env, "")
+		snapshot(m, mockupSnapshot(name))
+		press(m, keys...)
+		return m
+	}
+}
+
+func failing(err error) func(t *testing.T) *Model {
+	return func(t *testing.T) *Model {
+		m, _ := newTestModel(t, 1, "")
+		snapshot(m, ports.CatalogSnapshot{Env: "rec", UpdatedAt: t0, Err: err})
+		return m
+	}
+}
+
+func logs(keys ...string) func(t *testing.T) *Model {
+	return func(t *testing.T) *Model {
+		m, _ := openLogs(t)
+		press(m, keys...)
+		return m
+	}
+}
+
+// TestLayoutFitsEverySize: every screen fills the terminal exactly, at
+// every size, without a line wider than the screen, and the header always
+// names the environment (it matters most in production).
+func TestLayoutFitsEverySize(t *testing.T) {
+	for _, s := range layoutScreens {
+		t.Run(s.name, func(t *testing.T) {
+			m := s.open(t)
+			for _, size := range layoutSizes {
+				w, h := size[0], size[1]
+				out := render(m, w, h)
+				lines := strings.Split(out, "\n")
+				if len(lines) != h {
+					t.Errorf("%dx%d: %d lines, want %d\n%s", w, h, len(lines), h, out)
+				}
+				for i, l := range lines {
+					if lw := ansi.StringWidth(l); lw > w {
+						t.Errorf("%dx%d: line %d is %d cells wide: %q", w, h, i, lw, l)
+					}
+				}
+				if !strings.Contains(lines[0], s.env) {
+					t.Errorf("%dx%d: the header does not name %s: %q", w, h, s.env, lines[0])
+				}
+			}
+		})
+	}
+}
+
+// TestLayoutScreensOpen guards the table above: a key that no longer opens
+// its screen or popup would make the size test check the wrong thing.
+func TestLayoutScreensOpen(t *testing.T) {
+	want := map[string]string{
+		"logs": "*tui.logsScreen", "pod selector": "*tui.podSelector", "zoom": "*tui.zoomScreen", "help": "*tui.helpScreen",
+		"env picker": "*tui.envPicker", "window picker": "*tui.windowPicker", "level picker": "*tui.levelPicker", "columns picker": "*tui.columnsPicker",
+	}
+	for _, s := range layoutScreens {
+		name, ok := want[s.name]
+		if !ok {
+			continue
+		}
+		m := s.open(t)
+		got := fmt.Sprintf("%T", m.top())
+		if m.popup != nil {
+			got = fmt.Sprintf("%T", m.popup)
+		}
+		if got != name {
+			t.Errorf("%s: shows %s, want %s", s.name, got, name)
+		}
+	}
+}
+
+// TestConnectingShowsElapsed: a cluster that does not answer takes a while
+// to time out; after 2 s the wait is counted, and the timeout says what to
+// check.
+func TestConnectingShowsElapsed(t *testing.T) {
+	m, _ := newTestModel(t, 1, "")
+	if out := render(m, 80, 12); !strings.Contains(out, "connecting to rec") || strings.Contains(out, "connecting to rec ·") {
+		t.Fatalf("no count at first:\n%s", out)
+	}
+	m.opts.Now = func() time.Time { return t0.Add(7 * time.Second) }
+	if out := render(m, 80, 12); !strings.Contains(out, "connecting to rec · 7s") {
+		t.Fatalf("elapsed time:\n%s", out)
+	}
+	snapshot(m, ports.CatalogSnapshot{Env: "rec", UpdatedAt: t0, Err: domain.ErrUnreachable})
+	if out := render(m, 80, 12); !strings.Contains(out, "Check your network or VPN access to the cluster.") {
+		t.Fatalf("unreachable advice:\n%s", out)
+	}
+}

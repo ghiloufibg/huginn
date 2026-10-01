@@ -13,6 +13,12 @@ func placeOver(base, box string, w, h int) string {
 	lines := strings.Split(base, "\n")
 	boxLines := strings.Split(box, "\n")
 	bw := lipgloss.Width(box)
+	if bw > w { // a popup wider than the terminal is clipped, not spilled
+		for i, bl := range boxLines {
+			boxLines[i] = ansi.Truncate(bl, w, "")
+		}
+		bw = w
+	}
 	x := max((w-bw)/2, 0)
 	y := max((h-len(boxLines))/3, 0)
 	for i, bl := range boxLines {
