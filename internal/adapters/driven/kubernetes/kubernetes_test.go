@@ -280,11 +280,24 @@ func TestErrorMapping(t *testing.T) {
 		Err: errors.New("getting credentials: exec: executable /usr/lib/google-cloud-sdk/bin/gke-gcloud-auth-plugin failed with exit code 1"),
 	}
 	got := mapErr(creds)
-	if !errors.Is(got, domain.ErrUnauthorized) || got.Error() != "getting credentials: exec: executable gke-gcloud-auth-plugin failed with exit code 1" {
+	// (Followed by the plugin's reason when a plugin of this process just
+	// printed one: see TestFailingCredentialPlugin.)
+	if !errors.Is(got, domain.ErrUnauthorized) || !strings.HasPrefix(got.Error(), "getting credentials: exec: executable gke-gcloud-auth-plugin failed with exit code 1") {
 		t.Errorf("credential plugin failure: %v", got)
 	}
 	if !watchBroken(creds) {
 		t.Error("a credential failure ends the watch, so the UI reports it")
+	}
+	// A plugin that is not installed: retrying cannot help, and client-go's
+	// generic help gives way to the kubeconfig's install hint.
+	missing := &url.Error{Op: "Get", URL: "https://10.0.0.1/api", Err: errors.New("getting credentials: exec: executable gke-gcloud-auth-plugin not found\n\n" +
+		"It looks like you are trying to use a client-go credential plugin that is not installed.\n\n" +
+		"To learn more about this feature, consult the documentation available at:\n      https://kubernetes.io/docs/reference/access-authn-authz/authentication/#client-go-credential-plugins\n\n" +
+		"Install gke-gcloud-auth-plugin for use with kubectl by following\nhttps://cloud.google.com/kubernetes-engine/docs/how-to/cluster-access-for-kubectl#install_plugin")}
+	got = mapErr(missing)
+	want := "getting credentials: exec: executable gke-gcloud-auth-plugin not found. Install gke-gcloud-auth-plugin for use with kubectl by following https://cloud.google.com/kubernetes-engine/docs/how-to/cluster-access-for-kubectl#install_plugin"
+	if !errors.Is(got, domain.ErrConfig) || !domain.Permanent(got) || got.Error() != want || !watchBroken(missing) {
+		t.Errorf("missing plugin: %v", got)
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -78,7 +79,7 @@ users:
 	_, err := c.ListPods(ctx, ports.Scope{Env: "rec", Context: "gke", Namespaces: []string{ns}}, nil)
 	// interactiveMode Always would fail without a terminal ("exec plugin
 	// cannot support interactive mode"): the plugin must have run.
-	if !errors.Is(err, domain.ErrUnauthorized) || !strings.Contains(err.Error(), "executable fake-auth-plugin failed with exit code 1") {
+	if !errors.Is(err, domain.ErrUnauthorized) || !strings.HasSuffix(err.Error(), "executable fake-auth-plugin failed with exit code 1: Reauthentication failed.") {
 		t.Fatalf("err = %v", err)
 	}
 	for deadline := time.Now().Add(5 * time.Second); !strings.Contains(log.String(), "Please run: gcloud auth login"); {
@@ -89,5 +90,94 @@ users:
 	}
 	if !strings.Contains(log.String(), "source=auth-plugin") {
 		t.Errorf("log lines name their source:\n%s", log.String())
+	}
+}
+
+// TestMissingCredentialPlugin: a kubeconfig naming a plugin that is not
+// installed is a setup error, not a login one.
+func TestMissingCredentialPlugin(t *testing.T) {
+	dir := t.TempDir()
+	for _, c := range []struct{ command, want string }{
+		{"huginn-no-such-plugin", "executable huginn-no-such-plugin not found. Install it first."},
+		{filepath.Join(dir, "no-such-plugin"), "fork/exec no-such-plugin:"},
+	} {
+		cfg := filepath.Join(dir, "config")
+		kubeconfig := `apiVersion: v1
+kind: Config
+current-context: gke
+clusters:
+- name: gke
+  cluster: {server: "https://127.0.0.1:1"}
+contexts:
+- name: gke
+  context: {cluster: gke, user: gke}
+users:
+- name: gke
+  user:
+    exec:
+      apiVersion: client.authentication.k8s.io/v1beta1
+      command: ` + c.command + `
+      installHint: Install it first.
+`
+		if err := os.WriteFile(cfg, []byte(kubeconfig), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("KUBECONFIG", cfg)
+		_, err := New(Options{UserAgent: "huginn/test"}).ListPods(context.Background(), ports.Scope{Env: "rec", Context: "gke", Namespaces: []string{ns}}, nil)
+		if !errors.Is(err, domain.ErrConfig) || !strings.Contains(err.Error(), c.want) || strings.Contains(err.Error(), dir) {
+			t.Errorf("%s: err = %v", c.command, err)
+		}
+	}
+}
+
+func TestPickReason(t *testing.T) {
+	gcloud := []string{
+		"print credential failed with error: Failed to retrieve access token:: failure while executing gcloud, with args [config config-helper --format=json]: exit status 1 (err: ERROR: (gcloud.config.config-helper) There was a problem refreshing your current auth tokens: Reauthentication failed. cannot prompt during non-interactive execution.",
+		"Please run:",
+		"$ gcloud auth login",
+	}
+	cases := []struct {
+		lines []string
+		want  string
+	}{
+		{gcloud, "There was a problem refreshing your current auth tokens: Reauthentication failed. cannot prompt during non-interactive execution."},
+		{[]string{"token expired", "try again"}, "token expired"},
+		{nil, ""},
+		{[]string{strings.Repeat("x", 400)}, strings.Repeat("x", 299) + "…"},
+	}
+	for _, c := range cases {
+		if got := pickReason(c.lines); got != c.want {
+			t.Errorf("pickReason(%q) = %q, want %q", c.lines, got, c.want)
+		}
+	}
+}
+
+// TestPluginOutput: klog headers are dropped, the latest run is kept, and
+// a plugin failing on every retry is logged once in a while, not each time.
+func TestPluginOutput(t *testing.T) {
+	var log bytes.Buffer
+	now := time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)
+	p := &pluginOutput{log: slog.New(slog.NewTextHandler(&log, nil)), logged: map[string]time.Time{}, now: func() time.Time { return now }}
+	run := func() {
+		p.add("F1001 09:12:40.104512   48211 cred.go:145] ERROR: (gcloud.auth) Reauthentication failed.")
+		p.add("")
+		p.add("  Please run: gcloud auth login")
+	}
+	run()
+	if !slices.Equal(p.burst, []string{"ERROR: (gcloud.auth) Reauthentication failed.", "Please run: gcloud auth login"}) {
+		t.Fatalf("burst = %q", p.burst)
+	}
+	now = now.Add(30 * time.Second)
+	run()
+	if len(p.burst) != 2 || strings.Count(log.String(), "Reauthentication failed") != 1 {
+		t.Fatalf("a retry starts a new run and is not logged again: %q\n%s", p.burst, log.String())
+	}
+	now = now.Add(relogAfter)
+	run()
+	if strings.Count(log.String(), "Reauthentication failed") != 2 {
+		t.Fatalf("logged again after %v:\n%s", relogAfter, log.String())
+	}
+	if strings.Contains(log.String(), "cred.go") {
+		t.Errorf("klog header logged:\n%s", log.String())
 	}
 }

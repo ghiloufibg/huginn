@@ -18,6 +18,9 @@ const maxPanelWidth = 76
 // Every part is wrapped to the width; when the height is short, the
 // message is cut first, so the advice and the keys stay visible.
 func errorPanel(t *Theme, title string, err error, fix, keys string, w, h int) string {
+	if w <= 0 || h <= 0 {
+		return ""
+	}
 	tw := min(maxPanelWidth, max(w-4, min(w, 20)))
 	wrap := func(s string, style lipgloss.Style) []string {
 		lines := strings.Split(ansi.Wrap(s, tw, "/"), "\n")
@@ -88,7 +91,7 @@ func errTitle(failed, env string, err error) string {
 func errFix(t *Theme, err error) string {
 	switch {
 	case domain.Permanent(err):
-		return "Fix the configuration (environments.yaml, kubeconfig)."
+		return "Fix the setup: environments.yaml, the kubeconfig or its credential plugin."
 	case errors.Is(err, domain.ErrUnauthorized):
 		return "Log in again: on GKE, run " + t.Key.Render("gcloud auth login") + "."
 	case errors.Is(err, domain.ErrForbidden):

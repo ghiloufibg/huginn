@@ -153,7 +153,9 @@ func namespaceMissing(ctx context.Context, cs API, ns string) bool {
 
 func kindPlural(k domain.WorkloadKind) string { return strings.ToLower(string(k)) + "s" }
 
-func isForbidden(err error) bool { return errors.Is(mapErr(err), domain.ErrForbidden) }
+func isForbidden(err error) bool {
+	return errors.Is(err, domain.ErrForbidden) || kindOf(err) == domain.ErrForbidden
+}
 
 func namespaced(ns string, err error) error {
 	return fmt.Errorf("namespace %s: %w", ns, mapErr(err))
@@ -401,10 +403,11 @@ func run[E any](parent context.Context, sources []informerSource, first []E, con
 }
 
 // watchBroken tells whether an informer's list failed for a reason its own
-// retries would hide: the cluster is unreachable or refuses the user.
+// retries would hide: the cluster is unreachable or refuses the user, or
+// the credential plugin is gone.
 func watchBroken(err error) bool {
 	switch kindOf(err) {
-	case domain.ErrUnreachable, domain.ErrUnauthorized, domain.ErrForbidden:
+	case domain.ErrUnreachable, domain.ErrUnauthorized, domain.ErrForbidden, domain.ErrConfig:
 		return true
 	}
 	return false
