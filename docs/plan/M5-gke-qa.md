@@ -1,4 +1,4 @@
-# M5 — Real GKE: a QA session with real Spring Boot workloads  (status: design)
+# M5 — Real GKE: a QA session with real Spring Boot workloads  (status: done)
 
 **Goal:** connect Huginn to a real GKE cluster in the user's own GCP project
 (`huginn-kube-tui`, the $300 / 90-day free trial, already selected as the
@@ -9,10 +9,11 @@ explicitly leaves out because it only has a local `kind` cluster: real GKE
 IAM/RBAC, `namespace_from` through GCP KMS, and real Spring Boot structured
 logging.
 
-**Status: design only.** Nothing in this document has been provisioned. No
-`gcloud`, `kubectl` or Kubernetes manifest below has been applied; every
-command is illustrative, for a future execution session to run top to
-bottom, the same way `QA-SESSION.md` itself was a design before it was run.
+**Status: done.** Executed against a real GKE Autopilot cluster; see
+[`deploy/gke-qa/QA-REPORT.md`](../../deploy/gke-qa/QA-REPORT.md) for the
+report and D-040 for the decision record. This document is kept as-written
+for its design rationale; the report is authoritative on what was
+actually run.
 
 ## 0. What this reuses, what is new
 

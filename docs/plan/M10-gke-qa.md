@@ -1,4 +1,4 @@
-# M10 — Real GKE, round 2: full TUI coverage and NFRs under real load  (status: design)
+# M10 — Real GKE, round 2: full TUI coverage and NFRs under real load  (status: done)
 
 **Goal:** a second real-GKE QA session, in the same `huginn-kube-tui` project as
 [M5](M5-gke-qa.md), that closes two gaps M5 explicitly left open:
@@ -22,10 +22,12 @@
    apples-to-apples number, not just a synthetic `bulk-emitter` (lab) or an
    in-process benchmark (`perf-pass-M8.md`).
 
-**Status: design only.** Nothing below has been provisioned — no `gcloud`,
-`kubectl`, Kubernetes manifest or `huginn.yaml` change has been applied. Same
-convention as [M5-gke-qa.md](M5-gke-qa.md): illustrative commands, for a
-future execution session.
+**Status: done.** Executed against a real GKE Autopilot cluster; see
+[`deploy/gke-qa/M10-QA-REPORT.md`](../../deploy/gke-qa/M10-QA-REPORT.md)
+for the report and [D-052](../DECISIONS.md) for the decision record.
+This document is kept as-written (illustrative commands, some since
+superseded by what the execution actually needed) for its design
+rationale; the report is authoritative on what was actually run.
 
 ## 0. What this reuses, what is new
 
