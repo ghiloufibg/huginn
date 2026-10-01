@@ -309,6 +309,43 @@ func TestWatchErrorGolden(t *testing.T) {
 	golden(t, "services_unreachable_120x16", render(m, 120, 16))
 }
 
+// errNotLoggedIn is what the cluster adapter reports when the gcloud session
+// has expired.
+var errNotLoggedIn = fmt.Errorf("namespace app-rec: %w", domain.KindError(domain.ErrUnauthorized,
+	"getting credentials: exec: executable gke-gcloud-auth-plugin failed with exit code 1"))
+
+func TestNotLoggedInGolden(t *testing.T) {
+	m, _ := newTestModel(t, 1, "")
+	snapshot(m, ports.CatalogSnapshot{Env: "rec", UpdatedAt: t0, Err: errNotLoggedIn})
+	golden(t, "services_not_logged_in_60x16", render(m, 60, 16))
+}
+
+// TestErrorPanelFits: on a small terminal the error panel stays within the
+// screen, and cuts the error's message before the advice and the keys.
+func TestErrorPanelFits(t *testing.T) {
+	m, _ := newTestModel(t, 1, "")
+	snapshot(m, ports.CatalogSnapshot{Env: "rec", UpdatedAt: t0, Err: errNotLoggedIn})
+	for _, size := range [][2]int{{40, 10}, {60, 12}, {120, 30}} {
+		w, h := size[0], size[1]
+		out := render(m, w, h)
+		lines := strings.Split(out, "\n")
+		if len(lines) != h {
+			t.Errorf("%dx%d: %d lines\n%s", w, h, len(lines), out)
+		}
+		for _, l := range lines {
+			if ansi.StringWidth(l) > w {
+				t.Errorf("%dx%d: line wider than the screen: %q", w, h, l)
+			}
+		}
+		flat := strings.Join(strings.Fields(out), " ")
+		for _, want := range []string{"Not logged in to rec", "gcloud auth login", "retrying automatically", "retry now"} {
+			if !strings.Contains(flat, want) {
+				t.Errorf("%dx%d: %q missing\n%s", w, h, want, out)
+			}
+		}
+	}
+}
+
 func TestFitsTerminal(t *testing.T) {
 	for _, size := range [][2]int{{160, 45}, {120, 30}, {80, 24}, {60, 12}, {40, 10}} {
 		m, _ := newTestModel(t, 1, "")

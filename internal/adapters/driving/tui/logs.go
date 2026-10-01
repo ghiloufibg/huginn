@@ -856,8 +856,8 @@ func (l *logsScreen) view(m *Model, w, h int) string {
 	l.height = h
 	switch {
 	case l.err != nil:
-		parts = append(parts, centered(t.Bad.Render("Cannot read the logs of "+l.repo+": "+errKind(l.err))+"\n\n"+t.Dim.Render(wrapErr(l.err, w))+
-			"\n\n"+l.keyHint(m, ActRefresh, "retry", ActBack, "back"), w, h))
+		parts = append(parts, errorPanel(t, "Cannot read the logs of "+l.repo+": "+errKind(l.err), l.err, errFix(t, l.err),
+			l.keyHint(m, ActRefresh, "retry", ActBack, "back"), w, h))
 	case l.shown() == 0 && l.loading:
 		parts = append(parts, centered(t.Key.Render(m.spinner())+t.Dim.Render(fmt.Sprintf(" loading %s of %s", l.window.Label(), l.repo)), w, h))
 	case l.shown() == 0:

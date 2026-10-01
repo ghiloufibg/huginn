@@ -9,7 +9,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/x/ansi"
 
 	"github.com/ghiloufibg/huginn/internal/core/domain"
 	"github.com/ghiloufibg/huginn/internal/core/ports"
@@ -222,14 +221,13 @@ func (s *servicesScreen) view(m *Model, w, h int) string {
 	t := &m.opts.Theme
 	switch {
 	case m.watchErr != nil:
-		return centered(t.Bad.Render("Cannot watch "+m.env.Name+": "+errKind(m.watchErr))+"\n\n"+
-			t.Dim.Render(wrapErr(m.watchErr, w))+"\n\n"+t.Dim.Render("press ")+t.Key.Render(m.label(ActRefresh))+t.Dim.Render(" to retry"), w, h)
+		// The watch did not start: nothing retries it.
+		return errorPanel(t, errTitle("Cannot watch", m.env.Name, m.watchErr), m.watchErr, errFix(t, m.watchErr),
+			t.Dim.Render("press ")+t.Key.Render(m.label(ActRefresh))+t.Dim.Render(" to retry"), w, h)
 	case m.snap == nil:
 		return centered(t.Key.Render(m.spinner())+t.Dim.Render(" connecting to "+m.env.Name), w, h)
 	case m.snap.Err != nil && len(m.snap.Services) == 0:
-		return centered(t.Bad.Render("Cannot reach "+m.env.Name+": "+errKind(m.snap.Err))+"\n\n"+
-			t.Dim.Render(wrapErr(m.snap.Err, w))+"\n\n"+t.Dim.Render(errAdvice(m.snap.Err)+" · press ")+
-			t.Key.Render(m.label(ActRefresh))+t.Dim.Render(" to retry now"), w, h)
+		return errorPanel(t, errTitle("Cannot reach", m.env.Name, m.snap.Err), m.snap.Err, errFix(t, m.snap.Err), m.retryKeys(m.snap.Err), w, h)
 	}
 	rows := s.rows(m)
 	if len(rows) == 0 {
@@ -407,10 +405,4 @@ func (s *servicesScreen) prompt(m *Model) string {
 		text += "_"
 	}
 	return t.Prompt.Render("/") + t.Bold.Inherit(t.Status).Render(text)
-}
-
-// wrapErr wraps an error message to the screen, for the centered error
-// views: the message names what to fix and must be read whole.
-func wrapErr(err error, w int) string {
-	return ansi.Wrap(err.Error(), max(w-8, 20), " ")
 }

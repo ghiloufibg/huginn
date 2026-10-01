@@ -39,7 +39,7 @@ namespace scoping. Grant only the namespaced `Role`/`RoleBinding`; IAM is
 still needed to authenticate the principal and fetch cluster credentials,
 but nothing above that.
 
-When something is wrong the services screen says what: `unauthorized` (log in again: `gcloud auth login`), `forbidden` for one namespace (the others keep working), `configuration error` for an unknown context (not retried: fix `environments.yaml`), `secrets unavailable` when sops cannot decrypt.
+When something is wrong the services screen says what: `not logged in` (log in again: `gcloud auth login`; the auth plugin's own messages go to the log, never over the screen), `forbidden` for one namespace (the others keep working), `configuration error` for an unknown context (not retried: fix `environments.yaml`), `secrets unavailable` when sops cannot decrypt.
 
 **First run on GKE, checklist:** the services screen lists your repositories with their states; open a repository's logs; press `P` on a service that restarted; switch environment with `ctrl+e`; an environment with `namespace_from` opens.
 

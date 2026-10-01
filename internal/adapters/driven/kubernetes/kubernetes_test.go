@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/url"
 	"os"
 	"slices"
 	"strings"
@@ -271,6 +272,19 @@ func TestErrorMapping(t *testing.T) {
 	}
 	if err := mapErr(context.Canceled); err != context.Canceled {
 		t.Errorf("cancel: %v", err)
+	}
+	// A credential plugin that fails (not logged in to gcloud) comes back
+	// in a *url.Error, a net.Error: it is not a network failure.
+	creds := &url.Error{
+		Op: "Get", URL: "https://10.0.0.1/api/v1/namespaces/app/pods?limit=500",
+		Err: errors.New("getting credentials: exec: executable /usr/lib/google-cloud-sdk/bin/gke-gcloud-auth-plugin failed with exit code 1"),
+	}
+	got := mapErr(creds)
+	if !errors.Is(got, domain.ErrUnauthorized) || got.Error() != "getting credentials: exec: executable gke-gcloud-auth-plugin failed with exit code 1" {
+		t.Errorf("credential plugin failure: %v", got)
+	}
+	if !watchBroken(creds) {
+		t.Error("a credential failure ends the watch, so the UI reports it")
 	}
 }
 
