@@ -99,7 +99,10 @@ func TestMissingCredentialPlugin(t *testing.T) {
 	dir := t.TempDir()
 	for _, c := range []struct{ command, want string }{
 		{"huginn-no-such-plugin", "executable huginn-no-such-plugin not found. Install it first."},
-		{filepath.Join(dir, "no-such-plugin"), "fork/exec no-such-plugin:"},
+		// A path: "fork/exec no-such-plugin: no such file or directory" on
+		// Unix, "executable no-such-plugin not found" on Windows (LookPath
+		// tries the .exe extensions).
+		{filepath.Join(dir, "no-such-plugin"), "no-such-plugin"},
 	} {
 		cfg := filepath.Join(dir, "config")
 		kubeconfig := `apiVersion: v1
