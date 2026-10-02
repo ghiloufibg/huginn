@@ -297,10 +297,10 @@ Status: accepted.
 Status: accepted.
 
 ## D-040 Kafka topics, read only (M5, proposed)
-- **No consumer group.** Partitions are assigned by hand (franz-go `ConsumePartitions`), never with a group id: no coordinator traffic, no rebalance of the pods' group, no offset commit. Positions live in memory only. `*_CONSUMER_GROUP_ID` keys are never used to consume.
+- **No consumer group.** Partitions are assigned by hand (franz-go `ConsumePartitions`), never with a group id: no coordinator traffic, no rebalance of the pods' group, no offset commit. Positions live in memory only. No config key can set a group id.
 - **Request allow-list, enforced before the bytes leave.** Huginn dials the brokers itself and a guard above TLS refuses any request frame other than ApiVersions, Metadata, ListOffsets, Fetch, SaslHandshake and SaslAuthenticate. Backed by `forbidigo`/`archtest` rules on the adapter and a `kfake` contract test asserting the broker never receives anything else.
 - **franz-go** over sarama (heavier, consumer-group oriented) and confluent-kafka-go (cgo, librdkafka): pure Go, custom dialer, in-memory test broker.
 - **Generic `kafka/` profiles, like `formats/`.** One profile per file, `match` on repositories, environments and the existence of files, first match wins. Values come from ordered `sources` (dotenv, properties, YAML, JSON; optionally sops-encrypted, base64, prefixed), referenced as `${KEY}`; `{env}`, `{repo_dir}` and free `vars` are replaced first; per-repository and per-topic overrides. No path, key name, mechanism or topic in code or as a default (D-030).
 - **Shared quota is shown, not hidden.** With the application's own credentials (`shared_credentials: true`), per-user broker quotas are shared with the pods: low default limits, follow on demand, a notice on the screen.
-- **Absent means absent.** Without `kafka.yaml`, bootstrap builds no Kafka component and the TUI has no Kafka action.
+- **Absent means absent.** Without a `kafka/` folder, bootstrap builds no Kafka component and the TUI has no Kafka action.
 Status: proposed (docs/plan/M5-kafka.md).
