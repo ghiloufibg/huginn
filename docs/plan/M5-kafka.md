@@ -396,3 +396,8 @@ Until a step lands, a key it covers is accepted by validation and reported on th
 - Producing, replaying, resetting offsets, deleting or creating anything (never, whatever the config says).
 - Joining a consumer group or committing an offset (never; §2.1).
 - Writing decoded records or secrets to disk (export is an explicit `ctrl+s` of the visible records only, through the existing save action, with redaction applied).
+
+## 9. Choices settled before coding
+- **Heavy dependencies stay optional.** Kerberos (gokrb5) and the AWS default credential chain (aws-sdk-go-v2) weigh more than the rest of Huginn. They are built only with the build tags `kafka_gssapi` and `kafka_aws`; without them, the keys validate and the screen says `not built with kafka_gssapi`. Static AWS keys work without the tag (franz-go signs them itself).
+- **`--demo`.** The demo replaces the `TopicSourceFactory` and the `ValueSources` with synthetic ones; `examples/config/kafka/` holds a profile with literal values and no `match.files`, so every demo repository with a Kafka role shows the screen without any file or broker.
+- **Order of work.** K0 → K1 → K2 cover the original script entirely (dotenv + sops, SCRAM, PKCS12 truststore, discover, tail and windows). K3 to K5 follow, each a separate commit series with its own plan update if the design moves.
