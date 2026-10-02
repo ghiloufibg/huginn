@@ -213,6 +213,8 @@ Overrides are merged key by key: a repository changing `tls.ca` keeps the profil
 | `kafka.partition_fetch_max_bytes` | `256KiB` | Bytes per partition per fetch. |
 | `kafka.max_value_bytes` | `1MiB` | Larger values are kept truncated, with their real size shown. |
 | `kafka.client_id` | `huginn` | Kafka client id. |
+| `kafka.connect_timeout` | `10s` | Time to reach the brokers and authenticate before the screen says they are unreachable. |
+| `kafka.request_timeout` | `30s` | Time allowed for one Metadata, ListOffsets or Fetch request. |
 | `kafka.isolation` | `read_uncommitted` | Isolation when a screen opens. |
 
 ### 3.10 Validation (in `internal/config`, with file, line and column)
