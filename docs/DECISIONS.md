@@ -295,3 +295,12 @@ Status: accepted.
 - **Rotation is shown, not worked around.** The API serves the current log file only; reading rotated files needs node access Huginn never has. The first line more than a minute after the container's start (`Container.Started`, from `state.running.startedAt`) gives a notice. Cloud Logging (the V2 source of D-010) could serve older lines later through the same port.
 - **With `P`**, the head reads the first lines of the previous instance: how the crashed instance started, for N lines instead of the whole instance.
 Status: accepted.
+
+## D-040 Kafka topics, read only (M5, proposed)
+- **No consumer group.** Partitions are assigned by hand (franz-go `ConsumePartitions`), never with a group id: no coordinator traffic, no rebalance of the pods' group, no offset commit. Positions live in memory only. `*_CONSUMER_GROUP_ID` keys are never used to consume.
+- **Request allow-list, enforced before the bytes leave.** Huginn dials the brokers itself and a guard above TLS refuses any request frame other than ApiVersions, Metadata, ListOffsets, Fetch, SaslHandshake and SaslAuthenticate. Backed by `forbidigo`/`archtest` rules on the adapter and a `kfake` contract test asserting the broker never receives anything else.
+- **franz-go** over sarama (heavier, consumer-group oriented) and confluent-kafka-go (cgo, librdkafka): pure Go, custom dialer, in-memory test broker.
+- **Connection from the repository's env files**: dotenv files merged in order (base, overlay, sops-encrypted overlay), referenced as `${KEY}`; Huginn placeholders `{env}`, `{repo_dir}`, `{prefix}` are replaced first. Per-topic credentials through `prefix`; the truststore path comes from a profile with a per-service override. All of it in `kafka.yaml`, nothing in code (D-030).
+- **Shared quota is shown, not hidden.** With the application's own SASL accounts, per-user broker quotas are shared with the pods: low default limits, follow on demand, a warning on the screen; a dedicated read-only account can be configured with `env:` values.
+- **Absent means absent.** Without `kafka.yaml`, bootstrap builds no Kafka component and the TUI has no Kafka action.
+Status: proposed (docs/plan/M5-kafka.md).
