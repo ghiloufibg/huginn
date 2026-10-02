@@ -25,6 +25,10 @@ says so in the release notes; fixes bump PATCH. The first release is
      `gcloud auth login`, and nothing is printed over it. Run
      `gcloud auth login` in another terminal: Huginn reconnects by itself
      within 30 s.
+   - **Session lost while running.** With Huginn showing services, run
+     `gcloud auth revoke`: within 30 s the rows dim with `stale ·` and the
+     status bar starts with `stale since …`; after `gcloud auth login`
+     they come back to normal.
    - **Windows**, same check in Windows Terminal: the credential plugin's
      stderr capture is not covered by an end-to-end test there.
    - The usual tour: services, logs of a busy service, zoom, `ctrl+e` to
