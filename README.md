@@ -8,7 +8,7 @@ Huginn is a keyboard-driven, **read-only** terminal UI for reading the logs of a
 
 ## Try it
 
-Requires Go 1.26+.
+Binaries for linux, macOS and Windows are attached to each [GitHub release](https://github.com/ghiloufibg/huginn/releases). To build from source, Go 1.26+ is required:
 
 ```sh
 make build            # or: CGO_ENABLED=0 go build -o bin/huginn ./cmd/huginn
@@ -164,5 +164,7 @@ make lint    # golangci-lint run (v2, built with Go 1.26)
 make cross   # CGO-free builds for linux/darwin/windows x amd64/arm64
 make schema  # regenerate docs/schema/*.json after changing internal/config structs
 ```
+
+Releases: [`docs/RELEASING.md`](docs/RELEASING.md).
 
 Read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) before changing code: Huginn uses a hexagonal architecture whose rules are enforced by a test.
