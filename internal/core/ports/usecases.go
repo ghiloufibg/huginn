@@ -25,6 +25,10 @@ type CatalogSnapshot struct {
 	Warnings []string
 	// Err is set when nothing can be watched at all.
 	Err error
+	// StaleSince is when the oldest namespace in NamespaceErrs lost its
+	// watch, zero when every namespace is watched. The services of those
+	// namespaces are kept as last seen, so they may be out of date.
+	StaleSince time.Time
 }
 
 // ServiceCatalog is the driving port behind the services screen.

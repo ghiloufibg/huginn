@@ -30,6 +30,7 @@ var layoutScreens = []struct {
 	{"env picker", "PRD", services(3, "prd", "ctrl+e")},
 	{"help", "REC", services(1, "rec", "?")},
 	{"not logged in", "REC", failing(errNotLoggedIn)},
+	{"stale", "REC", func(t *testing.T) *Model { m, _ := newTestModel(t, 1, ""); snapshot(m, staleSnapshot()); return m }},
 	{"unreachable", "REC", failing(fmt.Errorf("namespace app-rec: %w", domain.KindError(domain.ErrUnreachable,
 		`Get "https://10.255.255.1:6443/apis/apps/v1/namespaces/app-rec/deployments?limit=1": dial tcp 10.255.255.1:6443: i/o timeout`)))},
 	{"configuration", "REC", failing(domain.KindError(domain.ErrConfig, "kube context gke_acme_europe-west1_main: context was not found for specified context: gke_acme_europe-west1_main"))},
@@ -137,5 +138,39 @@ func TestConnectingShowsElapsed(t *testing.T) {
 	snapshot(m, ports.CatalogSnapshot{Env: "rec", UpdatedAt: t0, Err: domain.ErrUnreachable})
 	if out := render(m, 80, 12); !strings.Contains(out, "Check your network or VPN access to the cluster.") {
 		t.Fatalf("unreachable advice:\n%s", out)
+	}
+}
+
+// staleSnapshot is rec after its session expired 20 minutes ago: the
+// services are kept as last seen.
+func staleSnapshot() ports.CatalogSnapshot {
+	s := mockupSnapshot("rec")
+	for i := range s.Services {
+		for _, w := range s.Services[i].WorkloadStates {
+			s.Services[i].Refs = append(s.Services[i].Refs, w.Ref)
+		}
+	}
+	s.NamespaceErrs = map[string]error{"app-rec": errNotLoggedIn}
+	s.Err, s.StaleSince = errNotLoggedIn, t0.Add(-20*time.Minute)
+	return s
+}
+
+// TestStaleServices: when the watch is lost, the rows kept say so, in
+// words as well as dimmed, and the status bar says since when, first so a
+// narrow terminal keeps it.
+func TestStaleServices(t *testing.T) {
+	m, _ := newTestModel(t, 1, "")
+	snapshot(m, staleSnapshot())
+	out := render(m, 140, 22)
+	golden(t, "services_stale_140x22", out)
+	if !strings.Contains(out, "stale · ") || !strings.Contains(out, "(20m)") {
+		t.Fatalf("stale rows not marked:\n%s", out)
+	}
+	if lines := strings.Split(render(m, 50, 12), "\n"); !strings.Contains(lines[len(lines)-2], "stale since") {
+		t.Errorf("narrow status bar: %q", lines[len(lines)-2])
+	}
+	snapshot(m, mockupSnapshot("rec"))
+	if out := render(m, 140, 22); strings.Contains(out, "stale") {
+		t.Errorf("back to normal:\n%s", out)
 	}
 }

@@ -245,7 +245,13 @@ func (s *servicesScreen) view(m *Model, w, h int) string {
 	}
 	s.sync(rows)
 	now := m.opts.Now()
-	get := func(i int) []cell { return s.cells(rows[i], now, t, m.opts.Filter) }
+	get := func(i int) []cell {
+		c := s.cells(rows[i], now, t, m.opts.Filter)
+		if stale(m.snap, rows[i]) {
+			markStale(c, t)
+		}
+		return c
+	}
 	flex := 0
 	for _, r := range rows {
 		n := len(r.Repo)
@@ -346,6 +352,27 @@ func (s *servicesScreen) cells(r domain.ServiceSummary, now time.Time, t *Theme,
 	}
 }
 
+// stale tells a row whose namespace lost its watch: it shows the service
+// as last seen, which may be out of date.
+func stale(snap *ports.CatalogSnapshot, r domain.ServiceSummary) bool {
+	for _, ref := range r.Refs {
+		if _, ok := snap.NamespaceErrs[ref.Namespace]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+// markStale dims a stale row and says so in words, which also reads
+// without colors.
+func markStale(cells []cell, t *Theme) {
+	for i := range cells {
+		cells[i].style = t.Dim
+	}
+	last := &cells[len(cells)-1]
+	last.text = strings.TrimSuffix("stale · "+last.text, " · ")
+}
+
 func (s *servicesScreen) statusLeft(m *Model) string {
 	t := &m.opts.Theme
 	bar := t.Status
@@ -358,6 +385,13 @@ func (s *servicesScreen) statusLeft(m *Model) string {
 	}
 	if m.snap == nil {
 		return chip + bar.Render("loading")
+	}
+	// First, so that a narrow terminal never cuts it: the rows below may
+	// be out of date.
+	stalePart := ""
+	if since := m.snap.StaleSince; !since.IsZero() && len(m.snap.Services) > 0 {
+		stalePart = t.Warn.Inherit(bar).Render(fmt.Sprintf("stale since %s (%s)",
+			since.In(time.Local).Format("15:04"), shortAge(m.opts.Now().Sub(since)))) + bar.Render("  ·  ")
 	}
 	var parts []string
 	if s.missing != "" {
@@ -376,7 +410,7 @@ func (s *servicesScreen) statusLeft(m *Model) string {
 		parts = append(parts, "namespace "+strings.Join(nss, ", "))
 	}
 	parts = append(parts, m.snap.Warnings...)
-	return chip + bar.Render(strings.Join(parts, "  ·  "))
+	return chip + stalePart + bar.Render(strings.Join(parts, "  ·  "))
 }
 
 func (s *servicesScreen) hints(m *Model) []hint {
