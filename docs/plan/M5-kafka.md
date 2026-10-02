@@ -9,7 +9,7 @@ Like every other feature, it knows nothing about your applications. **Where the 
 ## 1. What the user sees
 
 ### Services screen
-- A repository that a Kafka profile matches in the current environment (§3.2) shows a `K` marker in the name column.
+- A repository that a Kafka profile matches in the environment Huginn runs on (§3.2) shows a `K` marker in the name column.
 - `M` (new action `kafka`, remappable in `ui.yaml`) opens its Kafka screen. The key bar shows it only on those rows; on the other rows it does nothing.
 - Nothing is read, decrypted or connected before `M`. Leaving the screen closes every connection.
 
@@ -84,7 +84,7 @@ acme-huginn/
     └── <name>.yaml
 ```
 
-Same rules as the rest of the folder: `version: 1`, strict decoding, the profile is named after its file, files are tried **in file name order** and the first whose `match` accepts the repository and environment wins (as `formats/`). Huginn has **no default** path, file name, key name, mechanism or topic.
+Same rules as the rest of the folder: `version: 1`, strict decoding, the profile is named after its file, files are tried **in file name order** and the first whose `match` accepts the repository wins (as `formats/`). Huginn has **no default** path, file name, key name, mechanism or topic.
 
 ### 3.1 A profile at a glance
 
@@ -92,9 +92,8 @@ Same rules as the rest of the folder: `version: 1`, strict decoding, the profile
 # yaml-language-server: $schema=../../docs/schema/kafka.schema.json
 version: 1
 
-match:                                   # which repositories and environments (§3.2)
+match:                                   # which repositories (§3.2)
   repos: ["*"]
-  envs: [rec, prd]
   files: ["{repo_dir}/<settings-dir>/{env}/*"]
 
 sources:                                 # where values come from, merged in order (§3.4)
@@ -137,8 +136,9 @@ Every `<…>` above is yours to write. A profile can be as small as a literal bo
 | Key | Type | Meaning |
 |---|---|---|
 | `repos` | list of globs | Repositories this profile applies to. Empty means any. |
-| `envs` | list | Environments (keys of `environments.yaml`). Empty means any. |
 | `files` | list of path globs | The profile applies only if each glob matches at least one existing file. Checked without reading or decrypting anything (a cached `stat`), so the `K` marker appears only on repositories that really carry Kafka settings. |
+
+There is no environment list: the environment is the one Huginn runs on (`huginn rec`, `-e`, `HUGINN_ENV`, `ctrl+e`), written `{env}` in paths and values. A repository without Kafka settings for that environment simply has no matching `files`, so it gets no `K` marker there.
 
 A profile with no `match` accepts everything; name it to sort last (`zz-default.yaml`). A repository listed under `repos:` (§3.8) is accepted by `match.repos` implicitly.
 
@@ -226,7 +226,7 @@ Overrides are merged key by key: a repository changing `tls.ca` keeps the profil
 3. **Everything from the repository**: dotenv overlays decrypted with sops, per-topic accounts through `vars`, truststore found by glob, topics by `discover`. This is the shape of the original debug script; its profile goes in `examples/config/kafka/` with neutral names.
 
 ## 4. Opening the screen, step by step
-1. Pick the first profile matching the repository and environment; merge the repository's `repos:` entry over it.
+1. Pick the first profile matching the repository (its `files` checked for the current environment); merge the repository's `repos:` entry over it.
 2. Replace `{…}` placeholders.
 3. Read the sources in order (sops for encrypted ones), merge.
 4. Build the topic list: listed, then discovered; resolve names.
