@@ -116,10 +116,8 @@ was active:
 - `--committed`/`--raw` CLI flags specifically (isolation and raw-copy
   were exercised via the TUI's `i`/`Y`-equivalent instead; the CLI flags
   themselves weren't separately invoked) — low risk, same code path.
-- A reusable `e2e-m12.sh` script was not written; this session's TUI/CLI
-  checks were ad hoc WSL/tmux commands rather than a committed automation
-  script (unlike M10's `e2e-m10.sh`). Worth doing before a round 4, not
-  blocking this report.
+  [`e2e-m12.sh`](e2e-m12.sh) (added after this session) doesn't invoke
+  them directly either, for the same reason.
 - OAUTHBEARER/mTLS/JKS and other M11 §10 "not in this version" items are
   correctly out of scope — nothing to test.
 
@@ -150,7 +148,16 @@ fabricated number is given.
 | 2 | Non-root container needs `fsGroup` for a PVC | environment (Kubernetes), not huginn | fixed in `kafka-workloads.yaml` |
 | 3 | `allow.everyone.if.no.acl.found` is per-resource | confirms real Kafka behavior, not a huginn issue | worked around (explicit ANONYMOUS ALLOW) |
 | 4 | `kubectl port-forward` to a Service doesn't follow pod rescheduling | environment (kubectl), not huginn | restarted as needed; doubled as a free chaos-test instance |
-| 5 | `sops` missing in fresh WSL (second occurrence, different install) | environment, recurring | installed; worth fixing at the base-image/setup level before round 4 |
+| 5 | `sops` missing in fresh WSL (second occurrence, different install) | environment, recurring | fixed: [`deploy/gke-qa/wsl-setup.sh`](wsl-setup.sh), a one-time idempotent install of gcloud, the auth plugin, `sops` and `age` natively in WSL, added after this session so round 4 doesn't rediscover it a third time |
 | 6 | Console producer mangles invalid UTF-8 | Kafka tooling, not huginn | worked around (`franz-go` one-off script) |
 
 No code changes to `internal/` were made or needed this session.
+
+## Follow-up (post-session)
+
+The two gaps this report flagged as "worth fixing"/"not covered" were
+closed immediately after: [`wsl-setup.sh`](wsl-setup.sh) (verified
+idempotent, run twice) and [`e2e-m12.sh`](e2e-m12.sh) (shell syntax
+validated on both `dash` under WSL and Git Bash's `sh`, but **not run
+live** — this session's cluster was already torn down by the time it was
+written; a round 4 should be its first real run).
