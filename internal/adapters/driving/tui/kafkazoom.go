@@ -62,6 +62,10 @@ func (z *kafkaZoomScreen) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 		z.step(1)
 	case keys.Is(key, ActPrevEntry):
 		z.step(-1)
+	case keys.Is(key, ActCopy):
+		if rec, ok := z.record(); ok {
+			return true, copyRecord(m, rec)
+		}
 	default:
 		return false, nil
 	}
@@ -147,7 +151,7 @@ func (z *kafkaZoomScreen) statusLeft(m *Model) string {
 }
 
 func (z *kafkaZoomScreen) hints(m *Model) []hint {
-	return []hint{m.pair(ActNextEntry, ActPrevEntry, "next/previous record"), m.pair(ActDown, ActUp, "scroll"), m.h(ActBack, "back")}
+	return []hint{m.pair(ActNextEntry, ActPrevEntry, "next/previous record"), m.pair(ActDown, ActUp, "scroll"), m.h(ActCopy, "copy value"), m.h(ActBack, "back")}
 }
 
 func (z *kafkaZoomScreen) prompt(*Model) string { return "" }

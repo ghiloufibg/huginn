@@ -7,4 +7,4 @@
                                                                                                                         
                                                                                                                         
  LOADING   last 100 per partition  ·  0 records  ·  uncommitted                                                         
- enter zoom  / filter  1-7 window  0 tail  f follow  space pause  i isolation  esc back                                 
+ enter zoom  / filter  1-7 window  0 tail  f follow  space pause  i isolation  ctrl+y copy  esc back                    

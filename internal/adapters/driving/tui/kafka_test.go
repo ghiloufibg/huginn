@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/ghiloufibg/huginn/internal/core/domain"
 	"github.com/ghiloufibg/huginn/internal/core/ports"
 )
@@ -286,4 +288,47 @@ func TestKafkaHelp(t *testing.T) {
 			t.Errorf("help misses %q:\n%s", want, out)
 		}
 	}
+}
+
+func TestKafkaOrderAndCopy(t *testing.T) {
+	m, _ := newKafkaModel(t)
+	selectRepo(t, m, "payment-service")
+	press(m, "M", "enter")
+	r := m.top().(*kafkaRecordsScreen)
+	feedKafka(m, r, ports.KafkaBatch{Records: kafkaRecords(8), HistoryDone: true})
+
+	press(m, "o")
+	lines := strings.Split(render(m, 120, 14), "\n")
+	if !strings.Contains(lines[1], "#1007") || !strings.Contains(lines[8], "#1000") {
+		t.Fatalf("newest first:\n%s", strings.Join(lines, "\n"))
+	}
+	if r.cursor != 7 {
+		t.Fatalf("the cursor stays on the newest record: %d", r.cursor)
+	}
+	press(m, "j") // down the screen: an older record
+	if r.cursor != 6 || r.tail {
+		t.Fatalf("j in newest-first order: cursor %d tail %v", r.cursor, r.tail)
+	}
+	press(m, "g")
+	if r.cursor != 7 || !r.tail {
+		t.Fatalf("g goes to the top, the newest: %d", r.cursor)
+	}
+
+	if cmd := r.copyCmd(m); cmd == nil || !strings.Contains(m.flashText, "copied the value of p1 #1007 (") {
+		t.Fatalf("copy: %q", m.flashText)
+	}
+	r.cursor = 2 // the tombstone
+	if cmd := r.copyCmd(m); cmd != nil || !strings.Contains(m.flashText, "tombstone") {
+		t.Fatalf("tombstone: %q", m.flashText)
+	}
+	r.cursor = 3 // framed binary value: a hex dump
+	if cmd := r.copyCmd(m); cmd == nil || !strings.Contains(m.flashText, "p0 #1003") {
+		t.Fatalf("binary: %q", m.flashText)
+	}
+}
+
+// copyCmd presses the copy key and returns its command.
+func (r *kafkaRecordsScreen) copyCmd(m *Model) tea.Cmd {
+	_, cmd := r.key(m, keyMsg("ctrl+y"))
+	return cmd
 }

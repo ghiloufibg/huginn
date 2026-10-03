@@ -74,4 +74,5 @@ var actions = map[Action]actionInfo{
 	ActFocus:         {"Display", "focus layout: hide pod, thread and class"},
 	ActKafka:         {"Services", "Kafka topics of the service, read only (services marked K)"},
 	ActIsolation:     {"Time and stream", "Kafka isolation: every record, or committed records only"},
+	ActCopy:          {"Inspect", "copy the value of the Kafka record to the clipboard (OSC 52)"},
 }

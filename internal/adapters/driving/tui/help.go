@@ -36,10 +36,10 @@ func helpActions(s screen) (string, []Action) {
 		return "Kafka records", []Action{
 			ActUp, ActDown, ActPageUp, ActPageDown, ActTop, ActBottom, ActOpen, ActFilter,
 			ActWindow1, ActWindow2, ActWindow3, ActWindow4, ActWindow5, ActWindow6, ActWindow7, ActWindowTail,
-			ActFollow, ActPause, ActIsolation, ActRefresh,
+			ActFollow, ActPause, ActIsolation, ActRefresh, ActOrder, ActCopy,
 		}
 	case *kafkaZoomScreen:
-		return "Kafka record", []Action{ActUp, ActDown, ActPageUp, ActPageDown, ActTop, ActNextEntry, ActPrevEntry}
+		return "Kafka record", []Action{ActUp, ActDown, ActPageUp, ActPageDown, ActTop, ActNextEntry, ActPrevEntry, ActCopy}
 	case *logsScreen:
 		return "Logs", []Action{
 			ActUp, ActDown, ActPageUp, ActPageDown, ActTop, ActBottom, ActNextError, ActPrevError,

@@ -1,4 +1,4 @@
-# M5 — Kafka topics, read only  (status: done: K0, K1, K2)
+# M5 — Kafka topics, read only  (status: done: K0, K1, K2, K3)
 
 ## 0. In one paragraph
 Some services are debugged today with a separate script: it reads the repository's `config.env` files (one encrypted with sops), connects to Kafka with the application's SASL account and truststore, assigns partitions by hand (no consumer group) and prints the last records of a topic. This milestone does **the same thing inside Huginn**: on a service that has Kafka settings, `M` opens a screen listing its topics and their records, read only, with no effect on the cluster or the pods. Nothing else. Every application detail (paths, key names, topics) is in the user's config folder; the code holds the mechanism only (D-030).
@@ -29,7 +29,7 @@ Some services are debugged today with a separate script: it reads the repository
 - **Topics**: `CONSUMES` / `PRODUCES` when the config gives a direction, `TOPICS` otherwise (directions are optional). Each shows its partition count, or a short reason it cannot be read (§6).
 - **Records**, merged across partitions by timestamp: time, partition, offset, key, one-line value preview.
 - **Zoom** (`enter`): headers, key, timestamp and its type, partition, offset, value pretty-printed (JSON indented, text wrapped, hex dump for binary).
-- **Same keys as the logs screen**: `0` tail (last N records per partition, the default), `1`…`7` windows (records since that time), `f` follow live, `space` pause, `/` filter (text, `key=…`, `partition=…`, `header.<name>=…`), `n`/`N`, `o` order, `ctrl+y` copy. Plus `i`: isolation `read_uncommitted` (default, like the script and Spring Kafka) ↔ `read_committed`.
+- **Same keys as the logs screen**: `0` tail (last N records per partition, the default), `1`…`7` windows (records since that time), `f` follow live, `space` pause, `/` filter (text, `key=…`, `partition=…`, `header.<name>=…`), `o` order, `ctrl+y` copy of the value. No `n`/`N`: the filter hides the other records, there is no match to jump to. Plus `i`: isolation `read_uncommitted` (default, like the script and Spring Kafka) ↔ `read_committed`.
 - **Status bar**: records loaded, dropped by the buffer limit, truncated values, live/paused/stopped.
 - **Production environment**: the red banner, as on every screen.
 
@@ -271,8 +271,10 @@ New dependencies: `github.com/twmb/franz-go` (+ `kfake` in tests) and `software.
 
 ## 9. Steps
 1. **K0 — config** (done): structs, validation, schema, `docs/CONFIG.md` §10, `examples/config-kafka/`, `domain` references (`{var}`, `${KEY}`) and dotenv parser, `ports.LocalFiles` / `ports.SecretFiles`, `localfiles` adapter, `sops.Provider.Decrypt`.
-2. **K1 — core and demo** (done): domain (record buffer by count and bytes, payload detection and rendering with control characters escaped, record filter), ports (`TopicSource`, `Kafka`, `KafkaSession`), `app.KafkaService`, fakes and `RunTopicSourceContract`, demo source and `examples/config/kafka/demo.yaml`, TUI screens and goldens, bootstrap wiring. The screen is three stacked screens (topics, records of a topic, one record) rather than two panes, like the rest of the TUI; copy (`ctrl+y`) waits for a clipboard adapter.
+2. **K1 — core and demo** (done): domain (record buffer by count and bytes, payload detection and rendering with control characters escaped, record filter), ports (`TopicSource`, `Kafka`, `KafkaSession`), `app.KafkaService`, fakes and `RunTopicSourceContract`, demo source and `examples/config/kafka/demo.yaml`, TUI screens and goldens, bootstrap wiring. The screen is three stacked screens (topics, records of a topic, one record) rather than two panes, like the rest of the TUI.
 3. **K2 — real brokers** (done): `adapters/driven/kafka` (franz-go, partitions assigned by hand, client metrics disabled), the guard holding back each frame's header until its key is checked, `forbidigo` rules and `archtest.Confined`, the contract suite on `kfake` with a recorder of the frames on the wire, a test proving a produce request never reaches the broker and stops the source, SASL, TLS and network failures, and an end-to-end test of a real run (dotenv overlays, per-topic accounts, discovery) in `internal/bootstrap`.
+
+4. **K3 — what §1 promised and K1 left out** (done): `o` newest first, `ctrl+y` copies the value of the record under the cursor (in the list and in zoom) with OSC 52, as D-012 chose: text and JSON as received, a hex dump for binary data, at most 64 KiB, with a confirmation naming the record and the size.
 
 K0 → K2 replace the original script. Each step ends green (`go test -race ./...`, `golangci-lint run`) and is its own commit series.
 

@@ -133,6 +133,8 @@ Optional: only when the config folder has a `kafka/` folder ([`docs/CONFIG.md`](
 | `i` | isolation: every record, or committed records only |
 | `/` | filter: `key=…`, `partition=N`, `header.<name>=…`, or text in the key, value or headers |
 | `enter` | the topic's records / the record in full (`J`/`K` next/previous record) |
+| `o` | newest or oldest first |
+| `ctrl+y` | copy the record's value to the clipboard (OSC 52: text and JSON as received, a hex dump for binary data, at most 64 KiB) |
 | `r` | reconnect / read again |
 
 ## Configuration: your config folder

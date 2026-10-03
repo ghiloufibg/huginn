@@ -52,13 +52,14 @@ type kafkaRecordsScreen struct {
 	rows     []uint64 // sequence numbers of the records shown (filter applied)
 	previews map[uint64]string
 
-	cursor int
-	offset int
-	tail   bool // the cursor follows the newest record
-	height int
-	paused bool
-	held   []domain.KafkaRecord
-	lost   int // records received while paused that did not fit
+	cursor    int  // index in rows
+	offset    int  // first displayed position
+	tail      bool // the cursor follows the newest record
+	newestTop bool // newest record first (o)
+	height    int
+	paused    bool
+	held      []domain.KafkaRecord
+	lost      int // records received while paused that did not fit
 
 	filter    domain.RecordFilter
 	input     lineEdit
@@ -251,9 +252,21 @@ func (r *kafkaRecordsScreen) at(i int) (*domain.KafkaRecord, bool) {
 	return r.buf.At(j), true
 }
 
+// move moves the cursor d positions down the screen, whatever the order.
 func (r *kafkaRecordsScreen) move(d int) {
+	if r.newestTop {
+		d = -d
+	}
 	r.cursor = max(min(r.cursor+d, len(r.rows)-1), 0)
 	r.tail = r.cursor == len(r.rows)-1
+}
+
+// display maps a displayed position to an index in rows, and back.
+func (r *kafkaRecordsScreen) display(i int) int {
+	if r.newestTop {
+		return len(r.rows) - 1 - i
+	}
+	return i
 }
 
 func (r *kafkaRecordsScreen) key(m *Model, msg tea.KeyPressMsg) (bool, tea.Cmd) {
@@ -277,7 +290,13 @@ func (r *kafkaRecordsScreen) key(m *Model, msg tea.KeyPressMsg) (bool, tea.Cmd) 
 		r.move(-len(r.rows))
 	case keys.Is(key, ActBottom):
 		r.move(len(r.rows))
-		r.tail = true
+	case keys.Is(key, ActOrder):
+		r.newestTop = !r.newestTop
+		m.flash(map[bool]string{true: "newest first", false: "oldest first"}[r.newestTop])
+	case keys.Is(key, ActCopy):
+		if rec, ok := r.at(r.cursor); ok {
+			return true, copyRecord(m, rec)
+		}
 	case keys.Is(key, ActOpen):
 		if rec, ok := r.at(r.cursor); ok {
 			return true, m.push(newKafkaZoomScreen(r, rec.Seq))
@@ -381,21 +400,22 @@ func (r *kafkaRecordsScreen) view(m *Model, w, h int) string {
 		}
 		return centered(t.Dim.Render(msg)+"\n\n"+t.Dim.Render(r.emptyHint(m)), w, h)
 	}
-	if r.cursor < r.offset {
-		r.offset = r.cursor
+	cur := r.display(r.cursor)
+	if cur < r.offset {
+		r.offset = cur
 	}
-	if r.cursor >= r.offset+h {
-		r.offset = r.cursor - h + 1
+	if cur >= r.offset+h {
+		r.offset = cur - h + 1
 	}
 	r.offset = max(min(r.offset, len(r.rows)-h), 0)
 	lines := make([]string, 0, h)
-	for i := r.offset; i < len(r.rows) && len(lines) < h; i++ {
-		rec, ok := r.at(i)
+	for d := r.offset; d < len(r.rows) && len(lines) < h; d++ {
+		rec, ok := r.at(r.display(d))
 		if !ok {
 			continue
 		}
 		line := r.line(t, rec, w)
-		if i == r.cursor {
+		if d == cur {
 			line = t.Selected.Render(ansi.Strip(line) + strings.Repeat(" ", max(w-textWidth(ansi.Strip(line)), 0)))
 		}
 		lines = append(lines, line)
@@ -448,6 +468,9 @@ func (r *kafkaRecordsScreen) statusLeft(m *Model) string {
 		chip = "LIVE"
 	}
 	parts := []string{r.windowLabel(), fmt.Sprintf("%d records", len(r.rows)), r.isolation()}
+	if r.newestTop {
+		parts = append(parts, "newest first")
+	}
 	if n := r.buf.Dropped(); n > 0 {
 		parts = append(parts, fmt.Sprintf("%d older records dropped", n))
 	}
@@ -477,8 +500,38 @@ func (r *kafkaRecordsScreen) hints(m *Model) []hint {
 		m.h(ActOpen, "zoom"), m.h(ActFilter, "filter"),
 		{"1-7", "window"},
 		m.h(ActWindowTail, "tail"),
-		m.h(ActFollow, "follow"), m.h(ActPause, "pause"), m.h(ActIsolation, "isolation"), m.h(ActBack, "back"),
+		m.h(ActFollow, "follow"), m.h(ActPause, "pause"), m.h(ActIsolation, "isolation"), m.h(ActCopy, "copy"), m.h(ActBack, "back"),
 	}
+}
+
+// maxCopyBytes bounds what one copy sends: terminals limit OSC 52.
+const maxCopyBytes = 64 << 10
+
+// copyRecord puts a record's value on the clipboard (OSC 52, D-012): the
+// bytes as received for text and JSON, a hex dump for binary data. Only
+// on this explicit request does a value leave the screen.
+func copyRecord(m *Model, rec *domain.KafkaRecord) tea.Cmd {
+	where := fmt.Sprintf("p%d #%d", rec.Partition, rec.Offset)
+	if rec.Value == nil {
+		m.flash("nothing to copy: " + where + " is a tombstone")
+		return nil
+	}
+	var text string
+	switch kind, _ := domain.ClassifyPayload(rec.Value); kind {
+	case domain.PayloadJSON, domain.PayloadText, domain.PayloadEmpty:
+		text = string(rec.Value)
+	default:
+		text = strings.Join(domain.PayloadLines(rec.Value), "\n")
+	}
+	note := ""
+	if len(text) > maxCopyBytes {
+		text, note = text[:maxCopyBytes], ", first "+domain.ByteSize(maxCopyBytes)
+	}
+	if rec.Truncated() {
+		note += ", cut by kafka.max_value_bytes"
+	}
+	m.flash(fmt.Sprintf("copied the value of %s (%s%s)", where, domain.ByteSize(len(text)), note))
+	return tea.SetClipboard(text)
 }
 
 func (r *kafkaRecordsScreen) prompt(m *Model) string {
