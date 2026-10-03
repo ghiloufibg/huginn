@@ -1,4 +1,5 @@
  huginn  REC  gke_acme_e…   services / payment-service / kafka / payments.requested   demo · watching · synced 19:14:02 
+ TIME         P   OFFSET    KEY                      VALUE                                                              
  19:14:02.000 p0  #1000     PAY-00000                {"id":"PAY-00000","status":"PAID","amount":10.50}                  
  19:14:03.000 p1  #1001     PAY-00001                {"id":"PAY-00001","status":"PAID","amount":11.50}                  
  19:14:04.000 p2  #1002     PAY-00002                tombstone                                                          
@@ -7,7 +8,6 @@
  19:14:07.000 p2  #1005     PAY-00005                {"id":"PAY-00005","status":"PAID","amount":15.50}                  
  19:14:08.000 p0  #1006     PAY-00006                {"id":"PAY-00006","status":"PAID","amount":16.50}                  
  19:14:09.000 p1  #1007     PAY-00007                {"id":"PAY-00007","status":"PAID","amount":17.50}                  
-                                                                                                                        
                                                                                                                         
                                                                                                                         
  STOPPED   last 100 per partition  ·  8 records  ·  uncommitted                                                         

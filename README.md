@@ -134,7 +134,7 @@ Every key can be remapped with `ui.keymap` in the configuration.
 
 ## Kafka screens
 
-Optional: only when the config folder has a `kafka/` folder ([`docs/CONFIG.md`](docs/CONFIG.md#10-kafkanameyaml)). Repositories a Kafka profile applies to are marked `K` on the services screen; `M` lists their topics, grouped as consumed, produced and others, with their partition count or why they cannot be read. `enter` shows the records of a topic, oldest first, merged across partitions by timestamp: time, partition, offset, key and a one-line value (compact JSON, text, `binary N B`, `schema <id>` for schema-registry framing, `tombstone`). `enter` on a record shows it in full: headers, timestamp type, the value indented or as a hex dump.
+Optional: only when the config folder has a `kafka/` folder ([`docs/CONFIG.md`](docs/CONFIG.md#10-kafkanameyaml)). Repositories a Kafka profile applies to are marked `K` on the services screen; `M` lists their topics, grouped as consumed, produced and others, with their partition count or why they cannot be read. `enter` shows the records of a topic, oldest first, merged across partitions by timestamp: time (with the date when the window reaches another day), partition (one colour each), offset, key and a one-line value (compact JSON, text, `binary N B`, `schema <id>` for schema-registry framing, `tombstone`). While following, the status bar shows the live rate (`LIVE 12/s`) and, when the cursor is not on the newest record, how many newer records are off screen. `enter` on a record shows it in full: headers, timestamp type, the value indented (JSON keys coloured) or as a hex dump.
 
 To check a profile without the TUI or a Kubernetes cluster, use `huginn kafka check <repo>` (see Usage).
 

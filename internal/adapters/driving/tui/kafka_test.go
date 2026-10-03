@@ -10,6 +10,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/ghiloufibg/huginn/internal/core/domain"
 	"github.com/ghiloufibg/huginn/internal/core/ports"
@@ -299,7 +300,7 @@ func TestKafkaOrderAndCopy(t *testing.T) {
 
 	press(m, "o")
 	lines := strings.Split(render(m, 120, 14), "\n")
-	if !strings.Contains(lines[1], "#1007") || !strings.Contains(lines[8], "#1000") {
+	if !strings.Contains(lines[2], "#1007") || !strings.Contains(lines[9], "#1000") {
 		t.Fatalf("newest first:\n%s", strings.Join(lines, "\n"))
 	}
 	if r.cursor != 7 {
@@ -415,5 +416,54 @@ func TestKafkaPauseStopsReading(t *testing.T) {
 	_, cmd := r.key(m, keyMsg("space"))
 	if cmd == nil || r.stalled != nil || len(r.rows) != 5 {
 		t.Fatalf("resume awaits the read again and shows the held batch: cmd %v rows %d", cmd != nil, len(r.rows))
+	}
+}
+
+func TestKafkaRecordsPolish(t *testing.T) {
+	m, _ := newKafkaModel(t)
+	selectRepo(t, m, "payment-service")
+	press(m, "M", "enter")
+	r := m.top().(*kafkaRecordsScreen)
+	recs := kafkaRecords(40)
+	recs[0].Time = m.opts.Now().Add(-36 * time.Hour)
+	feedKafka(m, r, ports.KafkaBatch{Records: recs, HistoryDone: true})
+
+	out := render(m, 120, 14)
+	if !strings.Contains(out, "TIME") || !strings.Contains(out, "OFFSET") {
+		t.Fatalf("column header:\n%s", out)
+	}
+	if day := recs[1].Time.In(time.Local).Format("01-02 "); !strings.Contains(out, day) {
+		t.Fatalf("a record from another day shows its date %q:\n%s", day, out)
+	}
+
+	press(m, "g") // the oldest: the newest are below
+	out = render(m, 120, 14)
+	if !strings.Contains(out, " newer") {
+		t.Fatalf("records below the screen are counted:\n%s", out)
+	}
+
+	r.follow = true
+	feedKafka(m, r, ports.KafkaBatch{Records: kafkaRecords(10)})
+	if !strings.Contains(r.statusLeft(m), "LIVE ") || !strings.Contains(r.statusLeft(m), "/s") {
+		t.Fatalf("live rate: %q", r.statusLeft(m))
+	}
+}
+
+func TestJSONKeyLine(t *testing.T) {
+	th := classicTheme()
+	for _, tc := range []struct{ in, key string }{
+		{`  "id": "PAY-1",`, `"id"`},
+		{`  "a\"b": 1`, `"a\"b"`},
+		{`  "only a string"`, ""},
+		{`  }`, ""},
+		{`  "unterminated`, ""},
+	} {
+		got := jsonKeyLine(th, tc.in)
+		if ansi.Strip(got) != tc.in {
+			t.Errorf("%q: text changed to %q", tc.in, ansi.Strip(got))
+		}
+		if colored := got != tc.in; colored != (tc.key != "") || tc.key != "" && !strings.Contains(got, th.Key.Render(tc.key)) {
+			t.Errorf("%q: key colouring %q", tc.in, got)
+		}
 	}
 }

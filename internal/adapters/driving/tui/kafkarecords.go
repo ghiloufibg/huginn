@@ -47,6 +47,7 @@ type kafkaRecordsScreen struct {
 	live    bool // the history is loaded
 	ended   bool // the read ended (not following)
 	notice  string
+	rate    rateMeter // live records per second
 
 	buf      *domain.RecordBuffer
 	rows     []uint64 // sequence numbers of the records shown (filter applied)
@@ -93,7 +94,7 @@ func (r *kafkaRecordsScreen) open(m *Model) tea.Cmd {
 	r.buf.Reset()
 	r.rows, r.previews, r.cursor, r.offset, r.tail = nil, map[uint64]string{}, 0, 0, true
 	r.err, r.loading, r.live, r.ended, r.notice, r.paused, r.held, r.heldBytes, r.lost = nil, true, false, false, "", false, nil, 0, 0
-	r.stalled = nil
+	r.stalled, r.rate = nil, rateMeter{}
 	sess := r.topics.session
 	if sess == nil {
 		r.err, r.loading = fmt.Errorf("the Kafka session is closed: %w", domain.ErrUnreachable), false
@@ -143,6 +144,9 @@ func (r *kafkaRecordsScreen) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 		if msg.closed {
 			r.loading, r.ended = false, true
 			return true, nil
+		}
+		if r.live && !r.paused {
+			r.rate.add(m.opts.Now(), len(msg.batch.Records))
 		}
 		r.apply(msg.batch)
 		if r.paused {
@@ -435,21 +439,19 @@ func (r *kafkaRecordsScreen) view(m *Model, w, h int) string {
 		}
 		return centered(t.Dim.Render(msg)+"\n\n"+t.Dim.Render(r.emptyHint(m)), w, h)
 	}
+	layout := r.layout(m)
+	h = max(h-1, 1) // the column header
+	r.height = h
+	r.scroll()
 	cur := r.display(r.cursor)
-	if cur < r.offset {
-		r.offset = cur
-	}
-	if cur >= r.offset+h {
-		r.offset = cur - h + 1
-	}
-	r.offset = max(min(r.offset, len(r.rows)-h), 0)
-	lines := make([]string, 0, h)
-	for d := r.offset; d < len(r.rows) && len(lines) < h; d++ {
+	lines := make([]string, 0, h+1)
+	lines = append(lines, t.TableHeader.Render(ansi.Truncate(layout.header(), w, "")))
+	for d := r.offset; d < len(r.rows) && len(lines) <= h; d++ {
 		rec, ok := r.at(r.display(d))
 		if !ok {
 			continue
 		}
-		line := r.line(t, rec, w)
+		line := r.line(m, layout, rec, w)
 		if d == cur {
 			line = t.Selected.Render(ansi.Strip(line) + strings.Repeat(" ", max(w-textWidth(ansi.Strip(line)), 0)))
 		}
@@ -458,19 +460,58 @@ func (r *kafkaRecordsScreen) view(m *Model, w, h int) string {
 	return strings.Join(lines, "\n")
 }
 
+// recordLayout is the column layout of the records list.
+type recordLayout struct {
+	timeFormat string
+	timeWidth  int
+}
+
+// layout shows the date when the oldest record shown is not from today:
+// windows of a day or two read across midnight.
+func (r *kafkaRecordsScreen) layout(m *Model) recordLayout {
+	l := recordLayout{timeFormat: "15:04:05.000", timeWidth: 12}
+	if len(r.rows) == 0 {
+		return l
+	}
+	oldest, ok := r.at(0)
+	if !ok || oldest.Time.IsZero() {
+		return l
+	}
+	y1, m1, d1 := oldest.Time.In(time.Local).Date()
+	y2, m2, d2 := m.opts.Now().In(time.Local).Date()
+	if y1 != y2 || m1 != m2 || d1 != d2 {
+		l.timeFormat, l.timeWidth = "01-02 15:04:05.000", 18
+	}
+	return l
+}
+
+const (
+	recordPartWidth   = 3
+	recordOffsetWidth = 9
+	recordKeyWidth    = 24
+)
+
+func (l recordLayout) header() string {
+	return fmt.Sprintf(" %-*s %-*s %-*s %-*s %s", l.timeWidth, "TIME", recordPartWidth, "P", recordOffsetWidth, "OFFSET", recordKeyWidth, "KEY", "VALUE")
+}
+
 func (r *kafkaRecordsScreen) emptyHint(m *Model) string {
 	return fmt.Sprintf("%s longer window  ·  %s follow  ·  %s back", m.label(ActWindow5), m.label(ActFollow), m.label(ActBack))
 }
 
 // line draws one record: time, partition, offset, key, value preview.
-func (r *kafkaRecordsScreen) line(t Theme, rec *domain.KafkaRecord, w int) string {
+// Partitions take the pod colours, so interleaved partitions read apart.
+func (r *kafkaRecordsScreen) line(m *Model, l recordLayout, rec *domain.KafkaRecord, w int) string {
 	ts := "-"
 	if !rec.Time.IsZero() {
-		ts = rec.Time.In(time.Local).Format("15:04:05.000")
+		ts = rec.Time.In(time.Local).Format(l.timeFormat)
 	}
-	key := domain.PayloadPreview(rec.Key, rec.KeySize, 24)
-	head := fmt.Sprintf("%-12s p%-2d #%-8s %-24s ", ts, rec.Partition, strconv.FormatInt(rec.Offset, 10), key)
-	room := w - textWidth(head) - 1
+	key := domain.PayloadPreview(rec.Key, rec.KeySize, recordKeyWidth)
+	dim := m.dim()
+	part := fmt.Sprintf("p%-*d", recordPartWidth-1, rec.Partition)
+	head := dim.paint(fmt.Sprintf("%-*s ", l.timeWidth, ts)) + m.podInk(int(rec.Partition)).paint(part) +
+		dim.paint(fmt.Sprintf(" %-*s %-*s ", recordOffsetWidth, "#"+strconv.FormatInt(rec.Offset, 10), recordKeyWidth, key))
+	room := w - (l.timeWidth + recordPartWidth + recordOffsetWidth + recordKeyWidth + 5) - 1
 	preview, ok := r.previews[rec.Seq]
 	if !ok {
 		// Computed once per record (the whole value is classified), cut
@@ -484,7 +525,36 @@ func (r *kafkaRecordsScreen) line(t Theme, rec *domain.KafkaRecord, w int) strin
 	if textWidth(preview) > room {
 		preview = ansi.Truncate(preview, max(room, 1), "…")
 	}
-	return " " + t.Dim.Render(head) + preview
+	if rec.Value == nil {
+		preview = dim.paint(preview)
+	}
+	return " " + head + preview
+}
+
+// scroll keeps the cursor on screen. The status bar is drawn before the
+// list: both call it so they agree.
+func (r *kafkaRecordsScreen) scroll() {
+	h, cur := max(r.height, 1), r.display(r.cursor)
+	if cur < r.offset {
+		r.offset = cur
+	}
+	if cur >= r.offset+h {
+		r.offset = cur - h + 1
+	}
+	r.offset = max(min(r.offset, len(r.rows)-h), 0)
+}
+
+// newer counts the records past the bottom (or above the top, newest
+// first) of the list while the cursor does not follow the newest.
+func (r *kafkaRecordsScreen) newer() int {
+	if r.tail || r.height == 0 {
+		return 0
+	}
+	r.scroll()
+	if r.newestTop {
+		return r.offset
+	}
+	return max(len(r.rows)-(r.offset+r.height), 0)
 }
 
 func (r *kafkaRecordsScreen) statusLeft(m *Model) string {
@@ -501,10 +571,16 @@ func (r *kafkaRecordsScreen) statusLeft(m *Model) string {
 		chip = "LOADING"
 	case r.follow && !r.ended:
 		chip = "LIVE"
+		if rate := r.rate.label(m.opts.Now()); rate != "" {
+			chip += " " + rate
+		}
 	}
 	parts := []string{r.windowLabel(), fmt.Sprintf("%d records", len(r.rows)), r.isolation()}
 	if r.newestTop {
 		parts = append(parts, "newest first")
+	}
+	if n := r.newer(); n > 0 {
+		parts = append(parts, fmt.Sprintf("%d newer", n))
 	}
 	if n := r.buf.Dropped(); n > 0 {
 		parts = append(parts, fmt.Sprintf("%d older records dropped", n))

@@ -123,13 +123,37 @@ func (z *kafkaZoomScreen) lines(t Theme) []string {
 	if rec.Value == nil {
 		return append(out, "  tombstone (null value: the key was deleted)")
 	}
-	if k, id := domain.ClassifyPayload(rec.Value); k == domain.PayloadFramed {
+	kind, id := domain.ClassifyPayload(rec.Value)
+	if kind == domain.PayloadFramed {
 		out = append(out, t.Dim.Render(fmt.Sprintf("  schema registry framing, schema id %d: not decoded", id)))
 	}
 	for _, l := range domain.PayloadLines(rec.Value) {
+		if kind == domain.PayloadJSON {
+			l = jsonKeyLine(t, l)
+		}
 		out = append(out, "  "+l)
 	}
 	return out
+}
+
+// jsonKeyLine colours the member name of an indented JSON line, so keys
+// and values read apart: `  "id": "PAY-1",`.
+func jsonKeyLine(t Theme, line string) string {
+	body := strings.TrimLeft(line, " ")
+	if !strings.HasPrefix(body, `"`) {
+		return line
+	}
+	end := 1
+	for end < len(body) && body[end] != '"' {
+		if body[end] == '\\' {
+			end++
+		}
+		end++
+	}
+	if end >= len(body) || !strings.HasPrefix(body[end+1:], ":") {
+		return line
+	}
+	return line[:len(line)-len(body)] + t.Key.Render(body[:end+1]) + body[end+1:]
 }
 
 func (z *kafkaZoomScreen) view(m *Model, w, h int) string {
