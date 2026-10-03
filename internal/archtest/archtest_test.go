@@ -23,16 +23,18 @@ func TestRepositoryFollowsArchitecture(t *testing.T) {
 func TestCheckCatchesViolations(t *testing.T) {
 	m := Module + "/"
 	imports := map[string][]string{
-		"internal/core/domain":              {"time", "k8s.io/api/core/v1"},
-		"internal/core/ports":               {m + "internal/core/domain", m + "internal/adapters/driven/demo"},
-		"internal/core/app":                 {m + "internal/config"},
-		"internal/adapters/driven/demo":     {m + "internal/core/ports", m + "internal/adapters/driven/clock", m + "internal/adapters/driven/demo/sub"},
-		"internal/adapters/driving/tui":     {"charm.land/bubbletea/v2", m + "internal/adapters/driven/demo", m + "internal/bootstrap"},
-		"internal/adapters/driving/cli":     {m + "internal/core/ports"},
-		"internal/config":                   {m + "internal/adapters/driving/tui"},
-		"internal/bootstrap":                {m + "internal/adapters/driven/demo", "github.com/spf13/cobra"},
-		"internal/somethingnew":             nil,
-		"internal/adapters/driven/demo/sub": {m + "internal/adapters/driven/demo"},
+		"internal/core/domain":                {"time", "k8s.io/api/core/v1"},
+		"internal/core/ports":                 {m + "internal/core/domain", m + "internal/adapters/driven/demo"},
+		"internal/core/app":                   {m + "internal/config"},
+		"internal/adapters/driven/demo":       {m + "internal/core/ports", m + "internal/adapters/driven/clock", m + "internal/adapters/driven/demo/sub"},
+		"internal/adapters/driving/tui":       {"charm.land/bubbletea/v2", m + "internal/adapters/driven/demo", m + "internal/bootstrap"},
+		"internal/adapters/driving/cli":       {m + "internal/core/ports"},
+		"internal/config":                     {m + "internal/adapters/driving/tui"},
+		"internal/bootstrap":                  {m + "internal/adapters/driven/demo", "github.com/spf13/cobra"},
+		"internal/somethingnew":               nil,
+		"internal/adapters/driven/demo/sub":   {m + "internal/adapters/driven/demo"},
+		"internal/adapters/driven/kubernetes": {"software.sslmate.com/src/go-pkcs12"},
+		"internal/adapters/driven/localfiles": {"software.sslmate.com/src/go-pkcs12"},
 	}
 	var got []string
 	for _, v := range Check(imports) {
@@ -40,6 +42,7 @@ func TestCheckCatchesViolations(t *testing.T) {
 	}
 	want := []string{
 		"internal/adapters/driven/demo -> " + m + "internal/adapters/driven/clock",
+		"internal/adapters/driven/kubernetes -> software.sslmate.com/src/go-pkcs12",
 		"internal/adapters/driving/tui -> " + m + "internal/adapters/driven/demo",
 		"internal/adapters/driving/tui -> " + m + "internal/bootstrap",
 		"internal/config -> " + m + "internal/adapters/driving/tui",

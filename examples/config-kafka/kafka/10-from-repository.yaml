@@ -1,0 +1,53 @@
+# yaml-language-server: $schema=../../../docs/schema/kafka.schema.json
+# Kafka settings read from the repository itself: dotenv files of its
+# Kubernetes overlays, the secret one encrypted with sops, and the Java
+# truststore shipped with the service. Every path and key name below is
+# an example: write those of your repositories.
+# Reference: docs/CONFIG.md#10-kafkanameyaml
+version: 1
+
+# Only repositories that have an encrypted Kafka file for the current
+# environment ({env}) get a Kafka screen. Nothing is read before it opens.
+match:
+  files: ["{repo_dir}/deploy/overlays/{env}/secrets/kafka.env"]
+
+# Merged in order: a key in a later file replaces the earlier value.
+sources:
+  - file: "{repo_dir}/deploy/base/kafka.env"
+  - file: "{repo_dir}/deploy/overlays/{env}/kafka.env"
+    optional: true                 # not every environment overrides the base
+  - file: "{repo_dir}/deploy/overlays/{env}/secrets/kafka.env"
+    sops: true                     # decrypted in memory
+
+# One SASL account per service, named by a key prefix: {account} below.
+vars:
+  account: APP
+
+connection:
+  bootstrap: ${KAFKA_BOOTSTRAP_SERVERS}
+  security: ${KAFKA_SECURITY_PROTOCOL:-sasl_ssl}
+  sasl:
+    mechanism: scram-sha-512
+    username: ${{account}_USERNAME}
+    password: ${{account}_PASSWORD}
+  tls:
+    ca: "{repo_dir}/src/main/resources/truststore.p12"
+    ca_password: ${{account}_TRUSTSTORE_PASSWORD}
+
+# Every key starting with KAFKA_TOPIC_ names a topic. Directions are
+# optional; give them where you know them.
+topics:
+  discover: ["KAFKA_TOPIC_*"]
+
+repos:
+  orders:
+    vars: { account: ORDERS }
+    topics:
+      consume: ["${KAFKA_TOPIC_ORDERS_REQUESTED}"]
+      produce:
+        # Another account writes to this topic.
+        - { name: "${KAFKA_TOPIC_ORDERS_CONFIRMED}", vars: { account: ORDERS_PUBLISHER } }
+  catalog:
+    # Its truststore lives elsewhere; the rest of the profile applies.
+    connection:
+      tls: { ca: "{repo_dir}/config/kafka/truststore.p12" }

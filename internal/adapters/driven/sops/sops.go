@@ -71,6 +71,25 @@ func (p *Provider) file(ctx context.Context, path string) (map[string]domain.Sec
 	return values, nil
 }
 
+// Decrypt returns the plaintext of the file at path (relative paths are
+// resolved against Dir), decrypted again on every call so a profile read
+// later sees the file as it is now. format is a sops input and output type
+// such as "dotenv". The caller owns the returned buffer and clears it.
+func (p *Provider) Decrypt(ctx context.Context, path, format string) ([]byte, error) {
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(p.Dir, path)
+	}
+	run := p.Run
+	if run == nil {
+		run = execute
+	}
+	out, err := run(ctx, "sops", "--decrypt", "--input-type", format, "--output-type", format, path)
+	if err != nil {
+		return nil, fmt.Errorf("sops cannot decrypt %s: %v: %w", path, err, domain.ErrSecretsAccess)
+	}
+	return out, nil
+}
+
 // execute runs the command, keeping its output in memory. Its standard
 // error explains a failure (no key, file not found) without secrets.
 func execute(ctx context.Context, name string, args ...string) ([]byte, error) {

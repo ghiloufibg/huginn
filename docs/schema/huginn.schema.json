@@ -21,6 +21,57 @@
       },
       "type": "object"
     },
+    "kafka": {
+      "additionalProperties": false,
+      "description": "Limits of the Kafka screen (used only when the folder has kafka/ profiles).",
+      "properties": {
+        "client_id": {
+          "description": "Kafka client id, so the brokers' operators can recognize Huginn. Default huginn.",
+          "type": "string"
+        },
+        "connect_timeout": {
+          "description": "Time to reach a broker and authenticate before it is reported unreachable, e.g. 10s. Default 10s.",
+          "type": "string"
+        },
+        "fetch_max_bytes": {
+          "description": "Bytes per fetch response from a broker. Default 1MiB.",
+          "type": "string"
+        },
+        "isolation": {
+          "description": "Isolation when a Kafka screen opens (key i switches it): read_uncommitted shows every record, read_committed hides aborted transactions. Default read_uncommitted.",
+          "enum": [
+            "read_uncommitted",
+            "read_committed"
+          ],
+          "type": "string"
+        },
+        "max_buffer_bytes": {
+          "description": "Bytes of keys, values and headers kept per Kafka screen; the oldest records are dropped first. A number of bytes or a size such as 64MiB. Default 64MiB.",
+          "type": "string"
+        },
+        "max_records": {
+          "description": "Records kept in memory per Kafka screen; the oldest are dropped first. Default 20000.",
+          "type": "integer"
+        },
+        "max_value_bytes": {
+          "description": "A larger key or value is kept truncated, with its real size shown. Default 256KiB.",
+          "type": "string"
+        },
+        "partition_fetch_max_bytes": {
+          "description": "Bytes per partition per fetch response. Default 256KiB.",
+          "type": "string"
+        },
+        "request_timeout": {
+          "description": "Time allowed for one request to a broker, e.g. 30s. Default 30s.",
+          "type": "string"
+        },
+        "tail_records": {
+          "description": "Records per partition loaded by the tail (key 0). 1 to 10000. Default 100.",
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
     "logs": {
       "additionalProperties": false,
       "description": "Log loading limits.",
@@ -33,7 +84,7 @@
       "type": "object"
     },
     "repos_root": {
-      "description": "Folder containing your repositories, used by the manifests rule of services.yaml. ~ is expanded.",
+      "description": "Folder containing your repositories, used by the manifests rule of services.yaml and by {repo_dir} in kafka/. ~ is expanded.",
       "type": "string"
     },
     "version": {

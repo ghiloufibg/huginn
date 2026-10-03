@@ -73,3 +73,26 @@ Recovery failed because no master key was able to decrypt the file.`
 		t.Fatalf("one line: %q", got)
 	}
 }
+
+func TestDecryptReturnsThePlaintextEveryTime(t *testing.T) {
+	calls := 0
+	p := &Provider{Dir: "/cfg", Run: func(_ context.Context, name string, args ...string) ([]byte, error) {
+		calls++
+		if want := "sops --decrypt --input-type dotenv --output-type dotenv " + filepath.Join("/cfg", "x.env"); strings.Join(append([]string{name}, args...), " ") != want {
+			t.Errorf("command %v", args)
+		}
+		return []byte("K=v\n"), nil
+	}}
+	for range 2 {
+		if b, err := p.Decrypt(context.Background(), "x.env", "dotenv"); err != nil || string(b) != "K=v\n" {
+			t.Fatalf("%q %v", b, err)
+		}
+	}
+	if calls != 2 {
+		t.Fatalf("decrypted %d times, want 2 (no cache)", calls)
+	}
+	p.Run = func(context.Context, string, ...string) ([]byte, error) { return nil, errors.New("no key") }
+	if _, err := p.Decrypt(context.Background(), "/abs.env", "dotenv"); !errors.Is(err, domain.ErrSecretsAccess) || !strings.Contains(err.Error(), "/abs.env") {
+		t.Fatalf("err = %v", err)
+	}
+}

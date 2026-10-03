@@ -31,6 +31,7 @@ func applyDefaults(c *Config) {
 		h.Demo.Rate = 1
 	}
 	h.ReposRoot = ExpandHome(h.ReposRoot)
+	kafkaDefaults(&h.Kafka)
 	if c.UI.Theme == "" {
 		c.UI.Theme = "light"
 	}
@@ -62,6 +63,32 @@ func applyDefaults(c *Config) {
 			if e, ok := c.Environments.ByName[w.Env]; w.Namespace == "" && ok && len(e.Namespaces) > 0 {
 				w.Namespace = e.Namespaces[0]
 			}
+		}
+	}
+}
+
+func kafkaDefaults(k *Kafka) {
+	if k.TailRecords == 0 {
+		k.TailRecords = 100
+	}
+	if k.MaxRecords == 0 {
+		k.MaxRecords = 20000
+	}
+	for _, d := range []struct {
+		v   *string
+		def string
+	}{
+		{&k.MaxBufferBytes, "64MiB"},
+		{&k.MaxValueBytes, "256KiB"},
+		{&k.FetchMaxBytes, "1MiB"},
+		{&k.PartitionFetchMaxBytes, "256KiB"},
+		{&k.ConnectTimeout, "10s"},
+		{&k.RequestTimeout, "30s"},
+		{&k.ClientID, "huginn"},
+		{&k.Isolation, "read_uncommitted"},
+	} {
+		if *d.v == "" {
+			*d.v = d.def
 		}
 	}
 }

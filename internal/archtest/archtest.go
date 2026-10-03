@@ -53,6 +53,13 @@ var Rules = []Rule{
 	{Scope: "cmd/", Allow: []string{"internal/bootstrap"}, Why: "main only starts the composition root"},
 }
 
+// Confined maps a third-party library (an import path prefix) to the only
+// package allowed to use it, so one technology stays behind one adapter
+// (docs/ARCHITECTURE.md rule 2).
+var Confined = map[string]string{
+	"software.sslmate.com/src/go-pkcs12": "internal/adapters/driven/localfiles",
+}
+
 // Violation is a forbidden import.
 type Violation struct {
 	Package, Import, Why string
@@ -80,6 +87,11 @@ func Check(imports map[string][]string) []Violation {
 		for _, imp := range imports[pkg] {
 			if !allowed(rule, pkg, imp) {
 				out = append(out, Violation{Package: pkg, Import: imp, Why: rule.Why})
+			}
+			for lib, owner := range Confined {
+				if hasPathPrefix(imp, lib) && !hasPathPrefix(pkg, owner) {
+					out = append(out, Violation{Package: pkg, Import: imp, Why: "only " + owner + " may use " + lib})
+				}
 			}
 		}
 	}
@@ -189,6 +201,7 @@ var AppDataRule = struct {
 	Scopes: []string{
 		"internal/core/", "internal/config", "internal/bootstrap", "internal/adapters/driving/",
 		"internal/adapters/driven/layout", "internal/adapters/driven/logformat",
+		"internal/adapters/driven/localfiles",
 	},
 	Forbidden: []string{
 		"springframework", "spring-", "logstash", "logger_name", "thread_name", "@timestamp", "stack_trace",

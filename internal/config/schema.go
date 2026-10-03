@@ -24,6 +24,7 @@ func Schemas() (map[string][]byte, error) {
 		{"ui", "ui.yaml", reflect.TypeFor[UI]()},
 		{"format", "formats/<name>.yaml", reflect.TypeFor[Format]()},
 		{"layout", "layouts/<name>.yaml", reflect.TypeFor[Layout]()},
+		{"kafka", "kafka/<name>.yaml", reflect.TypeFor[KafkaProfile]()},
 	}
 	out := map[string][]byte{}
 	for _, k := range kinds {
@@ -46,6 +47,14 @@ func schemaFor(t reflect.Type, doc string) map[string]any {
 	}
 	if t == reflect.TypeFor[Paths]() {
 		s["anyOf"] = []any{map[string]any{"type": "string"}, map[string]any{"type": "array", "items": map[string]any{"type": "string"}}}
+		return s
+	}
+	if t == reflect.TypeFor[KafkaTopic]() {
+		obj := schemaFor(reflect.TypeFor[struct {
+			Name string            `yaml:"name" doc:"Topic name: a literal or a ${KEY} reference." required:"true"`
+			Vars map[string]string `yaml:"vars" doc:"Variables for this topic only, e.g. another SASL account."`
+		}](), "")
+		s["anyOf"] = []any{map[string]any{"type": "string", "description": "Topic name: a literal or a ${KEY} reference."}, obj}
 		return s
 	}
 	for t.Kind() == reflect.Pointer {

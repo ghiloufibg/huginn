@@ -1,4 +1,4 @@
-# M5 — Kafka topics, read only  (status: proposed, design only)
+# M5 — Kafka topics, read only  (status: K0 done; K1, K2 to do)
 
 ## 0. In one paragraph
 Some services are debugged today with a separate script: it reads the repository's `config.env` files (one encrypted with sops), connects to Kafka with the application's SASL account and truststore, assigns partitions by hand (no consumer group) and prints the last records of a topic. This milestone does **the same thing inside Huginn**: on a service that has Kafka settings, `M` opens a screen listing its topics and their records, read only, with no effect on the cluster or the pods. Nothing else. Every application detail (paths, key names, topics) is in the user's config folder; the code holds the mechanism only (D-030).
@@ -165,7 +165,7 @@ The environment is the one Huginn runs on (`huginn rec`, `-e`, `HUGINN_ENV`, `ct
 | `security` | yes | `plaintext`, `ssl`, `sasl_plaintext`, `sasl_ssl` (case ignored). |
 | `sasl.mechanism` | with `sasl_*` | `plain`, `scram-sha-256`, `scram-sha-512`. |
 | `sasl.username`, `sasl.password` | with `sasl_*` | |
-| `tls.ca` | | Truststore: PEM (`.pem`, `.crt`) or PKCS12 (`.p12`, `.pfx`), by extension. Glob allowed, one match. Without it, system roots. |
+| `tls.ca` | | Truststore: PEM (`.pem`, `.crt`, `.cer`) or PKCS12 (`.p12`, `.pfx`), by extension. Glob allowed, one match. Without it, system roots. PKCS12: Java truststores and keystores; a certificate-only file made by openssl without Java's trust attribute is refused with the command converting it to PEM. |
 | `tls.ca_password` | | Password of a PKCS12 truststore. |
 
 **`topics`**
@@ -183,6 +183,7 @@ A topic is a name or `{name, vars}`; `vars` override the profile's for that topi
 - Literal, `${KEY}` or `${KEY:-default}` (from the merged sources), `env:VAR` (from the process environment, for personal credentials).
 - `{…}` placeholders are replaced first, then `${…}`: `${{account}_PASSWORD}` reads `ORDERS_PASSWORD` when `account: ORDERS`.
 - Paths: absolute, `~/…`, or relative to the config folder; usually built from `{repo_dir}` (`huginn.yaml` `repos_root` + repository name, or `repos.<repo>.path`).
+- YAML: a value starting with `{` and any reference inside `[ ]` or `{ }` must be quoted (`consume: ["${TOPIC}"]`); `$$` is a literal `$`.
 
 ### 4.4 Validation
 At load time (exit 2 with every problem and its position, like the rest of the folder): strict keys, enums, placeholder names known, `${…}` syntax, globs, `sasl` present with `sasl_*` and absent otherwise, `{repo_dir}` used without `repos_root` nor `path`, a topic object without `name`, sizes and durations positive.
@@ -240,16 +241,15 @@ Errors are classified at the adapter boundary into the existing domain kinds (`E
 | Layer | Addition |
 |---|---|
 | `core/domain` | `KafkaTopic`, `KafkaRecord`, `KafkaStart`, `KafkaIsolation`, `KafkaConnection` (credentials as `Secret`), placeholder and `${…}` expansion (pure), `RecordBuffer` bounded by count and bytes, record filters on the existing engine, payload classification (pure: JSON / text / binary / framed). |
-| `core/ports` | Driven: `TopicSourceFactory` → `TopicSource` (`Partitions`, `Read(ctx, query) <-chan RecordBatch`), `EnvFiles` (read + merge dotenv, sops for encrypted), `TrustStore` (file → CA pool). Driving: `KafkaCatalog` (has this repository Kafka settings here; cached) and `TopicSession` (resolve, list topics, open a topic). |
+| `core/ports` | Driven: `TopicSourceFactory` → `TopicSource` (`Partitions`, `Read(ctx, query) <-chan RecordBatch`); `LocalFiles` (`Glob`, `ReadEnv` plain or sops, `ReadTrustStore` → DER certificates; done in K0); `SecretFiles` (`Decrypt` a whole file, implemented by the sops adapter; done in K0). Driving: `KafkaCatalog` (has this repository Kafka settings here; cached) and `TopicSession` (resolve, list topics, open a topic). The merge of sources, `optional`, and the one-match rule of globs are use-case logic in `core/app`. |
 | `core/app` | `KafkaServices`: steps of §3, limits, merge by timestamp (heap), batching. No I/O. |
 | `adapters/driven/kafka` | The only franz-go importer: options, SASL, guarded dialer, offsets and fetch, retry/backoff, error classification. |
-| `adapters/driven/envfile` | Dotenv reader; `sops: true` through the existing `SecretsProvider` (dotenv parser shared). |
-| `adapters/driven/truststore` | PEM and PKCS12 (`software.sslmate.com/src/go-pkcs12`). |
+| `adapters/driven/localfiles` | `LocalFiles`: globs with `**` (bounded, no hidden folders, no link loops), dotenv files read with a size limit and parsed by `domain.ParseDotenv`, sops through `SecretFiles`, truststores PEM and PKCS12 (`software.sslmate.com/src/go-pkcs12`: Java truststores and keystores). One package for the user's local files rather than two, since both read files named by the same profile. |
 | `adapters/driven/demo` | Synthetic topics and records for `--demo`. |
 | `driving/tui` | `kafka.go`, `kafkazoom.go`; actions `kafka`, `kafka_isolation`; goldens. The services screen only gains the `K` marker. |
 | `config` | `KafkaProfile`, `Huginn.Kafka`, validation, schema, `kafka` in the known names, `docs/CONFIG.md` section. |
 | `bootstrap` | Builds the Kafka graph only when `kafka/` has a profile. |
-| `archtest` | Rules for the three new packages; franz-go and go-pkcs12 confined; the `forbidigo` list. |
+| `archtest` | Rules for the new packages; third-party libraries confined to one package each (`archtest.Confined`: go-pkcs12 → `localfiles`, later franz-go → `kafka`); the `forbidigo` list. |
 
 New dependencies: `github.com/twmb/franz-go` (+ `kfake` in tests) and `software.sslmate.com/src/go-pkcs12`. Both pure Go.
 
@@ -269,8 +269,8 @@ New dependencies: `github.com/twmb/franz-go` (+ `kfake` in tests) and `software.
 - **Manual check** before calling it done: `--demo`, then a real `rec` topic compared with the original script on the same records.
 
 ## 9. Steps
-1. **K0 — config**: structs, validation, schema, `docs/CONFIG.md`, `examples/config/kafka/` (neutral names), `envfile` and `truststore` adapters.
-2. **K1 — core and demo**: domain, ports, app, fakes, demo adapter, TUI screen, goldens. Usable with `--demo`.
+1. **K0 — config** (done): structs, validation, schema, `docs/CONFIG.md` §10, `examples/config-kafka/`, `domain` references (`{var}`, `${KEY}`) and dotenv parser, `ports.LocalFiles` / `ports.SecretFiles`, `localfiles` adapter, `sops.Provider.Decrypt`.
+2. **K1 — core and demo**: domain, ports, app, fakes, demo adapter (a profile with literal values in `examples/config/kafka/`), TUI screen, goldens. Usable with `--demo`.
 3. **K2 — real brokers**: franz-go adapter, guard, `kfake` contract suite, failure modes of §6.
 
 K0 → K2 replace the original script. Each step ends green (`go test -race ./...`, `golangci-lint run`) and is its own commit series.

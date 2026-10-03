@@ -1,0 +1,4 @@
+# yaml-language-server: $schema=../../docs/schema/services.schema.json
+version: 1
+resolve: [labels]
+label_keys: [app.kubernetes.io/name]

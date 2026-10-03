@@ -1,0 +1,437 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "connection": {
+      "additionalProperties": false,
+      "description": "How to reach the brokers. bootstrap and security are required.",
+      "properties": {
+        "bootstrap": {
+          "description": "Brokers as host:port, comma separated.",
+          "type": "string"
+        },
+        "sasl": {
+          "additionalProperties": false,
+          "description": "SASL authentication; required with sasl_plaintext and sasl_ssl.",
+          "properties": {
+            "mechanism": {
+              "description": "plain, scram-sha-256 or scram-sha-512 (case ignored).",
+              "type": "string"
+            },
+            "password": {
+              "description": "Password.",
+              "type": "string"
+            },
+            "username": {
+              "description": "User name.",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "security": {
+          "description": "plaintext, ssl, sasl_plaintext or sasl_ssl (case ignored).",
+          "type": "string"
+        },
+        "tls": {
+          "additionalProperties": false,
+          "description": "Certificates trusted for the brokers (ssl and sasl_ssl).",
+          "properties": {
+            "ca": {
+              "description": "Truststore: a PEM file (.pem, .crt, .cer) or a PKCS12 file (.p12, .pfx). A glob must match exactly one file. Without it, the system roots.",
+              "type": "string"
+            },
+            "ca_password": {
+              "description": "Password of a PKCS12 truststore.",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "match": {
+      "additionalProperties": false,
+      "description": "Repositories this profile applies to. No match section: every repository.",
+      "properties": {
+        "files": {
+          "description": "Path globs that must each match an existing file, e.g. [\"{repo_dir}/deploy/{env}/secrets.env\"]; only checked for existence. Limits the profile to repositories that have Kafka settings in the current environment.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "repos": {
+          "description": "Globs on the repository name, e.g. [\"payment-*\"]. Empty: any repository.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "repos": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "properties": {
+          "connection": {
+            "additionalProperties": false,
+            "description": "Connection keys merged over the profile's, key by key.",
+            "properties": {
+              "bootstrap": {
+                "description": "Brokers as host:port, comma separated.",
+                "type": "string"
+              },
+              "sasl": {
+                "additionalProperties": false,
+                "description": "SASL authentication; required with sasl_plaintext and sasl_ssl.",
+                "properties": {
+                  "mechanism": {
+                    "description": "plain, scram-sha-256 or scram-sha-512 (case ignored).",
+                    "type": "string"
+                  },
+                  "password": {
+                    "description": "Password.",
+                    "type": "string"
+                  },
+                  "username": {
+                    "description": "User name.",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "security": {
+                "description": "plaintext, ssl, sasl_plaintext or sasl_ssl (case ignored).",
+                "type": "string"
+              },
+              "tls": {
+                "additionalProperties": false,
+                "description": "Certificates trusted for the brokers (ssl and sasl_ssl).",
+                "properties": {
+                  "ca": {
+                    "description": "Truststore: a PEM file (.pem, .crt, .cer) or a PKCS12 file (.p12, .pfx). A glob must match exactly one file. Without it, the system roots.",
+                    "type": "string"
+                  },
+                  "ca_password": {
+                    "description": "Password of a PKCS12 truststore.",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "type": "object"
+          },
+          "enabled": {
+            "description": "false: no Kafka screen for this repository. Default true.",
+            "type": "boolean"
+          },
+          "path": {
+            "description": "The repository folder when it is not repos_root/\u003crepo\u003e; {repo_dir} is this path.",
+            "type": "string"
+          },
+          "sources": {
+            "description": "Sources read after the profile's.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "file": {
+                  "description": "Path of a dotenv file (KEY=VALUE lines). A glob must match exactly one file.",
+                  "type": "string"
+                },
+                "optional": {
+                  "description": "A missing file is skipped instead of being an error.",
+                  "type": "boolean"
+                },
+                "sops": {
+                  "description": "Decrypt the file with sops first, in memory.",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "file"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "topics": {
+            "additionalProperties": false,
+            "description": "Topics added to the profile's.",
+            "properties": {
+              "consume": {
+                "description": "Topics the service consumes.",
+                "items": {
+                  "anyOf": [
+                    {
+                      "description": "Topic name: a literal or a ${KEY} reference.",
+                      "type": "string"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "name": {
+                          "description": "Topic name: a literal or a ${KEY} reference.",
+                          "type": "string"
+                        },
+                        "vars": {
+                          "additionalProperties": {
+                            "type": "string"
+                          },
+                          "description": "Variables for this topic only, e.g. another SASL account.",
+                          "type": "object"
+                        }
+                      },
+                      "required": [
+                        "name"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              "discover": {
+                "description": "Globs on the keys of the sources; each value found is a topic without a direction (comma-separated values are split), e.g. [\"KAFKA_TOPIC*\"].",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "list": {
+                "description": "Topics without a direction.",
+                "items": {
+                  "anyOf": [
+                    {
+                      "description": "Topic name: a literal or a ${KEY} reference.",
+                      "type": "string"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "name": {
+                          "description": "Topic name: a literal or a ${KEY} reference.",
+                          "type": "string"
+                        },
+                        "vars": {
+                          "additionalProperties": {
+                            "type": "string"
+                          },
+                          "description": "Variables for this topic only, e.g. another SASL account.",
+                          "type": "object"
+                        }
+                      },
+                      "required": [
+                        "name"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              "produce": {
+                "description": "Topics the service produces.",
+                "items": {
+                  "anyOf": [
+                    {
+                      "description": "Topic name: a literal or a ${KEY} reference.",
+                      "type": "string"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "name": {
+                          "description": "Topic name: a literal or a ${KEY} reference.",
+                          "type": "string"
+                        },
+                        "vars": {
+                          "additionalProperties": {
+                            "type": "string"
+                          },
+                          "description": "Variables for this topic only, e.g. another SASL account.",
+                          "type": "object"
+                        }
+                      },
+                      "required": [
+                        "name"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                },
+                "type": "array"
+              }
+            },
+            "type": "object"
+          },
+          "vars": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Variables merged over the profile's.",
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
+      "description": "Per repository additions and overrides, by repository name. Listed repositories are matched even if match.repos does not name them.",
+      "type": "object"
+    },
+    "sources": {
+      "description": "Dotenv files read in order and merged (a later key replaces an earlier one); their keys are written ${KEY} in the values below.",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "file": {
+            "description": "Path of a dotenv file (KEY=VALUE lines). A glob must match exactly one file.",
+            "type": "string"
+          },
+          "optional": {
+            "description": "A missing file is skipped instead of being an error.",
+            "type": "boolean"
+          },
+          "sops": {
+            "description": "Decrypt the file with sops first, in memory.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "topics": {
+      "additionalProperties": false,
+      "description": "Topics shown for every repository of this profile.",
+      "properties": {
+        "consume": {
+          "description": "Topics the service consumes.",
+          "items": {
+            "anyOf": [
+              {
+                "description": "Topic name: a literal or a ${KEY} reference.",
+                "type": "string"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "description": "Topic name: a literal or a ${KEY} reference.",
+                    "type": "string"
+                  },
+                  "vars": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "description": "Variables for this topic only, e.g. another SASL account.",
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "type": "array"
+        },
+        "discover": {
+          "description": "Globs on the keys of the sources; each value found is a topic without a direction (comma-separated values are split), e.g. [\"KAFKA_TOPIC*\"].",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "list": {
+          "description": "Topics without a direction.",
+          "items": {
+            "anyOf": [
+              {
+                "description": "Topic name: a literal or a ${KEY} reference.",
+                "type": "string"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "description": "Topic name: a literal or a ${KEY} reference.",
+                    "type": "string"
+                  },
+                  "vars": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "description": "Variables for this topic only, e.g. another SASL account.",
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "type": "array"
+        },
+        "produce": {
+          "description": "Topics the service produces.",
+          "items": {
+            "anyOf": [
+              {
+                "description": "Topic name: a literal or a ${KEY} reference.",
+                "type": "string"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "description": "Topic name: a literal or a ${KEY} reference.",
+                    "type": "string"
+                  },
+                  "vars": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "description": "Variables for this topic only, e.g. another SASL account.",
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "vars": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "Free variables written {name} in any string of the profile, overridden per repository and per topic, e.g. {account: ORDERS} makes ${{account}_PASSWORD} read ORDERS_PASSWORD.",
+      "type": "object"
+    },
+    "version": {
+      "description": "Structure version of this file; must be 1.",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "version",
+    "connection"
+  ],
+  "title": "Huginn config folder: kafka/\u003cname\u003e.yaml",
+  "type": "object"
+}
