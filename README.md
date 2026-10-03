@@ -58,6 +58,19 @@ Flags
 
 Exit codes: `0` success, `1` runtime error, `2` config folder missing or invalid (every problem is printed with its `file:line:column`), or no interactive terminal.
 
+Kafka from a shell (with a `kafka/` folder; no TUI, no Kubernetes needed, read only like the screens):
+
+```
+huginn kafka check <repo> [-e env]                 profile that applies, each topic's partitions or why it cannot be read
+huginn kafka read <repo> <topic> [-e env]          last records of each partition (kafka.tail_records)
+      --tail N | --since 1h                        how far back
+      -f, --follow                                 then new records until ctrl+c
+      --committed                                  committed records only
+      --raw                                        values only, one per line (for jq)
+```
+
+`check` exits with `1` when a topic cannot be read, so it can run in a script. `read` prints `time  partition  #offset  key=…  value` per record; notices (`brokers unreachable, retrying…`) go to standard error.
+
 Environment variables: `HUGINN_ENV`, `HUGINN_CONFIG`, `HUGINN_THEME`, `NO_COLOR` (forces the `none` theme), `HUGINN_DEBUG=1` (diagnostic log in the user cache directory, never on screen), `HUGINN_CPUPROFILE=<file>` (CPU profile of the session for `go tool pprof`).
 
 ## Services screen
@@ -122,6 +135,8 @@ Every key can be remapped with `ui.keymap` in the configuration.
 ## Kafka screens
 
 Optional: only when the config folder has a `kafka/` folder ([`docs/CONFIG.md`](docs/CONFIG.md#10-kafkanameyaml)). Repositories a Kafka profile applies to are marked `K` on the services screen; `M` lists their topics, grouped as consumed, produced and others, with their partition count or why they cannot be read. `enter` shows the records of a topic, oldest first, merged across partitions by timestamp: time, partition, offset, key and a one-line value (compact JSON, text, `binary N B`, `schema <id>` for schema-registry framing, `tombstone`). `enter` on a record shows it in full: headers, timestamp type, the value indented or as a hex dump.
+
+To check a profile without the TUI or a Kubernetes cluster, use `huginn kafka check <repo>` (see Usage).
 
 **Read only, always**: Huginn never joins a consumer group, never commits an offset, never produces: the services reading a topic are not affected (docs/DECISIONS.md D-040). It reads only when asked: the last records of each partition when a topic opens (`kafka.tail_records`), a window, or live records with `f`. Every request to the brokers goes through a guard that refuses anything but reads. With `--demo`, records are generated.
 

@@ -1,4 +1,4 @@
-# M5 — Kafka topics, read only  (status: done: K0, K1, K2, K3)
+# M5 — Kafka topics, read only  (status: done: K0 to K4)
 
 ## 0. In one paragraph
 Some services are debugged today with a separate script: it reads the repository's `config.env` files (one encrypted with sops), connects to Kafka with the application's SASL account and truststore, assigns partitions by hand (no consumer group) and prints the last records of a topic. This milestone does **the same thing inside Huginn**: on a service that has Kafka settings, `M` opens a screen listing its topics and their records, read only, with no effect on the cluster or the pods. Nothing else. Every application detail (paths, key names, topics) is in the user's config folder; the code holds the mechanism only (D-030).
@@ -276,6 +276,8 @@ New dependencies: `github.com/twmb/franz-go` (+ `kfake` in tests) and `software.
 3. **K2 — real brokers** (done): `adapters/driven/kafka` (franz-go, partitions assigned by hand, client metrics disabled), the guard holding back each frame's header until its key is checked, `forbidigo` rules and `archtest.Confined`, the contract suite on `kfake` with a recorder of the frames on the wire, a test proving a produce request never reaches the broker and stops the source, SASL, TLS and network failures, and an end-to-end test of a real run (dotenv overlays, per-topic accounts, discovery) in `internal/bootstrap`.
 
 4. **K3 — what §1 promised and K1 left out** (done): `o` newest first, `ctrl+y` copies the value of the record under the cursor (in the list and in zoom) with OSC 52, as D-012 chose: text and JSON as received, a hex dump for binary data, at most 64 KiB, with a confirmation naming the record and the size.
+
+5. **K4 — Kafka from a shell** (done): `huginn kafka check <repo>` and `huginn kafka read <repo> <topic> [--tail N|--since D] [--follow] [--committed] [--raw]`, built on the same use case and adapters as the screens, needing neither the TUI nor a Kubernetes cluster. `check` fails when a topic cannot be read; `read` prints a line per record (values on one line, control characters escaped) or raw values for `jq`. It lets a profile be checked against the real brokers before opening the TUI, and replaces the original script on the command line too.
 
 K0 → K2 replace the original script. Each step ends green (`go test -race ./...`, `golangci-lint run`) and is its own commit series.
 

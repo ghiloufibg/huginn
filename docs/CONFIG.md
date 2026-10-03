@@ -436,7 +436,7 @@ Two rules for columns:
 
 Optional. A Kafka profile says **where the Kafka settings of some repositories are** and **which topics to show**, so Huginn can list the records of those topics, read only. Without a `kafka/` folder, nothing about Kafka exists in Huginn.
 
-The Kafka screens are opened with key `M` on the services screen (see the README). With `--demo`, `examples/config/kafka/demo.yaml` lists topics of the demo services and records are generated. The brokers must be reachable from your workstation (VPN, private network): Huginn connects directly, as any Kafka client on your machine would.
+The Kafka screens are opened with key `M` on the services screen (see the README). To check a profile from a shell, without the TUI nor a Kubernetes cluster: `huginn kafka check <repo> -e <env>` lists the topics and why any cannot be read; `huginn kafka read <repo> <topic>` prints its records. With `--demo`, `examples/config/kafka/demo.yaml` lists topics of the demo services and records are generated. The brokers must be reachable from your workstation (VPN, private network): Huginn connects directly, as any Kafka client on your machine would.
 
 **Read only, always.** Huginn never joins a consumer group, never commits an offset, never produces and never creates a topic. No key of this file can change that. Reading does not take records away from the services that consume them.
 

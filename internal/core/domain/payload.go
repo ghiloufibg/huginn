@@ -150,6 +150,10 @@ func PayloadLines(b []byte) []string {
 	return lines
 }
 
+// EscapeControls writes control characters (and the bytes of invalid
+// UTF-8) as \xNN, for record data printed on a terminal.
+func EscapeControls(s string) string { return escapeControls(s) }
+
 // escapeControls writes control characters (and the bytes of invalid
 // UTF-8) as \xNN, so record data cannot drive the terminal.
 func escapeControls(s string) string {

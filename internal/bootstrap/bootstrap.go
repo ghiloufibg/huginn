@@ -33,7 +33,7 @@ const (
 func Main(args []string, stdout, stderr io.Writer) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	cmd := cli.NewRootCommand(cli.Handlers{Run: run}, buildinfo.String())
+	cmd := cli.NewRootCommand(cli.Handlers{Run: run, KafkaCheck: kafkaCheckCommand, KafkaRead: kafkaReadCommand}, buildinfo.String())
 	cmd.SetArgs(args)
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
