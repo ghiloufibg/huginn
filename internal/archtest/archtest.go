@@ -58,6 +58,7 @@ var Rules = []Rule{
 // (docs/ARCHITECTURE.md rule 2).
 var Confined = map[string]string{
 	"software.sslmate.com/src/go-pkcs12": "internal/adapters/driven/localfiles",
+	"github.com/twmb/franz-go":           "internal/adapters/driven/kafka",
 }
 
 // Violation is a forbidden import.

@@ -4,6 +4,7 @@ import (
 	"log/slog"
 
 	"github.com/ghiloufibg/huginn/internal/adapters/driven/demo"
+	"github.com/ghiloufibg/huginn/internal/adapters/driven/kafka"
 	"github.com/ghiloufibg/huginn/internal/adapters/driven/localfiles"
 	"github.com/ghiloufibg/huginn/internal/adapters/driven/sops"
 	"github.com/ghiloufibg/huginn/internal/config"
@@ -12,14 +13,24 @@ import (
 )
 
 // kafkaRegistry lists the topic sources, selected like the cluster
-// client: demo with --demo, kafka otherwise (milestone M5 K2).
-func kafkaRegistry() *ports.Registry[func(c *config.Config, clock ports.Clock) ports.TopicSourceFactory] {
+// client: demo with --demo, the franz-go adapter for a real cluster.
+func kafkaRegistry(log *slog.Logger) *ports.Registry[func(c *config.Config, clock ports.Clock) ports.TopicSourceFactory] {
 	r := ports.NewRegistry[func(c *config.Config, clock ports.Clock) ports.TopicSourceFactory]("topic source")
 	r.Register("demo", func(c *config.Config, clock ports.Clock) ports.TopicSourceFactory {
 		return demo.NewKafka(c.Huginn.Demo.Seed, clock)
 	})
+	r.Register("kubernetes", func(c *config.Config, _ ports.Clock) ports.TopicSourceFactory {
+		l := c.Huginn.Kafka.Limits()
+		return &kafka.Factory{Options: kafka.Options{
+			ClientID: l.ClientID, ConnectTimeout: l.ConnectTimeout, RequestTimeout: l.RequestTimeout,
+			FetchMaxBytes: clampInt32(l.FetchMaxBytes), PartitionFetchMaxBytes: clampInt32(l.PartitionFetchMaxBytes),
+			Log: log,
+		}}
+	})
 	return r
 }
+
+func clampInt32(n int64) int32 { return int32(min(n, 1<<31-1)) }
 
 // newKafka builds the Kafka use case, or nil when the folder has no
 // kafka/ profile or no topic source exists for this run: the feature is
@@ -28,7 +39,7 @@ func newKafka(c *config.Config, source string, clock ports.Clock, home string, g
 	if len(c.Kafka) == 0 {
 		return nil
 	}
-	factory, err := kafkaRegistry().Lookup(source)
+	factory, err := kafkaRegistry(log).Lookup(source)
 	if err != nil {
 		log.Info("kafka profiles present but no topic source for this run", "source", source)
 		return nil

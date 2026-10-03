@@ -63,8 +63,12 @@ func TestNoKafkaFolderNoKafka(t *testing.T) {
 	if a.UI.Kafka != nil {
 		t.Fatal("without kafka/, the feature must not exist")
 	}
-	// Profiles but no topic source for a real cluster yet: absent too.
-	if k := newKafka(demoConfig(t), "kubernetes", nil, "", nil, diag.Discard()); k != nil {
-		t.Fatal("no topic source registered for kubernetes yet")
+	// A real run with profiles reads real clusters; an unknown source
+	// leaves the feature absent.
+	if k := newKafka(demoConfig(t), "kubernetes", nil, "", nil, diag.Discard()); k == nil {
+		t.Fatal("a real run must have the Kafka screens")
+	}
+	if k := newKafka(demoConfig(t), "nope", nil, "", nil, diag.Discard()); k != nil {
+		t.Fatal("unknown topic source")
 	}
 }

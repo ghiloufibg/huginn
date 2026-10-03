@@ -123,7 +123,7 @@ Every key can be remapped with `ui.keymap` in the configuration.
 
 Optional: only when the config folder has a `kafka/` folder ([`docs/CONFIG.md`](docs/CONFIG.md#10-kafkanameyaml)). Repositories a Kafka profile applies to are marked `K` on the services screen; `M` lists their topics, grouped as consumed, produced and others, with their partition count or why they cannot be read. `enter` shows the records of a topic, oldest first, merged across partitions by timestamp: time, partition, offset, key and a one-line value (compact JSON, text, `binary N B`, `schema <id>` for schema-registry framing, `tombstone`). `enter` on a record shows it in full: headers, timestamp type, the value indented or as a hex dump.
 
-**Read only, always**: Huginn never joins a consumer group, never commits an offset, never produces: the services reading a topic are not affected (docs/DECISIONS.md D-040). It reads only when asked: the last records of each partition when a topic opens (`kafka.tail_records`), a window, or live records with `f`. With `--demo`, records are generated; reading a real cluster comes with the next step of milestone M5.
+**Read only, always**: Huginn never joins a consumer group, never commits an offset, never produces: the services reading a topic are not affected (docs/DECISIONS.md D-040). It reads only when asked: the last records of each partition when a topic opens (`kafka.tail_records`), a window, or live records with `f`. Every request to the brokers goes through a guard that refuses anything but reads. With `--demo`, records are generated.
 
 | Key | Action |
 |---|---|

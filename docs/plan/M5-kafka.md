@@ -1,4 +1,4 @@
-# M5 — Kafka topics, read only  (status: K0 and K1 done; K2 to do)
+# M5 — Kafka topics, read only  (status: done: K0, K1, K2)
 
 ## 0. In one paragraph
 Some services are debugged today with a separate script: it reads the repository's `config.env` files (one encrypted with sops), connects to Kafka with the application's SASL account and truststore, assigns partitions by hand (no consumer group) and prints the last records of a topic. This milestone does **the same thing inside Huginn**: on a service that has Kafka settings, `M` opens a screen listing its topics and their records, read only, with no effect on the cluster or the pods. Nothing else. Every application detail (paths, key names, topics) is in the user's config folder; the code holds the mechanism only (D-030).
@@ -51,6 +51,7 @@ Some services are debugged today with a separate script: it reads the repository
    | 2 | ListOffsets |
    | 1 | Fetch |
    | 17, 36 | SaslHandshake, SaslAuthenticate |
+   | 23 | OffsetForLeaderEpoch (read only: the client checks its position after a leader change) |
 
    Any other frame is not written; the guard closes the client and the screen shows `internal error: refused Kafka request <key>`. The diagnostic log records it.
 3. **Tests** (§8): the guard is unit-tested and fuzzed; the contract suite against `kfake` asserts the broker received nothing outside the list, in every scenario.
@@ -271,7 +272,7 @@ New dependencies: `github.com/twmb/franz-go` (+ `kfake` in tests) and `software.
 ## 9. Steps
 1. **K0 — config** (done): structs, validation, schema, `docs/CONFIG.md` §10, `examples/config-kafka/`, `domain` references (`{var}`, `${KEY}`) and dotenv parser, `ports.LocalFiles` / `ports.SecretFiles`, `localfiles` adapter, `sops.Provider.Decrypt`.
 2. **K1 — core and demo** (done): domain (record buffer by count and bytes, payload detection and rendering with control characters escaped, record filter), ports (`TopicSource`, `Kafka`, `KafkaSession`), `app.KafkaService`, fakes and `RunTopicSourceContract`, demo source and `examples/config/kafka/demo.yaml`, TUI screens and goldens, bootstrap wiring. The screen is three stacked screens (topics, records of a topic, one record) rather than two panes, like the rest of the TUI; copy (`ctrl+y`) waits for a clipboard adapter.
-3. **K2 — real brokers**: franz-go adapter, guard, `kfake` contract suite, failure modes of §6.
+3. **K2 — real brokers** (done): `adapters/driven/kafka` (franz-go, partitions assigned by hand, client metrics disabled), the guard holding back each frame's header until its key is checked, `forbidigo` rules and `archtest.Confined`, the contract suite on `kfake` with a recorder of the frames on the wire, a test proving a produce request never reaches the broker and stops the source, SASL, TLS and network failures, and an end-to-end test of a real run (dotenv overlays, per-topic accounts, discovery) in `internal/bootstrap`.
 
 K0 → K2 replace the original script. Each step ends green (`go test -race ./...`, `golangci-lint run`) and is its own commit series.
 
