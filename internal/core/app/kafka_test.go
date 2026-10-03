@@ -361,3 +361,34 @@ func BenchmarkKafkaHistorySort(b *testing.B) {
 		_ = k.trim(recs)
 	}
 }
+
+func TestFinishedReadsLeaveNothingInTheSession(t *testing.T) {
+	s, _, _ := kafkaFixture(t)
+	sess, err := s.Open(context.Background(), "rec", "orders")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sess.Close()
+	for range 10 {
+		ch, err := sess.Read(context.Background(), ports.KafkaQuery{Topic: "orders.audit", Window: domain.TimeWindow{Tail: 1}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for range ch { //nolint:revive // drain
+		}
+	}
+	k := sess.(*kafkaSession)
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		k.mu.Lock()
+		n := len(k.cancels)
+		k.mu.Unlock()
+		if n == 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%d finished reads still held", n)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}

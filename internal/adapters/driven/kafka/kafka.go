@@ -33,10 +33,12 @@ type Options struct {
 	RequestTimeout         time.Duration
 	FetchMaxBytes          int32
 	PartitionFetchMaxBytes int32
-	// IdleEnd: during the history, a poll that waits this long without a
-	// record means every partition is read up to its end (a partition
-	// ending with a transaction marker has no record at its last offset).
-	// Default 2s.
+	// IdleEnd bounds each poll. During the history, a partition that
+	// already delivered records and stays silent for two polls in a row
+	// is read up to its end (a partition ending with a transaction marker
+	// has no record at its last offset); one that delivered nothing yet
+	// waits ConnectTimeout + RequestTimeout, so a slow link never ends the
+	// history early. Default 2s.
 	IdleEnd time.Duration
 	// DialContext replaces the TCP dialer (tests). Default net.Dialer.
 	DialContext func(ctx context.Context, network, addr string) (net.Conn, error)
@@ -367,6 +369,9 @@ func (s *source) poll(ctx context.Context, cl *kgo.Client, h *health, q ports.To
 	if historyDone && !send(ports.RecordBatch{HistoryDone: true}) {
 		return
 	}
+	started := time.Now()
+	seen := map[int32]bool{} // partitions that delivered records
+	idlePolls := 0
 	for {
 		// Polls are bounded so a lost connection is reported while
 		// following, and the end of the history found while reading it.
@@ -375,6 +380,11 @@ func (s *source) poll(ctx context.Context, cl *kgo.Client, h *health, q ports.To
 		failing, changed := h.take()
 		idle := pctx.Err() != nil && ctx.Err() == nil && !failing
 		cancel()
+		if idle {
+			idlePolls++
+		} else {
+			idlePolls = 0
+		}
 		if ctx.Err() != nil {
 			return
 		}
@@ -392,15 +402,24 @@ func (s *source) poll(ctx context.Context, cl *kgo.Client, h *health, q ports.To
 		var recs []domain.KafkaRecord
 		fetches.EachRecord(func(r *kgo.Record) {
 			recs = append(recs, toDomain(r))
+			seen[r.Partition] = true
 			if end, ok := pending[r.Partition]; ok && r.Offset+1 >= end {
 				delete(pending, r.Partition)
 			}
 		})
+		if idlePolls >= 2 {
+			patient := time.Since(started) > s.opts.ConnectTimeout+s.opts.RequestTimeout
+			for p := range pending {
+				if seen[p] || patient {
+					delete(pending, p)
+				}
+			}
+		}
 		b := ports.RecordBatch{Records: recs}
 		if changed {
 			b.Notices = []string{map[bool]string{true: "brokers unreachable, retrying…", false: "reconnected"}[failing]}
 		}
-		if !historyDone && (len(pending) == 0 || idle) {
+		if !historyDone && len(pending) == 0 {
 			historyDone, b.HistoryDone = true, true
 		}
 		if (len(b.Records) > 0 || b.HistoryDone || len(b.Notices) > 0) && !send(b) {
@@ -440,19 +459,37 @@ func toDomain(r *kgo.Record) domain.KafkaRecord {
 }
 
 // health follows the connections of a read through franz-go's connect
-// hook: a failed dial or handshake means the brokers are unreachable for
-// now (the client keeps retrying), a successful one that they are back.
+// hook, broker by broker: the brokers are unreachable when every broker
+// tried lately failed (the client keeps retrying); one stale seed among
+// reachable brokers is not reported.
 type health struct {
 	mu      sync.Mutex
+	nodes   map[int32]bool // node → its last connect failed
 	failing bool
 	changed bool
 }
 
 // OnBrokerConnect implements kgo.HookBrokerConnect.
-func (h *health) OnBrokerConnect(_ kgo.BrokerMetadata, _ time.Duration, _ net.Conn, err error) {
+func (h *health) OnBrokerConnect(meta kgo.BrokerMetadata, _ time.Duration, _ net.Conn, err error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if failing := err != nil; failing != h.failing {
+	if h.nodes == nil {
+		h.nodes = map[int32]bool{}
+	}
+	h.nodes[meta.NodeID] = err != nil
+	// Seed connections (negative ids) are used once at start: once real
+	// brokers are known, only they count.
+	real := false
+	for id := range h.nodes {
+		real = real || id >= 0
+	}
+	failing := true
+	for id, f := range h.nodes {
+		if id >= 0 || !real {
+			failing = failing && f
+		}
+	}
+	if failing != h.failing {
 		h.failing, h.changed = failing, true
 	}
 }

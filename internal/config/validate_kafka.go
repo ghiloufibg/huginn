@@ -51,9 +51,9 @@ func (v *validator) kafkaLimits() {
 	if val, err := ParseByteSize(k.MaxValueBytes); err == nil && buf > 0 && val > buf {
 		v.add(f, "kafka.max_value_bytes", "must not exceed kafka.max_buffer_bytes (%s)", k.MaxBufferBytes)
 	}
-	for key, s := range map[string]string{"connect_timeout": k.ConnectTimeout, "request_timeout": k.RequestTimeout} {
-		if d, err := time.ParseDuration(s); err != nil || d <= 0 {
-			v.add(f, "kafka."+key, "%q is not a positive duration such as 10s or 1m", s)
+	for _, d := range []struct{ key, val string }{{"connect_timeout", k.ConnectTimeout}, {"request_timeout", k.RequestTimeout}} {
+		if dur, err := time.ParseDuration(d.val); err != nil || dur <= 0 {
+			v.add(f, "kafka."+d.key, "%q is not a positive duration such as 10s or 1m", d.val)
 		}
 	}
 	if strings.TrimSpace(k.ClientID) == "" {
@@ -110,9 +110,9 @@ func (v *validator) kafkaVars(p KafkaProfile) []string {
 		}
 	}
 	topicVars := func(at string, ts KafkaTopics) {
-		for list, topics := range map[string][]KafkaTopic{"consume": ts.Consume, "produce": ts.Produce, "list": ts.List} {
-			for i, t := range topics {
-				check(fmt.Sprintf("%s.%s[%d].vars", at, list, i), t.Vars)
+		for _, l := range topicLists(ts) {
+			for i, t := range l.topics {
+				check(fmt.Sprintf("%s.%s[%d].vars", at, l.name, i), t.Vars)
 			}
 		}
 	}
@@ -258,10 +258,10 @@ func (v *validator) enumProblem(file, p, s string, allowed []string) {
 }
 
 func (v *validator) kafkaTopics(file, p string, ts KafkaTopics) {
-	for list, topics := range map[string][]KafkaTopic{"consume": ts.Consume, "produce": ts.Produce, "list": ts.List} {
-		for i, t := range topics {
+	for _, l := range topicLists(ts) {
+		for i, t := range l.topics {
 			if strings.TrimSpace(t.Name) == "" {
-				v.add(file, fmt.Sprintf("%s.%s[%d]", p, list, i), "a topic needs a name")
+				v.add(file, fmt.Sprintf("%s.%s[%d]", p, l.name, i), "a topic needs a name")
 			}
 		}
 	}
@@ -270,4 +270,16 @@ func (v *validator) kafkaTopics(file, p string, ts KafkaTopics) {
 			v.add(file, fmt.Sprintf("%s.discover[%d]", p, i), "invalid glob %q", g)
 		}
 	}
+}
+
+// topicLists returns the topic lists in file order, so problems are
+// reported in the same order on every run.
+func topicLists(ts KafkaTopics) []struct {
+	name   string
+	topics []KafkaTopic
+} {
+	return []struct {
+		name   string
+		topics []KafkaTopic
+	}{{"consume", ts.Consume}, {"produce", ts.Produce}, {"list", ts.List}}
 }

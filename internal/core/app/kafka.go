@@ -231,8 +231,21 @@ func (s *KafkaService) Open(ctx context.Context, env domain.Env, repo string) (p
 		}
 		sess.topics = append(sess.topics, st)
 	}
-	for _, key := range slices.Sorted(maps.Keys(groups)) {
-		s.connect(ctx, sess, key, conns[key], groups[key])
+	// Connections are independent: open them together, so several
+	// unreachable clusters cost one timeout, not one each.
+	groupKeys := slices.Sorted(maps.Keys(groups))
+	results := make([]connected, len(groupKeys))
+	var wg sync.WaitGroup
+	for i, key := range groupKeys {
+		names := make([]string, len(groups[key]))
+		for j, t := range groups[key] {
+			names[j] = sess.topics[t].Name
+		}
+		wg.Go(func() { results[i] = s.connect(ctx, conns[key], names) })
+	}
+	wg.Wait()
+	for i, key := range groupKeys {
+		sess.apply(key, groups[key], results[i])
 	}
 	s.debug("kafka session opened", "repo", repo, "env", env, "profile", a.p.Name, "topics", len(sess.topics), "connections", len(groups))
 	return sess, nil
@@ -413,33 +426,40 @@ func shown(raw, value string) string {
 	return fmt.Sprintf("%q", value)
 }
 
+// connected is the outcome of connecting one group of topics.
+type connected struct {
+	src   ports.TopicSource
+	infos []ports.TopicInfo
+	err   error
+}
+
 // connect opens one client for a group of topics and describes them.
-func (s *KafkaService) connect(ctx context.Context, sess *kafkaSession, key string, conn domain.KafkaConnection, topics []int) {
-	fail := func(err error) {
-		for _, i := range topics {
-			sess.topics[i].Err = err
-			delete(sess.conns, sess.topics[i].Name)
-		}
-	}
+func (s *KafkaService) connect(ctx context.Context, conn domain.KafkaConnection, names []string) connected {
 	src, err := s.Sources.Open(ctx, conn)
 	if err != nil {
-		fail(err)
-		return
-	}
-	names := make([]string, len(topics))
-	for j, i := range topics {
-		names[j] = sess.topics[i].Name
+		return connected{err: err}
 	}
 	infos, err := src.Describe(ctx, names)
 	if err != nil {
 		src.Close()
-		fail(err)
+		return connected{err: err}
+	}
+	return connected{src: src, infos: infos}
+}
+
+// apply records the outcome of a connection on its topics.
+func (k *kafkaSession) apply(key string, topics []int, c connected) {
+	if c.err != nil {
+		for _, i := range topics {
+			k.topics[i].Err = c.err
+			delete(k.conns, k.topics[i].Name)
+		}
 		return
 	}
-	sess.sources[key] = src
+	k.sources[key] = c.src
 	for j, i := range topics {
-		if j < len(infos) {
-			sess.topics[i].Partitions, sess.topics[i].Err = infos[j].Partitions, infos[j].Err
+		if j < len(c.infos) {
+			k.topics[i].Partitions, k.topics[i].Err = c.infos[j].Partitions, c.infos[j].Err
 		}
 	}
 }
@@ -453,7 +473,8 @@ type kafkaSession struct {
 	conns   map[string]string            // topic → connection key
 
 	mu      sync.Mutex
-	cancels []context.CancelFunc
+	cancels map[int]context.CancelFunc // reads in progress
+	nextID  int
 	closed  bool
 }
 
@@ -493,9 +514,20 @@ func (k *kafkaSession) Read(ctx context.Context, q ports.KafkaQuery) (<-chan por
 		k.mu.Unlock()
 		return nil, fmt.Errorf("topic %s: no connection: %w", q.Topic, domain.ErrUnreachable)
 	}
-	ctx, cancel := context.WithCancel(ctx)
-	k.cancels = append(k.cancels, cancel)
+	ctx, cancelRead := context.WithCancel(ctx)
+	if k.cancels == nil {
+		k.cancels = map[int]context.CancelFunc{}
+	}
+	id := k.nextID
+	k.nextID++
+	k.cancels[id] = cancelRead
 	k.mu.Unlock()
+	cancel := func() { // a finished read leaves nothing behind
+		cancelRead()
+		k.mu.Lock()
+		delete(k.cancels, id)
+		k.mu.Unlock()
+	}
 
 	r := ports.TopicRead{Topic: q.Topic, Follow: q.Follow, ReadCommitted: q.ReadCommitted}
 	parts := max(t.Partitions, 1)

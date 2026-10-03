@@ -59,6 +59,8 @@ type kafkaRecordsScreen struct {
 	height    int
 	paused    bool
 	held      []domain.KafkaRecord
+	heldBytes int
+	maxBytes  int // the buffer's byte bound, also for the records held while paused
 	lost      int // records received while paused that did not fit
 
 	filter    domain.RecordFilter
@@ -71,7 +73,8 @@ func newKafkaRecordsScreen(m *Model, topics *kafkaTopicsScreen, t ports.KafkaTop
 	return &kafkaRecordsScreen{
 		topics: topics, topic: t, window: domain.TimeWindow{Tail: max(m.opts.KafkaTail, 1)},
 		readCommitted: m.opts.KafkaReadCommitted, tail: true,
-		buf: domain.NewRecordBuffer(max(m.opts.KafkaMaxRecords, 1000), max(m.opts.KafkaMaxBytes, 1<<20)),
+		buf:      domain.NewRecordBuffer(max(m.opts.KafkaMaxRecords, 1000), max(m.opts.KafkaMaxBytes, 1<<20)),
+		maxBytes: max(m.opts.KafkaMaxBytes, 1<<20),
 	}
 }
 
@@ -88,7 +91,7 @@ func (r *kafkaRecordsScreen) open(m *Model) tea.Cmd {
 	r.gen++
 	r.buf.Reset()
 	r.rows, r.previews, r.cursor, r.offset, r.tail = nil, map[uint64]string{}, 0, 0, true
-	r.err, r.loading, r.live, r.ended, r.notice, r.paused, r.held, r.lost = nil, true, false, false, "", false, nil, 0
+	r.err, r.loading, r.live, r.ended, r.notice, r.paused, r.held, r.heldBytes, r.lost = nil, true, false, false, "", false, nil, 0, 0
 	sess := r.topics.session
 	if sess == nil {
 		r.err, r.loading = fmt.Errorf("the Kafka session is closed: %w", domain.ErrUnreachable), false
@@ -172,9 +175,19 @@ func (r *kafkaRecordsScreen) apply(b ports.KafkaBatch) {
 		releaseMemory()
 	}
 	if r.paused {
-		r.held = append(r.held, b.Records...)
-		if over := len(r.held) - max(r.buf.Len(), 1000); over > 0 {
-			r.held, r.lost = r.held[over:], r.lost+over
+		for _, rec := range b.Records {
+			r.held = append(r.held, rec)
+			r.heldBytes += rec.Bytes()
+		}
+		// At most a buffer's worth, by count and by bytes: the oldest go.
+		drop := 0
+		for drop < len(r.held)-1 && (len(r.held)-drop > max(r.buf.Len(), 1000) || r.heldBytes > r.maxBytes) {
+			r.heldBytes -= r.held[drop].Bytes()
+			drop++
+		}
+		if drop > 0 {
+			clear(r.held[:drop])
+			r.held, r.lost = r.held[drop:], r.lost+drop
 		}
 		return
 	}
@@ -182,12 +195,17 @@ func (r *kafkaRecordsScreen) apply(b ports.KafkaBatch) {
 }
 
 func (r *kafkaRecordsScreen) ingest(recs []domain.KafkaRecord) {
+	before := len(r.rows)
 	for _, rec := range recs {
 		r.buf.Append(rec)
 		last := r.buf.At(r.buf.Len() - 1)
 		if r.filter.Match(last) {
 			r.rows = append(r.rows, last.Seq)
 		}
+	}
+	if r.newestTop && !r.tail {
+		// New records come in above: keep the records being read in place.
+		r.offset += len(r.rows) - before
 	}
 	r.evict()
 }
@@ -203,7 +221,10 @@ func (r *kafkaRecordsScreen) evict() {
 	}
 	if n > 0 {
 		r.rows = append(r.rows[:0], r.rows[n:]...)
-		r.cursor, r.offset = max(r.cursor-n, 0), max(r.offset-n, 0)
+		r.cursor = max(r.cursor-n, 0)
+		if !r.newestTop { // newest first: the rows left keep their screen positions
+			r.offset = max(r.offset-n, 0)
+		}
 	}
 	if len(r.previews) > 2*max(r.buf.Len(), 1) { // previews of records hidden by a filter, then evicted
 		for seq := range r.previews {
@@ -309,7 +330,7 @@ func (r *kafkaRecordsScreen) key(m *Model, msg tea.KeyPressMsg) (bool, tea.Cmd) 
 		r.paused = !r.paused
 		if !r.paused {
 			held := r.held
-			r.held = nil
+			r.held, r.heldBytes = nil, 0
 			r.ingest(held)
 		}
 		m.flash(map[bool]string{true: "paused", false: "resumed"}[r.paused])

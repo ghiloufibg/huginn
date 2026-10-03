@@ -264,10 +264,17 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		m.snap, m.resyncing = &msg.snap, false
 		return tea.Batch(m.broadcast(msg), waitSnapshot(msg.gen, msg.ch), m.askKafka())
 	case kafkaReposMsg:
-		if msg.env == m.env.Name {
+		if msg.env == m.env.Name && msg.key == m.kafkaAsked { // an older answer never wins
 			m.kafkaRepos = msg.repos
 		}
 		return nil
+	case kafkaOpenedMsg:
+		if !slices.ContainsFunc(m.stack, func(s screen) bool { return s == msg.screen }) {
+			if msg.session != nil { // its screen is gone: nobody else would close it
+				msg.session.Close()
+			}
+			return nil
+		}
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
 	case flashDoneMsg:

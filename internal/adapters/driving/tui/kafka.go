@@ -20,8 +20,8 @@ import (
 type (
 	// kafkaReposMsg answers which repositories have a Kafka screen.
 	kafkaReposMsg struct {
-		env   string
-		repos map[string]bool
+		env, key string // key: the question answered (kafkaAsked)
+		repos    map[string]bool
 	}
 	// kafkaOpenedMsg delivers the session of a topics screen.
 	kafkaOpenedMsg struct {
@@ -52,7 +52,7 @@ func (m *Model) askKafka() tea.Cmd {
 	m.kafkaAsked = key
 	env, k, ctx := m.env.Name, m.opts.Kafka, m.opts.Context
 	return func() tea.Msg {
-		return kafkaReposMsg{env: env, repos: k.Repos(ctx, domain.Env(env), repos)}
+		return kafkaReposMsg{env: env, key: key, repos: k.Repos(ctx, domain.Env(env), repos)}
 	}
 }
 
@@ -96,6 +96,10 @@ func (k *kafkaTopicsScreen) open(m *Model) tea.Cmd {
 	gen, kafka, env := k.gen, m.opts.Kafka, domain.Env(m.env.Name)
 	return func() tea.Msg {
 		s, err := kafka.Open(ctx, env, k.repo)
+		if s != nil && ctx.Err() != nil { // the screen was closed meanwhile
+			s.Close()
+			s = nil
+		}
 		return kafkaOpenedMsg{screen: k, gen: gen, session: s, err: err}
 	}
 }

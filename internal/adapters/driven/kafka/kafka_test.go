@@ -449,3 +449,30 @@ func TestNoGoroutineLeftAfterReadsAndClose(t *testing.T) {
 		t.Fatalf("%d goroutines left, %d before", n, base)
 	}
 }
+
+func TestSlowLinkDoesNotEndTheHistoryEarly(t *testing.T) {
+	c, produceN := newCluster(t)
+	produceN(30)
+	o := fastOptions(nil)
+	o.IdleEnd = 300 * time.Millisecond
+	o.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		time.Sleep(1500 * time.Millisecond) // a slow VPN: each dial costs five idle polls
+		return (&net.Dialer{}).DialContext(ctx, network, addr)
+	}
+	src, err := (&Factory{Options: o}).Open(context.Background(), conn(c))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer src.Close()
+	ch, err := src.Read(context.Background(), ports.TopicRead{Topic: topic, Since: time.Hour, Limit: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for b := range ch {
+		n += len(b.Records)
+	}
+	if n != 30 {
+		t.Fatalf("history ended early: %d records of 30", n)
+	}
+}

@@ -332,3 +332,66 @@ func (r *kafkaRecordsScreen) copyCmd(m *Model) tea.Cmd {
 	_, cmd := r.key(m, keyMsg("ctrl+y"))
 	return cmd
 }
+
+func TestKafkaReviewFixes(t *testing.T) {
+	m, fk := newKafkaModel(t)
+
+	// An older answer about the repositories never replaces a newer one.
+	m.Update(kafkaReposMsg{env: "rec", key: "stale", repos: map[string]bool{}})
+	if !m.kafkaRepos["payment-service"] {
+		t.Fatal("a stale answer replaced the current one")
+	}
+
+	// A session opened for a screen that is gone is closed.
+	gone := newKafkaTopicsScreen("payment-service")
+	s := &fakeKafkaSession{}
+	m.Update(kafkaOpenedMsg{screen: gone, gen: 1, session: s})
+	if !s.closed {
+		t.Fatal("the session of a closed screen leaks")
+	}
+
+	// Records held while paused are bounded by bytes too.
+	m.opts.KafkaMaxBytes = 1 << 20
+	selectRepo(t, m, "payment-service")
+	press(m, "M", "enter")
+	r := m.top().(*kafkaRecordsScreen)
+	feedKafka(m, r, ports.KafkaBatch{Records: kafkaRecords(5), HistoryDone: true})
+	press(m, "space")
+	big := kafkaRecords(40)
+	for i := range big {
+		big[i].Value = make([]byte, 64<<10)
+	}
+	feedKafka(m, r, ports.KafkaBatch{Records: big})
+	if r.heldBytes > 1<<20 || r.lost == 0 {
+		t.Fatalf("held %d bytes, lost %d", r.heldBytes, r.lost)
+	}
+	press(m, "space")
+	if r.heldBytes != 0 || len(r.held) != 0 {
+		t.Fatal("resume empties the held records")
+	}
+	_ = fk
+}
+
+func TestKafkaNewestFirstKeepsTheViewOnEviction(t *testing.T) {
+	m, _ := newKafkaModel(t)
+	m.opts.KafkaMaxRecords = 1000
+	selectRepo(t, m, "payment-service")
+	press(m, "M", "enter")
+	r := m.top().(*kafkaRecordsScreen)
+	feedKafka(m, r, ports.KafkaBatch{Records: kafkaRecords(1000), HistoryDone: true})
+	press(m, "o")
+	render(m, 120, 14)
+	for range 20 {
+		press(m, "j")
+	}
+	render(m, 120, 14)
+	line, seq := r.display(r.cursor)-r.offset, r.rows[r.cursor]
+	feedKafka(m, r, ports.KafkaBatch{Records: kafkaRecords(10)}) // 10 newer above, 10 oldest evicted
+	render(m, 120, 14)
+	if r.rows[r.cursor] != seq {
+		t.Fatal("the cursor left its record")
+	}
+	if got := r.display(r.cursor) - r.offset; got != line {
+		t.Fatalf("the view drifted: the cursor moved from line %d to %d", line, got)
+	}
+}

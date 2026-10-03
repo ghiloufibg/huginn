@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -18,6 +19,8 @@ type kafkaZoomScreen struct {
 	seq     uint64
 	offset  int
 	height  int
+	cached  uint64   // seq of the record laid out in lines
+	cache   []string // its lines: the value is laid out once, not per frame
 }
 
 func newKafkaZoomScreen(r *kafkaRecordsScreen, seq uint64) *kafkaZoomScreen {
@@ -131,7 +134,10 @@ func (z *kafkaZoomScreen) lines(t Theme) []string {
 
 func (z *kafkaZoomScreen) view(m *Model, w, h int) string {
 	z.height = h
-	lines := z.lines(m.opts.Theme)
+	if z.cache == nil || z.cached != z.seq {
+		z.cache, z.cached = z.lines(m.opts.Theme), z.seq
+	}
+	lines := slices.Clone(z.cache)
 	z.offset = min(z.offset, max(len(lines)-h, 0))
 	end := min(z.offset+h, len(lines))
 	shown := lines[z.offset:end]
