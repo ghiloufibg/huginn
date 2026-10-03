@@ -4,3 +4,4 @@
 *.out
 coverage.*
 deploy/gke-qa/services/*/target/
+deploy/gke-qa/kafka-secrets/

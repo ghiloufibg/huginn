@@ -1,0 +1,20 @@
+# yaml-language-server: $schema=../../../../docs/schema/kafka.schema.json
+# Tier 1 (M12-gke-qa.md §3.2): PLAINTEXT, no secrets at all -- the bulk
+# of the feature (topics, records, zoom, filters, tail/window/follow,
+# order, copy, isolation) at minimum setup complexity.
+version: 1
+
+match:
+  repos: [catalog]
+
+sources:
+  - file: "/mnt/c/Users/PC/IdeaProjects/huginn/deploy/gke-qa/kafka-secrets/kafka-plaintext.env"
+
+connection:
+  bootstrap: ${KAFKA_PLAINTEXT_BOOTSTRAP}
+  security: plaintext
+
+topics:
+  consume: [topic-b]
+  produce: [topic-a]
+  list: [topic-c]

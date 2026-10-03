@@ -1,0 +1,32 @@
+# yaml-language-server: $schema=../../../../docs/schema/format.schema.json
+# Spring Boot 3 services logging JSON with the logstash encoder, enriched by
+# the cluster's log agent with Kubernetes metadata.
+# Reference: docs/CONFIG.md#formatsnameyaml
+version: 1
+
+decoder: json
+
+# No match section: every container not matched by an earlier file.
+
+fields:                        # candidate JSON paths; the first present wins
+  time:     ["@timestamp", timestamp, time]
+  level:    [level, severity, log.level]
+  logger:   [logger_name, logger, log.logger]
+  thread:   [thread_name, thread]
+  message:  [message, msg]
+  stack:    [stack_trace, error.stack_trace, exception]
+  trace_id: [traceId, trace_id, trace.id, X-B3-TraceId, correlationId]
+  app:      [app, application, service.name, springAppName]
+  pid:      [pid, process.pid]
+
+hidden:                        # never on the stream; shown in zoom metadata
+  - "kubernetes.*"
+  - "k8s.*"
+  - "docker.*"
+  - "host*"
+  - "@version"
+  - level_value
+  - stream
+  - logtag
+
+layout: spring

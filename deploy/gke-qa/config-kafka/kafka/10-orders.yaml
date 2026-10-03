@@ -1,0 +1,29 @@
+# yaml-language-server: $schema=../../../../docs/schema/kafka.schema.json
+# Tier 2 (M12-gke-qa.md §3.2): SASL_SSL, SCRAM-SHA-512, a self-signed CA,
+# credentials sops+age-encrypted (not GCP KMS -- the fix for M10's deferred
+# kms environment, D-052). Reached through `kubectl port-forward`, not a
+# public LoadBalancer (M11-kafka.md §2.5).
+version: 1
+
+match:
+  repos: [orders]
+
+sources:
+  - file: "/mnt/c/Users/PC/IdeaProjects/huginn/deploy/gke-qa/kafka-secrets/kafka-tier2.env.sops"
+    sops: true
+
+connection:
+  bootstrap: ${KAFKA_BOOTSTRAP}
+  security: sasl_ssl
+  sasl:
+    mechanism: scram-sha-512
+    username: ${KAFKA_USER}
+    password: ${KAFKA_PASSWORD}
+  tls:
+    ca: "/mnt/c/Users/PC/IdeaProjects/huginn/deploy/gke-qa/kafka-secrets/client.truststore.p12"
+    ca_password: ${KAFKA_TRUSTSTORE_PASSWORD}
+
+topics:
+  consume: [topic-a]
+  produce: [topic-b]
+  list: [topic-c, topic-restricted]
