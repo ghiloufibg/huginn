@@ -24,7 +24,8 @@ func kafkaRegistry(log *slog.Logger) *ports.Registry[func(c *config.Config, cloc
 		return &kafka.Factory{Options: kafka.Options{
 			ClientID: l.ClientID, ConnectTimeout: l.ConnectTimeout, RequestTimeout: l.RequestTimeout,
 			FetchMaxBytes: clampInt32(l.FetchMaxBytes), PartitionFetchMaxBytes: clampInt32(l.PartitionFetchMaxBytes),
-			Log: log,
+			MaxValueBytes: int(l.MaxValueBytes),
+			Log:           log,
 		}}
 	})
 	return r

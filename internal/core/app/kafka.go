@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"math"
 	"path"
 	"path/filepath"
 	"slices"
@@ -52,24 +53,51 @@ type applied struct {
 	base map[string]string // env, repo, repo_dir
 }
 
-// Repos implements ports.Kafka.
+// reposWorkers bounds the repositories checked at once: each check may
+// walk a folder for a glob.
+const reposWorkers = 8
+
+// Repos implements ports.Kafka. Unknown repositories are checked
+// concurrently; answers are remembered per environment.
 func (s *KafkaService) Repos(ctx context.Context, env domain.Env, repos []string) map[string]bool {
+	s.mu.Lock()
+	if s.known == nil {
+		s.known = map[kafkaRepoKey]bool{}
+	}
+	var todo []string
+	for _, r := range repos {
+		if _, ok := s.known[kafkaRepoKey{env, r}]; !ok {
+			todo = append(todo, r)
+		}
+	}
+	s.mu.Unlock()
+
+	found := make([]bool, len(todo))
+	next := make(chan int)
+	var wg sync.WaitGroup
+	for range min(reposWorkers, len(todo)) {
+		wg.Go(func() {
+			for i := range next {
+				_, found[i] = s.profileFor(ctx, env, todo[i])
+			}
+		})
+	}
+	for i := range todo {
+		next <- i
+	}
+	close(next)
+	wg.Wait()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, r := range todo {
+		if ctx.Err() == nil { // a cancelled check is not an answer
+			s.known[kafkaRepoKey{env, r}] = found[i]
+		}
+	}
 	out := map[string]bool{}
 	for _, r := range repos {
-		k := kafkaRepoKey{env, r}
-		s.mu.Lock()
-		has, ok := s.known[k]
-		s.mu.Unlock()
-		if !ok {
-			_, has = s.profileFor(ctx, env, r)
-			s.mu.Lock()
-			if s.known == nil {
-				s.known = map[kafkaRepoKey]bool{}
-			}
-			s.known[k] = has
-			s.mu.Unlock()
-		}
-		if has {
+		if s.known[kafkaRepoKey{env, r}] {
 			out[r] = true
 		}
 	}
@@ -594,6 +622,7 @@ func (k *kafkaSession) forward(ctx context.Context, cancel context.CancelFunc, i
 			history = nil
 			continue
 		}
+		b = coalesce(b, in, k.s.MaxValueBytes)
 		sortRecords(b.Records)
 		if !send(ctx, out, ports.KafkaBatch{Records: b.Records, Notices: b.Notices, Err: b.Err}) {
 			return
@@ -601,38 +630,96 @@ func (k *kafkaSession) forward(ctx context.Context, cancel context.CancelFunc, i
 	}
 }
 
+// liveCoalesce bounds the records merged into one live batch.
+const liveCoalesce = 5000
+
+// coalesce merges into b the live batches already waiting, so a busy
+// topic costs the screen one redraw per burst rather than one per fetch.
+// It never waits for more.
+func coalesce(b ports.RecordBatch, in <-chan ports.RecordBatch, limit int) ports.RecordBatch {
+	for len(b.Records) < liveCoalesce && b.Err == nil {
+		select {
+		case next, ok := <-in:
+			if !ok {
+				return b
+			}
+			for i := range next.Records {
+				domain.TruncateRecord(&next.Records[i], limit)
+			}
+			b.Records = append(b.Records, next.Records...)
+			b.Notices = append(b.Notices, next.Notices...)
+			b.Err = next.Err
+		default:
+			return b
+		}
+	}
+	return b
+}
+
 // trim sorts records by timestamp and keeps the newest the view can hold.
+// It sorts small keys rather than the records (compact, compared as
+// integers), then copies only the records kept.
 func (k *kafkaSession) trim(recs []domain.KafkaRecord) []domain.KafkaRecord {
-	sortRecords(recs)
+	type sortKey struct {
+		t, off int64
+		part   int32
+		i      int32
+	}
+	keys := make([]sortKey, len(recs))
+	for i := range recs {
+		keys[i] = sortKey{t: recordNanos(&recs[i]), off: recs[i].Offset, part: recs[i].Partition, i: int32(i)}
+	}
+	slices.SortFunc(keys, func(a, b sortKey) int {
+		return cmp.Or(cmp.Compare(a.t, b.t), cmp.Compare(a.part, b.part), cmp.Compare(a.off, b.off))
+	})
+	idx := make([]int32, len(keys))
+	for j, key := range keys {
+		idx[j] = key.i
+	}
 	maxBytes := k.s.MaxBufferBytes
 	if maxBytes <= 0 {
 		maxBytes = int(^uint(0) >> 1)
 	}
-	start, bytes := len(recs), 0
-	for start > 0 && len(recs)-start < max(k.s.MaxRecords, 1) {
-		n := recs[start-1].Bytes()
-		if bytes+n > maxBytes && start < len(recs) {
+	start, bytes := len(idx), 0
+	for start > 0 && len(idx)-start < max(k.s.MaxRecords, 1) {
+		n := recs[idx[start-1]].Bytes()
+		if bytes+n > maxBytes && start < len(idx) {
 			break
 		}
 		bytes += n
 		start--
 	}
-	clear(recs[:start]) // let the dropped records' bytes go
-	return recs[start:]
+	out := make([]domain.KafkaRecord, 0, len(idx)-start)
+	for _, i := range idx[start:] {
+		out = append(out, recs[i])
+	}
+	clear(recs) // the records dropped release their bytes
+	return out
 }
 
-// sortRecords orders records by timestamp, then partition and offset; a
-// record without timestamp sorts first in its partition's offset order.
+// sortRecords orders records by timestamp, then partition and offset (a
+// total order, so an unstable sort gives the same result); a record
+// without timestamp sorts first in its partition's offset order.
 func sortRecords(recs []domain.KafkaRecord) {
-	slices.SortStableFunc(recs, func(a, b domain.KafkaRecord) int {
-		if c := a.Time.Compare(b.Time); c != 0 {
-			return c
-		}
-		if c := cmp.Compare(a.Partition, b.Partition); c != 0 {
-			return c
-		}
-		return cmp.Compare(a.Offset, b.Offset)
-	})
+	slices.SortFunc(recs, func(a, b domain.KafkaRecord) int { return compareRecords(&a, &b) })
+}
+
+// recordNanos is a record's time as a number, the zero time first.
+func recordNanos(r *domain.KafkaRecord) int64 {
+	if r.Time.IsZero() {
+		return math.MinInt64
+	}
+	return r.Time.UnixNano()
+}
+
+func compareRecords(a, b *domain.KafkaRecord) int {
+	if c := a.Time.Compare(b.Time); c != 0 {
+		return c
+	}
+	if c := cmp.Compare(a.Partition, b.Partition); c != 0 {
+		return c
+	}
+	return cmp.Compare(a.Offset, b.Offset)
 }
 
 func send(ctx context.Context, out chan<- ports.KafkaBatch, b ports.KafkaBatch) bool {

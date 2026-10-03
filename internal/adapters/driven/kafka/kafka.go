@@ -33,6 +33,10 @@ type Options struct {
 	RequestTimeout         time.Duration
 	FetchMaxBytes          int32
 	PartitionFetchMaxBytes int32
+	// MaxValueBytes cuts keys, values and header values (0: whole). The
+	// bytes kept are copied, so a record never holds on to the buffer of
+	// the batch it came in.
+	MaxValueBytes int
 	// IdleEnd bounds each poll. During the history, a partition that
 	// already delivered records and stays silent for two polls in a row
 	// is read up to its end (a partition ending with a transaction marker
@@ -401,7 +405,7 @@ func (s *source) poll(ctx context.Context, cl *kgo.Client, h *health, q ports.To
 		}
 		var recs []domain.KafkaRecord
 		fetches.EachRecord(func(r *kgo.Record) {
-			recs = append(recs, toDomain(r))
+			recs = append(recs, toDomain(r, s.opts.MaxValueBytes))
 			seen[r.Partition] = true
 			if end, ok := pending[r.Partition]; ok && r.Offset+1 >= end {
 				delete(pending, r.Partition)
@@ -443,19 +447,32 @@ func (s *source) fetchError(f kgo.Fetches) error {
 	return first
 }
 
-func toDomain(r *kgo.Record) domain.KafkaRecord {
+func toDomain(r *kgo.Record, limit int) domain.KafkaRecord {
 	d := domain.KafkaRecord{
 		Topic: r.Topic, Partition: r.Partition, Offset: r.Offset,
-		Key: r.Key, Value: r.Value, KeySize: len(r.Key), ValueSize: len(r.Value),
+		Key: own(r.Key, limit), Value: own(r.Value, limit), KeySize: len(r.Key), ValueSize: len(r.Value),
 		LogAppendTime: r.Attrs.TimestampType() == 1,
 	}
 	if !r.Timestamp.IsZero() && r.Timestamp.UnixMilli() >= 0 {
 		d.Time = r.Timestamp
 	}
 	for _, h := range r.Headers {
-		d.Headers = append(d.Headers, domain.KafkaHeader{Key: h.Key, Value: h.Value})
+		d.Headers = append(d.Headers, domain.KafkaHeader{Key: h.Key, Value: own(h.Value, limit)})
 	}
 	return d
+}
+
+// own copies at most limit bytes of b (all of it when limit <= 0),
+// keeping nil as nil: franz-go's slices point into the decompressed batch,
+// which one kept record would otherwise keep alive whole.
+func own(b []byte, limit int) []byte {
+	if b == nil {
+		return nil
+	}
+	if limit > 0 && len(b) > limit {
+		b = b[:limit]
+	}
+	return append(make([]byte, 0, len(b)), b...)
 }
 
 // health follows the connections of a read through franz-go's connect

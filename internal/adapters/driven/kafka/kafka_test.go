@@ -476,3 +476,19 @@ func TestSlowLinkDoesNotEndTheHistoryEarly(t *testing.T) {
 		t.Fatalf("history ended early: %d records of 30", n)
 	}
 }
+
+func TestRecordsOwnTheirBytes(t *testing.T) {
+	batch := []byte("key-0123456789value-0123456789")
+	r := &kgo.Record{Key: batch[:14], Value: batch[14:], Headers: []kgo.RecordHeader{{Key: "h", Value: batch[:3]}}}
+	d := toDomain(r, 8)
+	if string(d.Key) != "key-0123" || d.KeySize != 14 || string(d.Value) != "value-01" || d.ValueSize != 16 || !d.Truncated() {
+		t.Fatalf("%+v", d)
+	}
+	batch[0] = 'X'
+	if d.Key[0] != 'k' || d.Headers[0].Value[0] != 'k' || cap(d.Value) != len(d.Value) {
+		t.Fatal("a record shares the batch's buffer")
+	}
+	if n := toDomain(&kgo.Record{}, 8); n.Key != nil || n.Value != nil {
+		t.Fatal("null stays null")
+	}
+}

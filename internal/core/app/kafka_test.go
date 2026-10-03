@@ -392,3 +392,19 @@ func TestFinishedReadsLeaveNothingInTheSession(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 }
+
+func TestCoalesceMergesWaitingBatchesOnly(t *testing.T) {
+	in := make(chan ports.RecordBatch, 4)
+	in <- ports.RecordBatch{Records: []domain.KafkaRecord{{Offset: 2}}, Notices: []string{"n"}}
+	in <- ports.RecordBatch{Records: []domain.KafkaRecord{{Offset: 3, Value: []byte("long value")}}}
+	got := coalesce(ports.RecordBatch{Records: []domain.KafkaRecord{{Offset: 1}}}, in, 4)
+	if len(got.Records) != 3 || len(got.Notices) != 1 || string(got.Records[2].Value) != "long" {
+		t.Fatalf("%+v", got)
+	}
+	in <- ports.RecordBatch{Err: errors.New("boom")}
+	in <- ports.RecordBatch{Records: []domain.KafkaRecord{{Offset: 9}}}
+	got = coalesce(ports.RecordBatch{}, in, 0)
+	if got.Err == nil || len(got.Records) != 0 || len(in) != 1 {
+		t.Fatalf("stops at an error: %+v, %d left", got, len(in))
+	}
+}

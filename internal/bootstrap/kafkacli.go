@@ -2,11 +2,13 @@ package bootstrap
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"strings"
+	"syscall"
 	"text/tabwriter"
 	"time"
 
@@ -149,6 +151,9 @@ func kafkaRead(ctx context.Context, o cli.KafkaOptions, e Env, log *slog.Logger,
 		}
 		for i := range b.Records {
 			if _, err := io.WriteString(w, recordLine(&b.Records[i], o.Raw, terminal)); err != nil {
+				if errors.Is(err, syscall.EPIPE) {
+					return nil // the reader is gone (| head): not an error
+				}
 				return err
 			}
 		}

@@ -144,7 +144,7 @@ To check a profile without the TUI or a Kubernetes cluster, use `huginn kafka ch
 |---|---|
 | `0` / `1`…`7` | last records of each partition / records since 15m … 2d |
 | `f` | follow live records on/off |
-| `space` | pause / resume |
+| `space` | pause / resume: while paused, the brokers are not read at all |
 | `i` | isolation: every record, or committed records only |
 | `/` | filter: `key=…`, `partition=N`, `header.<name>=…`, or text in the key, value or headers |
 | `enter` | the topic's records / the record in full (`J`/`K` next/previous record) |

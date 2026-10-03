@@ -58,7 +58,8 @@ type kafkaRecordsScreen struct {
 	newestTop bool // newest record first (o)
 	height    int
 	paused    bool
-	held      []domain.KafkaRecord
+	stalled   <-chan ports.KafkaBatch // the read left waiting while paused
+	held      []domain.KafkaRecord    // the batch that was on its way when paused
 	heldBytes int
 	maxBytes  int // the buffer's byte bound, also for the records held while paused
 	lost      int // records received while paused that did not fit
@@ -92,6 +93,7 @@ func (r *kafkaRecordsScreen) open(m *Model) tea.Cmd {
 	r.buf.Reset()
 	r.rows, r.previews, r.cursor, r.offset, r.tail = nil, map[uint64]string{}, 0, 0, true
 	r.err, r.loading, r.live, r.ended, r.notice, r.paused, r.held, r.heldBytes, r.lost = nil, true, false, false, "", false, nil, 0, 0
+	r.stalled = nil
 	sess := r.topics.session
 	if sess == nil {
 		r.err, r.loading = fmt.Errorf("the Kafka session is closed: %w", domain.ErrUnreachable), false
@@ -143,6 +145,13 @@ func (r *kafkaRecordsScreen) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 			return true, nil
 		}
 		r.apply(msg.batch)
+		if r.paused {
+			// Paused: stop taking batches. The read blocks behind this
+			// channel, back to franz-go, which stops fetching: the
+			// brokers are not read while paused.
+			r.stalled = msg.ch
+			return true, nil
+		}
 		return true, r.wait(msg.gen, msg.ch)
 	case tea.MouseWheelMsg:
 		switch msg.Button {
@@ -333,7 +342,12 @@ func (r *kafkaRecordsScreen) key(m *Model, msg tea.KeyPressMsg) (bool, tea.Cmd) 
 			r.held, r.heldBytes = nil, 0
 			r.ingest(held)
 		}
-		m.flash(map[bool]string{true: "paused", false: "resumed"}[r.paused])
+		m.flash(map[bool]string{true: "paused: the brokers are not read meanwhile", false: "resumed"}[r.paused])
+		if !r.paused && r.stalled != nil {
+			ch := r.stalled
+			r.stalled = nil
+			return true, r.wait(r.gen, ch)
+		}
 	case keys.Is(key, ActIsolation):
 		r.readCommitted = !r.readCommitted
 		m.flash("isolation " + r.isolation())

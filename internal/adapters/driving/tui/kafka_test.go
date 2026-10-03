@@ -395,3 +395,25 @@ func TestKafkaNewestFirstKeepsTheViewOnEviction(t *testing.T) {
 		t.Fatalf("the view drifted: the cursor moved from line %d to %d", line, got)
 	}
 }
+
+func TestKafkaPauseStopsReading(t *testing.T) {
+	m, _ := newKafkaModel(t)
+	selectRepo(t, m, "payment-service")
+	press(m, "M", "enter")
+	r := m.top().(*kafkaRecordsScreen)
+	ch := make(chan ports.KafkaBatch)
+	if _, cmd := r.update(m, kafkaBatchMsg{screen: r, gen: r.gen, batch: ports.KafkaBatch{Records: kafkaRecords(3), HistoryDone: true}, ch: ch}); cmd == nil {
+		t.Fatal("running: the next batch is awaited")
+	}
+	press(m, "space")
+	if _, cmd := r.update(m, kafkaBatchMsg{screen: r, gen: r.gen, batch: ports.KafkaBatch{Records: kafkaRecords(2)}, ch: ch}); cmd != nil || r.stalled == nil {
+		t.Fatal("paused: no batch is awaited, so the read blocks up to the brokers")
+	}
+	if !strings.Contains(m.flashText, "not read meanwhile") {
+		t.Fatalf("flash %q", m.flashText)
+	}
+	_, cmd := r.key(m, keyMsg("space"))
+	if cmd == nil || r.stalled != nil || len(r.rows) != 5 {
+		t.Fatalf("resume awaits the read again and shows the held batch: cmd %v rows %d", cmd != nil, len(r.rows))
+	}
+}

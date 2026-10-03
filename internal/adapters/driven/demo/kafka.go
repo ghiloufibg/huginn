@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"math/rand"
+	"math/rand/v2"
 	"slices"
 	"strings"
 	"time"
@@ -144,28 +144,29 @@ var demoEvents = []string{"Created", "Updated", "Validated", "Rejected", "Comple
 // events, sometimes plain text, a schema-registry framed value or a
 // tombstone, so every rendering shows in the demo.
 func (k *Kafka) record(topic string, p int32, off int64) domain.KafkaRecord {
-	r := rand.New(rand.NewSource(int64(hashOf(k.Seed, topic, p, off))))
+	h := hashOf(k.Seed, topic, p, off)
+	r := rand.New(rand.NewPCG(h, h>>17|h<<47)) // cheap to seed: one per record
 	at := k.epoch.Add(time.Duration(off) * k.interval(topic, p))
 	word := topicNoun(topic)
-	id := fmt.Sprintf("%s-%05d", strings.ToUpper(word[:min(3, len(word))]), r.Intn(100000))
+	id := fmt.Sprintf("%s-%05d", strings.ToUpper(word[:min(3, len(word))]), r.IntN(100000))
 	rec := domain.KafkaRecord{
 		Topic: topic, Partition: p, Offset: off, Time: at,
 		Key:     []byte(id),
 		Headers: []domain.KafkaHeader{{Key: "traceId", Value: fmt.Appendf(nil, "%016x", r.Uint64())}, {Key: "source", Value: []byte("demo")}},
 	}
-	switch n := r.Intn(100); {
+	switch n := r.IntN(100); {
 	case n < 2:
 		rec.Value = nil // tombstone
 	case n < 5:
 		v := make([]byte, 5, 40)
 		v[0] = 0
-		binary.BigEndian.PutUint32(v[1:], uint32(100+r.Intn(400)))
+		binary.BigEndian.PutUint32(v[1:], uint32(100+r.IntN(400)))
 		rec.Value = append(v, fmt.Appendf(nil, "\x02%s", id)...)
 	case n < 10:
-		rec.Value = fmt.Appendf(nil, "%s %s at %s", id, strings.ToLower(demoEvents[r.Intn(len(demoEvents))]), at.Format(time.RFC3339))
+		rec.Value = fmt.Appendf(nil, "%s %s at %s", id, strings.ToLower(demoEvents[r.IntN(len(demoEvents))]), at.Format(time.RFC3339))
 	default:
 		rec.Value = fmt.Appendf(nil, `{"eventId":"%08x","type":"%s%s","id":"%s","amount":%d.%02d,"currency":"EUR","attempt":%d,"occurredAt":"%s"}`,
-			r.Uint32(), className(strings.TrimSuffix(word, "s")), demoEvents[r.Intn(len(demoEvents))], id, r.Intn(900)+10, r.Intn(100), r.Intn(3)+1, at.Format(time.RFC3339Nano))
+			r.Uint32(), className(strings.TrimSuffix(word, "s")), demoEvents[r.IntN(len(demoEvents))], id, r.IntN(900)+10, r.IntN(100), r.IntN(3)+1, at.Format(time.RFC3339Nano))
 	}
 	rec.KeySize, rec.ValueSize = len(rec.Key), len(rec.Value)
 	return rec

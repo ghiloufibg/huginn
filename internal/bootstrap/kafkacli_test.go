@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/ghiloufibg/huginn/internal/adapters/driving/cli"
@@ -84,5 +85,18 @@ func TestRecordLineEscapesOnTerminals(t *testing.T) {
 	}
 	if l := recordLine(&rec, false, false); strings.ContainsRune(l, 0x1b) {
 		t.Fatalf("a record line never carries control characters: %q", l)
+	}
+}
+
+type brokenPipe struct{}
+
+func (brokenPipe) Write([]byte) (int, error) {
+	return 0, &os.PathError{Op: "write", Path: "|1", Err: syscall.EPIPE}
+}
+
+func TestKafkaReadIntoAClosedPipeIsQuiet(t *testing.T) {
+	o := cli.KafkaOptions{Options: cli.Options{Demo: true}, Repo: "payment-service", Topic: "payments.requested", Tail: 3}
+	if err := kafkaRead(context.Background(), o, noFiles(), diag.Discard(), brokenPipe{}, &bytes.Buffer{}, false); err != nil {
+		t.Fatalf("| head must not fail: %v", err)
 	}
 }

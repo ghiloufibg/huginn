@@ -279,6 +279,8 @@ New dependencies: `github.com/twmb/franz-go` (+ `kfake` in tests) and `software.
 
 5. **K4 — Kafka from a shell** (done): `huginn kafka check <repo>` and `huginn kafka read <repo> <topic> [--tail N|--since D] [--follow] [--committed] [--raw]`, built on the same use case and adapters as the screens, needing neither the TUI nor a Kubernetes cluster. `check` fails when a topic cannot be read; `read` prints a line per record (values on one line, control characters escaped) or raw values for `jq`. It lets a profile be checked against the real brokers before opening the TUI, and replaces the original script on the command line too.
 
+6. **Resources and responsiveness** (done): records own copies of their bytes, cut to `max_value_bytes` in the adapter, so a kept record no longer holds franz-go's whole batch buffer; pausing stops reading the channel, which blocks the read back to franz-go, so the brokers are not read while paused; live batches already waiting are merged into one redraw; the `K` marker checks repositories eight at a time; the history is sorted on compact keys (120 000 records: 44 ms → 31 ms); `huginn kafka read | head` ends quietly. Measured with `--demo`: following 20 000 records costs about 3 % of a core and 52 MB, paused under 1 %; five 2-day loads use 0.86 s of CPU (2.02 s before, most of it the demo's random seeding, now a PCG).
+
 K0 → K2 replace the original script. Each step ends green (`go test -race ./...`, `golangci-lint run`) and is its own commit series.
 
 ## 10. Not in this version (added only on a real need)
