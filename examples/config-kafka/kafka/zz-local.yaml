@@ -1,0 +1,12 @@
+# yaml-language-server: $schema=../../../docs/schema/kafka.schema.json
+# A local cluster written by hand: no source file, no credentials. Its
+# name sorts last, so it applies only to the repositories listed below
+# that the profile above did not match.
+version: 1
+match:
+  repos: [orders, catalog]
+connection:
+  bootstrap: localhost:9092
+  security: plaintext
+topics:
+  list: [orders.requested, orders.confirmed]

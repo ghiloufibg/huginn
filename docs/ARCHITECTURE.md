@@ -60,6 +60,8 @@ These rules are enforced mechanically: `golangci-lint` `depguard` rules give edi
 | Repo ↔ workload mapping by label/annotation | Edit `label_keys` / `explicit` in `services.yaml` | No |
 | One cluster, many clusters, namespace per env/per repo | Edit `environments.yaml` | No |
 | Secrets in Vault / GSM / another file | New `SecretsProvider` adapter | One package |
+| Kafka settings in other files or keys, topics of a service | A file in `kafka/` | No |
+| Another way to read topics (another client, a REST proxy) | New `TopicSourceFactory` adapter | One package |
 | Another log backend (Cloud Logging, Loki, Elastic) | New `LogSource` adapter | One package |
 | Other sidecars to hide | Edit `containers.yaml` | No |
 | Different keys or theme | Edit `ui.yaml` | No |
@@ -90,6 +92,8 @@ internal/
   adapters/driven/clock/        system clock
   adapters/driven/clipboard/    Clipboard: the system clipboard command (pbcopy, wl-copy, xclip, xsel, clip.exe)
   adapters/driven/filesink/     FileSink: saved lines, new files only, mode 0600
+  adapters/driven/kafka/        TopicSourceFactory with franz-go, read only behind a request guard (D-057)
+  adapters/driven/localfiles/   LocalFiles: dotenv sources, truststores, globs of Kafka profiles
   adapters/driven/logformat/    LogDecoder: json, regex, plain; Selector (format per container)
   adapters/driven/layout/       LogLayout from templates (layouts/*.yaml)
   adapters/driving/cli/         cobra command tree -> cli.Options

@@ -29,6 +29,9 @@ type Config struct {
 	Formats []Format
 	// Layouts by name (file name without extension).
 	Layouts map[string]Layout
+	// Kafka are the profiles of kafka/, in file name order: the first
+	// matching one wins. Empty when the folder has no kafka/.
+	Kafka []KafkaProfile
 
 	pos map[string]positions // key positions by file
 }
@@ -45,10 +48,11 @@ func (c *Config) Problem(file, path, format string, args ...any) Problem {
 type Huginn struct {
 	Version    int     `yaml:"version" doc:"Structure version of this file; must be 1." required:"true"`
 	DefaultEnv string  `yaml:"default_env" doc:"Environment opened when none is given on the command line; a key of environments.yaml." required:"true"`
-	ReposRoot  string  `yaml:"repos_root" doc:"Folder containing your repositories, used by the manifests rule of services.yaml. ~ is expanded."`
+	ReposRoot  string  `yaml:"repos_root" doc:"Folder containing your repositories, used by the manifests rule of services.yaml and by {repo_dir} in kafka/. ~ is expanded."`
 	Windows    Windows `yaml:"windows" doc:"Time-window presets of the logs screen."`
 	Logs       Logs    `yaml:"logs" doc:"Log loading limits."`
 	Demo       Demo    `yaml:"demo" doc:"Synthetic cluster used by --demo."`
+	Kafka      Kafka   `yaml:"kafka" doc:"Limits of the Kafka screen (used only when the folder has kafka/ profiles)."`
 }
 
 // Windows configures the time-window presets.

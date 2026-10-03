@@ -5,7 +5,8 @@ Huginn knows nothing about your applications. Everything specific to them comes 
 - how a workload maps to a repository;
 - which containers are sidecars;
 - how a log line is read;
-- how a log line is drawn.
+- how a log line is drawn;
+- where the Kafka settings of a service are, optionally.
 
 This page is the complete reference for that folder.
 
@@ -18,8 +19,9 @@ This page is the complete reference for that folder.
 - [7. `ui.yaml`](#7-uiyaml)
 - [8. `formats/<name>.yaml`](#8-formatsnameyaml): reading lines
 - [9. `layouts/<name>.yaml`](#9-layoutsnameyaml): drawing lines
-- [10. Errors](#10-errors)
-- [11. Your folder in 15 minutes](#11-your-folder-in-15-minutes)
+- [10. `kafka/<name>.yaml`](#10-kafkanameyaml): Kafka topics, read only
+- [11. Errors](#11-errors)
+- [12. Your folder in 15 minutes](#12-your-folder-in-15-minutes)
 
 Complete, tested examples:
 
@@ -28,6 +30,7 @@ Complete, tested examples:
 | [`examples/config/`](../examples/config) | Spring Boot 3, JSON logs from the logstash encoder, Kubernetes metadata added by the log agent. Also the folder used by `--demo`. |
 | [`examples/config-node/`](../examples/config-node) | Node.js with pino: numeric levels, epoch milliseconds, a column taken from any JSON path |
 | [`examples/config-nginx/`](../examples/config-nginx) | nginx access lines read with a regular expression, next to JSON application logs: two formats chosen per container |
+| [`examples/config-kafka/`](../examples/config-kafka) | Kafka profiles: settings read from a repository's dotenv overlays (one encrypted with sops), and a local cluster written by hand |
 
 **Editor completion**: each example file starts with a `# yaml-language-server: $schema=…` line pointing to the JSON schemas in [`docs/schema/`](schema). Editors that support it (VS Code with the YAML extension, JetBrains IDEs) then complete keys and show their documentation. Keep that line when you copy a file, adjusting the relative path.
 
@@ -50,7 +53,7 @@ huginn --demo                              # synthetic cluster + the embedded ex
 
 Huginn reads and checks the whole folder **before** the terminal UI opens:
 - if the folder is missing, Huginn prints the expected structure;
-- if the folder is invalid, it prints **every** problem with its file, line and column (see [Errors](#10-errors)).
+- if the folder is invalid, it prints **every** problem with its file, line and column (see [Errors](#11-errors)).
 
 In both cases it exits with code 2. It never starts with a partly understood folder.
 
@@ -65,14 +68,16 @@ acme-huginn/
 ├── ui.yaml               optional   theme, keymap, key bar, columns
 ├── formats/              required   at least one .yaml file, one format per file
 │   └── <name>.yaml
-└── layouts/              required   at least one .yaml file, one layout per file
+├── layouts/              required   at least one .yaml file, one layout per file
+│   └── <name>.yaml
+└── kafka/                optional   Kafka profiles, one per file
     └── <name>.yaml
 ```
 
 Rules common to every file:
 - **The names are fixed.** Any other file or folder is an error with a suggestion ("did you mean environments.yaml?"), so a typo never goes unnoticed. Hidden files (`.git`, `.gitignore`) and Markdown files (`README.md`) are ignored, so the folder can live in its own git repository with its own notes.
 - **Every file starts with `version: 1`.** This is the version of the structure described here. A future Huginn that changes the structure will recognise and report older files instead of misreading them.
-- **Formats and layouts are named after their file**: `formats/spring-json.yaml` is the format `spring-json`. Names use lower-case letters, digits, `.`, `_` and `-`. Both `.yaml` and `.yml` work.
+- **Formats, layouts and Kafka profiles are named after their file**: `formats/spring-json.yaml` is the format `spring-json`. Names use lower-case letters, digits, `.`, `_` and `-`. Both `.yaml` and `.yml` work.
 - **Decoding is strict**: unknown keys, wrong types and unknown values are errors.
 - **Optional keys may be left out.** The defaults below are neutral technical values. Huginn has no default environment, format, layout, label or sidecar.
 
@@ -110,7 +115,7 @@ demo:
 |---|---|---|---|---|
 | `version` | int | yes | | Must be `1`. |
 | `default_env` | string | yes | | Environment opened by `huginn` without argument. It must be a key of `environments.yaml`. `HUGINN_ENV`, `-e` and the positional argument override it. |
-| `repos_root` | string | | | Folder containing your repositories. Only needed by the `manifests` rule of `services.yaml`. |
+| `repos_root` | string | | | Folder containing your repositories. Needed by the `manifests` rule of `services.yaml` and by `{repo_dir}` in `kafka/`. |
 | `windows.presets` | list of durations | | `15m 30m 40m 45m 1h 1d 2d` | Windows of keys `1`…`7`, in order; at most 7. Tail (key `0`) and head (key `9`) are always there and are not presets. |
 | `windows.tail_lines` | int | | `500` | Lines loaded by the tail window (key `0`). |
 | `windows.head_lines` | int | | `500` | Lines loaded **per container** by the head window (key `9`): the first lines the node still keeps. At most `logs.buffer_lines`. |
@@ -118,6 +123,7 @@ demo:
 | `logs.buffer_lines` | int | | `50000` | Lines kept in memory per logs screen; older ones are dropped. At least 1000. |
 | `demo.seed` | int | | `42` | `--demo` only: the same seed gives the same synthetic cluster. |
 | `demo.rate` | number | | `1` | `--demo` only: live lines per second per pod. |
+| `kafka.*` | | | | Limits of the Kafka screen, see [Kafka limits](#limits-huginnyaml-kafka). |
 
 ## 4. `environments.yaml`
 
@@ -494,7 +500,131 @@ Two rules for columns:
 - **A column whose fields are all empty is left out, with its space.** For example, `[{app}]` disappears when there is no app name. A `default` filter keeps the column.
 - **Lines no format could parse keep only the columns that use nothing but `{time}`**, followed by the raw text.
 
-## 10. Errors
+## 10. `kafka/<name>.yaml`
+
+Optional. A Kafka profile says **where the Kafka settings of some repositories are** and **which topics to show**, so Huginn can list the records of those topics, read only. Without a `kafka/` folder, nothing about Kafka exists in Huginn.
+
+The Kafka screens are opened with key `M` on the services screen (see the README). To check a profile from a shell, without the TUI nor a Kubernetes cluster: `huginn kafka check <repo> -e <env>` lists the topics and why any cannot be read; `huginn kafka read <repo> <topic>` prints its records. With `--demo`, `examples/config/kafka/demo.yaml` lists topics of the demo services and records are generated. The brokers must be reachable from your workstation (VPN, private network): Huginn connects directly, as any Kafka client on your machine would.
+
+**Read only, always.** Huginn never joins a consumer group, never commits an offset, never produces and never creates a topic. No key of this file can change that. Reading does not take records away from the services that consume them.
+
+**Which profile applies?** Profiles are tried **in file name order**. The first whose `match` accepts the repository wins, as for `formats/`. The environment is the one Huginn runs on (`huginn rec`, `-e`, `ctrl+e`); it is written `{env}`.
+
+```yaml
+version: 1
+
+match:
+  repos: ["*"]
+  files: ["{repo_dir}/deploy/overlays/{env}/secrets/kafka.env"]
+
+sources:                                   # merged in order, the last one wins
+  - file: "{repo_dir}/deploy/base/kafka.env"
+  - file: "{repo_dir}/deploy/overlays/{env}/kafka.env"
+    optional: true
+  - file: "{repo_dir}/deploy/overlays/{env}/secrets/kafka.env"
+    sops: true
+
+vars:
+  account: APP
+
+connection:
+  bootstrap: ${KAFKA_BOOTSTRAP_SERVERS}
+  security: ${KAFKA_SECURITY_PROTOCOL:-plaintext}
+  sasl:
+    mechanism: scram-sha-512
+    username: ${{account}_USERNAME}
+    password: ${{account}_PASSWORD}
+  tls:
+    ca: "{repo_dir}/src/main/resources/truststore.p12"
+    ca_password: ${{account}_TRUSTSTORE_PASSWORD}
+
+topics:
+  discover: ["KAFKA_TOPIC_*"]
+
+repos:
+  orders:
+    vars: { account: ORDERS }
+    topics:
+      consume: ["${KAFKA_TOPIC_ORDERS_IN}"]
+      produce:
+        - { name: "${KAFKA_TOPIC_ORDERS_OUT}", vars: { account: ORDERS_OUT } }
+```
+
+Every path, key name and topic above is an example: write those of your repositories. Huginn has no default for any of them.
+
+### Placeholders and references
+
+Two kinds of references, always replaced in this order:
+
+| Written | Replaced by |
+|---|---|
+| `{env}` | The environment Huginn runs on. |
+| `{repo}` | The repository name. |
+| `{repo_dir}` | The repository folder: `repos_root` of `huginn.yaml` followed by the repository name, or the repository's `path` under `repos:`. |
+| `{name}` | A variable of `vars` (lower-case letters, digits, `_`). |
+| `${KEY}` | The value of `KEY` in the merged `sources`. A key that is missing is reported on the topic that needs it. |
+| `${KEY:-default}` | The same, with a value used when the key is missing or empty. |
+| `env:VAR` | The whole value read from the environment variable `VAR` of your shell, for credentials of your own. |
+
+So `${{account}_PASSWORD}` reads `ORDERS_PASSWORD` when `account` is `ORDERS`. `$$` writes a literal `$`.
+
+**Quoting**: a value that **starts** with `{` (such as `"{repo_dir}/x.env"`) and every reference written **inside** `[ ]` or `{ }` must be quoted: `consume: ["${TOPIC}"]`.
+
+### Keys
+
+| Key | Type | Req. | Meaning |
+|---|---|---|---|
+| `version` | int | yes | Must be `1`. |
+| `match.repos` | list of globs | | Repositories this profile applies to. Empty means any. A repository listed under `repos:` is accepted too. |
+| `match.files` | list of path globs | | The profile applies only when each glob matches at least one existing file. Huginn only checks that the files exist: nothing is read or decrypted until the Kafka screen opens. Use it so that only repositories with Kafka settings in the current environment get a Kafka screen. |
+| `sources` | list | | Dotenv files read in order and merged; a key in a later file replaces the earlier value. |
+| `sources[].file` | path | yes | A dotenv file: `KEY=VALUE` lines; blank lines and `#` comments are skipped, `export ` is ignored, quotes around a value are removed. A glob must match exactly one file. |
+| `sources[].sops` | bool | | Decrypt the file with `sops` first. The decrypted content stays in memory. |
+| `sources[].optional` | bool | | A missing file is skipped instead of being an error (an overlay that does not exist for every environment). |
+| `vars` | map | | Variables written `{name}`. `env`, `repo` and `repo_dir` are reserved. Their values are used as written. |
+| `connection.bootstrap` | string | yes | Brokers, `host:port`, comma separated. |
+| `connection.security` | string | yes | `plaintext`, `ssl`, `sasl_plaintext` or `sasl_ssl`; case is ignored, so `SASL_SSL` read from a file works. |
+| `connection.sasl.mechanism` | string | with `sasl_*` | `plain`, `scram-sha-256` or `scram-sha-512` (case ignored). |
+| `connection.sasl.username`, `password` | string | with `sasl_*` | |
+| `connection.tls.ca` | path | | Certificates trusted for the brokers: a PEM file (`.pem`, `.crt`, `.cer`) or a PKCS12 file (`.p12`, `.pfx`) such as a Java truststore. A glob must match exactly one file. Without it, the system's certificates are trusted. |
+| `connection.tls.ca_password` | string | | Password of a PKCS12 file. |
+| `topics.consume`, `topics.produce` | list | | Topics the services consume or produce, shown in two groups. |
+| `topics.list` | list | | Topics without a direction. |
+| `topics.discover` | list of globs | | Globs on the keys of the sources: the value of each matching key is a topic (a value with commas gives several). |
+| `repos.<repo>.path` | path | | The repository folder when it is not `repos_root/<repo>`. |
+| `repos.<repo>.enabled` | bool | | `false`: no Kafka screen for this repository. |
+| `repos.<repo>.vars`, `connection` | | | Merged over the profile's, key by key: changing `tls.ca` keeps the profile's `sasl`. |
+| `repos.<repo>.sources` | list | | Read after the profile's sources. |
+| `repos.<repo>.topics` | | | Added to the profile's topics. |
+
+A topic is a name, or an object `{name, vars}` whose `vars` apply to that topic only, for example another SASL account. Topics can be given a direction or not: a script that does not know whether a service consumes or produces a topic can rely on `discover` alone.
+
+The values that are known when the folder is loaded (`security`, `mechanism`, placeholders, reference syntax) are checked then. The others (files, keys, certificates) are checked when the Kafka screen opens, and a problem is shown on the topic it concerns.
+
+**PKCS12 files**: Java truststores (`keytool`) and keystores are read. A certificate-only PKCS12 file made by `openssl` without Java's trust attribute is not: convert it once with `openssl pkcs12 -in truststore.p12 -nokeys -out ca.pem` and point `tls.ca` to the PEM file.
+
+### Limits: `huginn.yaml` `kafka:`
+
+Optional, the same for every profile.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `kafka.tail_records` | `100` | Records per partition loaded by the tail (key `0`). 1 to 10 000. |
+| `kafka.max_records` | `20000` | Records kept per Kafka screen; the oldest are dropped first. |
+| `kafka.max_buffer_bytes` | `64MiB` | Bytes of keys, values and headers kept per Kafka screen; the oldest records are dropped first. |
+| `kafka.max_value_bytes` | `256KiB` | A larger key or value is kept truncated, with its real size shown. At most `max_buffer_bytes`. |
+| `kafka.fetch_max_bytes` | `1MiB` | Bytes per fetch response. |
+| `kafka.partition_fetch_max_bytes` | `256KiB` | Bytes per partition per fetch response. |
+| `kafka.connect_timeout` | `10s` | Time to reach a broker and authenticate. |
+| `kafka.request_timeout` | `30s` | Time allowed for one request. |
+| `kafka.client_id` | `huginn` | Client id, so the brokers' operators recognise Huginn. |
+| `kafka.isolation` | `read_uncommitted` | `read_uncommitted` shows every record; `read_committed` hides aborted transactions. Key `i` switches it. |
+
+Sizes are a number of bytes or a number followed by `KiB`, `MiB` or `GiB`. Durations use Go's notation: `500ms`, `10s`, `1m`.
+
+**Shared quotas**: when the credentials are the application's own, the brokers may count Huginn's reads against the same quota as the application's pods. The limits above keep reads small; Huginn reads only when asked (the tail, a window, or `f` to follow).
+
+## 11. Errors
 
 Every problem of the folder is listed at once, sorted by file and position. The location is `file:line:column` of the key concerned, or just the file when the problem is the file itself:
 
@@ -525,8 +655,12 @@ huginn: the config folder ~/work/acme-huginn has 5 errors (see docs/CONFIG.md):
 | `unknown field` / `unknown filter` in a template | See [Templates](#templates). |
 | `key "p" is used by the columns picker` | Pick another letter; `p`, `z`, `r` and `f` are taken. |
 | `is already the name of` / `is already the key of` | Column names and keys must be unique in a line. |
+| `unknown placeholder {x}` | Use `{env}`, `{repo}`, `{repo_dir}` or a variable defined in `vars`. |
+| `malformed reference` | Write `${KEY}` or `${KEY:-default}`; quote the value inside `[ ]` or `{ }`. |
+| `{repo_dir} needs repos_root` | Set `repos_root` in `huginn.yaml`, or a `path` for the repository. |
+| `sasl_ssl needs sasl.username` (and similar) | A SASL protocol needs the mechanism, user name and password. |
 
-## 11. Your folder in 15 minutes
+## 12. Your folder in 15 minutes
 
 To have a coding agent (such as GitHub Copilot) draft the folder from your repositories, use the prompt in [`docs/prompts/copilot-config-folder.md`](prompts/copilot-config-folder.md), then check its result with the steps below.
 

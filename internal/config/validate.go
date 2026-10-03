@@ -28,7 +28,11 @@ func validate(c *Config) []Problem {
 	for _, name := range sortedKeys(c.Layouts) {
 		v.tags(c.Layouts[name].File, reflect.ValueOf(c.Layouts[name]), "")
 	}
+	for _, p := range c.Kafka {
+		v.tags(p.File, reflect.ValueOf(p), "")
+	}
 	v.huginn()
+	v.kafkaLimits()
 	v.environments()
 	v.services()
 	v.ui()
@@ -37,6 +41,9 @@ func validate(c *Config) []Problem {
 	}
 	for _, name := range sortedKeys(c.Layouts) {
 		v.layout(c.Layouts[name])
+	}
+	for _, p := range c.Kafka {
+		v.kafka(p)
 	}
 	return v.probs
 }

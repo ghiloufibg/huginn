@@ -1,0 +1,31 @@
+# yaml-language-server: $schema=../../../docs/schema/kafka.schema.json
+# Kafka topics of some services, read only. With --demo, records are
+# generated and no broker is contacted. For a profile that reads its
+# settings from the repositories (dotenv overlays, sops, truststore), see
+# examples/config-kafka/. Reference: docs/CONFIG.md#10-kafkanameyaml
+version: 1
+
+connection:
+  bootstrap: kafka.demo.internal:9092
+  security: plaintext
+
+repos:
+  payment-service:
+    topics:
+      consume: [payments.requested]
+      produce: [payments.completed, payments.dlq]
+  order-orchestrator:
+    topics:
+      consume: [orders.placed, payments.completed]
+      produce: [orders.confirmed, payments.requested]
+  notification-worker:
+    topics:
+      consume: [orders.confirmed, users.registered]
+  ledger-writer:
+    topics:
+      consume: [payments.completed]
+      list: [ledger.snapshots]
+
+# Only the repositories listed above.
+match:
+  repos: [payment-service, order-orchestrator, notification-worker, ledger-writer]

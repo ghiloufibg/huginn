@@ -90,6 +90,8 @@ const (
 	ActFieldExclude  Action = "field_exclude"
 	ActSelect        Action = "select"
 	ActCopyRaw       Action = "copy_raw"
+	ActKafka         Action = "kafka"
+	ActIsolation     Action = "kafka_isolation"
 )
 
 // defaultKeys are the default bindings (docs/DECISIONS.md D-007, D-008,
@@ -116,6 +118,7 @@ var defaultKeys = map[Action][]string{
 	ActWrap: {"W"}, ActTimestamps: {"ctrl+t"}, ActCycleColumns: {"c"}, ActResetDisplay: {"R"}, ActPodID: {"I"}, ActMark: {"m"}, ActAllContainers: {"A"},
 	ActCopy: {"y", "ctrl+y"}, ActCopyRaw: {"Y"}, ActSelect: {"V"}, ActSave: {"ctrl+s"}, ActBugReport: {"B"},
 	ActFieldNext: {"tab"}, ActFieldPrev: {"shift+tab"}, ActFieldKeep: {"="}, ActFieldExclude: {"!"},
+	ActKafka: {"M"}, ActIsolation: {"i"},
 }
 
 // Keymap binds actions to keys.

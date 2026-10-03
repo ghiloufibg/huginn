@@ -18,3 +18,13 @@ type SecretRef struct {
 type SecretsProvider interface {
 	Get(ctx context.Context, ref SecretRef) (domain.Secret, error)
 }
+
+// SecretFiles decrypts whole encrypted files in memory, for callers that
+// need every key of a file (the sources of a Kafka profile).
+// Implementations must never write the plaintext to disk or logs; callers
+// clear it once parsed.
+type SecretFiles interface {
+	// Decrypt returns the plaintext of the file at path, whose format is
+	// given ("dotenv").
+	Decrypt(ctx context.Context, path, format string) ([]byte, error)
+}

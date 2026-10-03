@@ -201,6 +201,10 @@ func (s *servicesScreen) key(m *Model, k tea.KeyPressMsg, rows []domain.ServiceS
 		if len(rows) > 0 {
 			return true, m.push(newLogsScreen(m, rows[s.tbl.cursor].Repo))
 		}
+	case keys.Is(key, ActKafka):
+		if len(rows) > 0 && m.kafkaRepos[rows[s.tbl.cursor].Repo] {
+			return true, m.push(newKafkaTopicsScreen(rows[s.tbl.cursor].Repo))
+		}
 	case keys.Is(key, ActFilter):
 		s.editing = true
 	case keys.Is(key, ActSort):
@@ -246,7 +250,7 @@ func (s *servicesScreen) view(m *Model, w, h int) string {
 	s.sync(rows)
 	now := m.opts.Now()
 	get := func(i int) []cell {
-		c := s.cells(rows[i], now, t, m.opts.Filter)
+		c := s.cells(rows[i], now, t, m.opts.Filter, m.kafkaRepos[rows[i].Repo])
 		if stale(m.snap, rows[i]) {
 			markStale(c, t)
 		}
@@ -257,6 +261,9 @@ func (s *servicesScreen) view(m *Model, w, h int) string {
 		n := len(r.Repo)
 		if r.Unassigned {
 			n += len(" (no repo)")
+		}
+		if m.kafkaRepos[r.Repo] {
+			n += len(kafkaMark)
 		}
 		flex = max(flex, n)
 	}
@@ -310,8 +317,14 @@ func (s *servicesScreen) groupTitles(rows []domain.ServiceSummary) map[int]strin
 	return titles
 }
 
-func (s *servicesScreen) cells(r domain.ServiceSummary, now time.Time, t *Theme, filter domain.ContainerFilter) []cell {
+// kafkaMark follows the name of a repository with a Kafka screen.
+const kafkaMark = " K"
+
+func (s *servicesScreen) cells(r domain.ServiceSummary, now time.Time, t *Theme, filter domain.ContainerFilter, kafka bool) []cell {
 	name := cell{text: r.Repo, style: t.Bold}
+	if kafka {
+		name.text += kafkaMark
+	}
 	if r.Unassigned {
 		name = cell{text: r.Repo + " (no repo)", style: t.Dim}
 		if len(r.WorkloadStates) > 0 && r.WorkloadStates[0].Standalone {
@@ -417,22 +430,36 @@ func (s *servicesScreen) hints(m *Model) []hint {
 	if s.editing {
 		return []hint{{"enter", "keep"}, {"esc", "clear"}, {"ctrl+u", "erase"}}
 	}
-	return []hint{
-		m.h(ActOpen, "logs"), m.h(ActFilter, "filter"), m.h(ActSort, "sort"), m.h(ActPreview, "preview"), m.h(ActRefresh, "resync"),
-		m.h(ActSwitchEnv, "env"), m.h(ActKeyBar, "keys"), m.h(ActQuit, "quit"), m.h(ActHelp, "help"),
+	hs := []hint{m.h(ActOpen, "logs")}
+	if s.kafka(m) {
+		hs = append(hs, m.h(ActKafka, "kafka"))
 	}
+	return append(hs,
+		m.h(ActFilter, "filter"), m.h(ActSort, "sort"), m.h(ActPreview, "preview"), m.h(ActRefresh, "resync"),
+		m.h(ActSwitchEnv, "env"), m.h(ActKeyBar, "keys"), m.h(ActQuit, "quit"), m.h(ActHelp, "help"),
+	)
+}
+
+// kafka reports whether the selected repository has a Kafka screen.
+func (s *servicesScreen) kafka(m *Model) bool {
+	r := s.current(m)
+	return r != nil && m.kafkaRepos[r.Repo]
 }
 
 func (s *servicesScreen) fullHints(m *Model) []hint {
 	if s.editing {
 		return s.hints(m)
 	}
-	return []hint{
+	hs := []hint{
 		m.pair(ActDown, ActUp, "move"), m.pair(ActTop, ActBottom, "top/bottom"), m.pair(ActPageDown, ActPageUp, "page"),
 		m.h(ActOpen, "logs"), m.h(ActFilter, "filter by name"), m.h(ActSort, "sort: status, name, restarts, age"),
 		m.h(ActPreview, "preview on/off"), m.h(ActRefresh, "resync"), m.h(ActSwitchEnv, "switch env"), m.h(ActBack, "clear filter"),
 		m.h(ActKeyBar, "keys"), m.h(ActQuit, "quit"), m.h(ActHelp, "help"),
 	}
+	if s.kafka(m) {
+		hs = append([]hint{m.h(ActKafka, "kafka topics, read only")}, hs...)
+	}
+	return hs
 }
 
 func (s *servicesScreen) prompt(m *Model) string {

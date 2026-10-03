@@ -46,6 +46,31 @@ var layoutScreens = []struct {
 		l.err = fmt.Errorf("logs of payment-service-7d9f8b6c5d-m8q7v/app: %w", domain.ErrForbidden)
 		return m
 	}},
+	{"kafka topics", "REC", kafka(false)},
+	{"kafka records", "REC", kafka(true)},
+	{"kafka zoom", "REC", kafka(true, "enter")},
+	{"kafka records error", "REC", func(t *testing.T) *Model {
+		m := kafka(false, "enter")(t)
+		r := m.top().(*kafkaRecordsScreen)
+		r.err, r.loading = fmt.Errorf("topic payments.requested: %w", domain.ErrUnreachable), false
+		return m
+	}},
+}
+
+// kafka opens the Kafka topics of payment-service, then the records of
+// its first topic when records is set, then presses keys.
+func kafka(records bool, keys ...string) func(t *testing.T) *Model {
+	return func(t *testing.T) *Model {
+		m, _ := newKafkaModel(t)
+		selectRepo(t, m, "payment-service")
+		press(m, "M")
+		if records {
+			press(m, "enter")
+			feedKafka(m, m.top().(*kafkaRecordsScreen), ports.KafkaBatch{Records: kafkaRecords(8), HistoryDone: true})
+		}
+		press(m, keys...)
+		return m
+	}
 }
 
 func services(env int, name string, keys ...string) func(t *testing.T) *Model {
@@ -106,6 +131,7 @@ func TestLayoutScreensOpen(t *testing.T) {
 	want := map[string]string{
 		"logs": "*tui.logsScreen", "pod selector": "*tui.podSelector", "zoom": "*tui.zoomScreen", "help": "*tui.helpScreen",
 		"env picker": "*tui.envPicker", "window picker": "*tui.windowPicker", "level picker": "*tui.levelPicker", "columns picker": "*tui.columnsPicker",
+		"kafka topics": "*tui.kafkaTopicsScreen", "kafka records": "*tui.kafkaRecordsScreen", "kafka zoom": "*tui.kafkaZoomScreen",
 	}
 	for _, s := range layoutScreens {
 		name, ok := want[s.name]

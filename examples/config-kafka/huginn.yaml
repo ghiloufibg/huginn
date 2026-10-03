@@ -1,0 +1,15 @@
+# yaml-language-server: $schema=../../docs/schema/huginn.schema.json
+# Example: Kafka profiles (kafka/). Only kafka/ and the kafka: section
+# below are specific to this example; the rest is examples/config-node.
+# Reference: docs/CONFIG.md#10-kafkanameyaml
+version: 1
+default_env: staging
+
+# {repo_dir} in kafka/ is repos_root followed by the repository name.
+repos_root: ~/work/repos
+
+# Limits of the Kafka screen; every key is optional.
+kafka:
+  tail_records: 100            # records per partition loaded by the tail (key 0)
+  max_buffer_bytes: 64MiB      # memory kept per Kafka screen
+  isolation: read_uncommitted  # key i switches to read_committed

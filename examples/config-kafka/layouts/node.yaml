@@ -1,0 +1,13 @@
+# yaml-language-server: $schema=../../../docs/schema/layout.schema.json
+version: 1
+stream:
+  time_format: "15:04:05.000"
+  columns:
+    - { name: time,   key: t, show: "{time}",                 role: time }
+    - { name: level,  key: l, show: "{level|left:5}",         role: level }
+    - { name: logger, key: n, show: "{logger|left:12}",       role: logger, hide_below: 100 }
+    - { name: trace,  key: x, show: "{trace_id|last:8}",      role: dim, visible: false }   # x in the picker shows it
+    - { name: method, key: m, show: "{field:req.method}",     role: thread }                # any JSON path
+  separator: { text: "| ", after: [logger, method] }
+stack:
+  framework_prefixes: ["node:", "internal/", "node_modules/"]
