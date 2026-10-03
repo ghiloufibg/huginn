@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"net"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/twmb/franz-go/pkg/kgo"
@@ -339,18 +340,19 @@ func (s *source) Read(ctx context.Context, q ports.TopicRead) (<-chan ports.Reco
 	if s.opts.PartitionFetchMaxBytes > 0 {
 		opts = append(opts, kgo.FetchMaxPartitionBytes(s.opts.PartitionFetchMaxBytes))
 	}
-	cl, err := kgo.NewClient(opts...)
+	h := &health{}
+	cl, err := kgo.NewClient(append(opts, kgo.WithHooks(h))...)
 	if err != nil {
 		return nil, fmt.Errorf("kafka client: %v: %w", err, domain.ErrConfig)
 	}
 	s.debug("kafka read", "topic", q.Topic, "partitions", len(assign), "history_partitions", len(pending), "follow", q.Follow, "read_committed", q.ReadCommitted)
-	go s.poll(ctx, cl, q, pending, out)
+	go s.poll(ctx, cl, h, q, pending, out)
 	return out, nil
 }
 
 // poll delivers fetched records until the history is read (then stops,
 // unless following) or ctx ends.
-func (s *source) poll(ctx context.Context, cl *kgo.Client, q ports.TopicRead, pending map[int32]int64, out chan<- ports.RecordBatch) {
+func (s *source) poll(ctx context.Context, cl *kgo.Client, h *health, q ports.TopicRead, pending map[int32]int64, out chan<- ports.RecordBatch) {
 	defer close(out)
 	defer cl.Close()
 	historyDone := len(pending) == 0
@@ -366,12 +368,12 @@ func (s *source) poll(ctx context.Context, cl *kgo.Client, q ports.TopicRead, pe
 		return
 	}
 	for {
-		pctx, cancel := ctx, context.CancelFunc(func() {})
-		if !historyDone {
-			pctx, cancel = context.WithTimeout(ctx, s.opts.IdleEnd)
-		}
+		// Polls are bounded so a lost connection is reported while
+		// following, and the end of the history found while reading it.
+		pctx, cancel := context.WithTimeout(ctx, s.opts.IdleEnd)
 		fetches := cl.PollFetches(pctx)
-		idle := pctx.Err() != nil && ctx.Err() == nil
+		failing, changed := h.take()
+		idle := pctx.Err() != nil && ctx.Err() == nil && !failing
 		cancel()
 		if ctx.Err() != nil {
 			return
@@ -395,10 +397,13 @@ func (s *source) poll(ctx context.Context, cl *kgo.Client, q ports.TopicRead, pe
 			}
 		})
 		b := ports.RecordBatch{Records: recs}
+		if changed {
+			b.Notices = []string{map[bool]string{true: "brokers unreachable, retrying…", false: "reconnected"}[failing]}
+		}
 		if !historyDone && (len(pending) == 0 || idle) {
 			historyDone, b.HistoryDone = true, true
 		}
-		if (len(b.Records) > 0 || b.HistoryDone) && !send(b) {
+		if (len(b.Records) > 0 || b.HistoryDone || len(b.Notices) > 0) && !send(b) {
 			return
 		}
 		if historyDone && !q.Follow {
@@ -432,4 +437,30 @@ func toDomain(r *kgo.Record) domain.KafkaRecord {
 		d.Headers = append(d.Headers, domain.KafkaHeader{Key: h.Key, Value: h.Value})
 	}
 	return d
+}
+
+// health follows the connections of a read through franz-go's connect
+// hook: a failed dial or handshake means the brokers are unreachable for
+// now (the client keeps retrying), a successful one that they are back.
+type health struct {
+	mu      sync.Mutex
+	failing bool
+	changed bool
+}
+
+// OnBrokerConnect implements kgo.HookBrokerConnect.
+func (h *health) OnBrokerConnect(_ kgo.BrokerMetadata, _ time.Duration, _ net.Conn, err error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if failing := err != nil; failing != h.failing {
+		h.failing, h.changed = failing, true
+	}
+}
+
+// take returns the state and whether it changed since the last call.
+func (h *health) take() (failing, changed bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	changed, h.changed = h.changed, false
+	return h.failing, changed
 }

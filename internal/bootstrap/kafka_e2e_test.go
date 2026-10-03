@@ -1,10 +1,13 @@
 package bootstrap
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,7 +18,6 @@ import (
 	"github.com/ghiloufibg/huginn/internal/config"
 	"github.com/ghiloufibg/huginn/internal/core/domain"
 	"github.com/ghiloufibg/huginn/internal/core/ports"
-	"github.com/ghiloufibg/huginn/internal/diag"
 )
 
 // TestKafkaEndToEnd runs the whole chain of a real run against an
@@ -82,7 +84,9 @@ repos:
 	if err != nil {
 		t.Fatal(err)
 	}
-	k := newKafka(cfg, "kubernetes", nil, "", os.Getenv, diag.Discard())
+	var logBuf bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	k := newKafka(cfg, "kubernetes", nil, "", os.Getenv, log)
 	ctx := context.Background()
 	if got := k.Repos(ctx, "rec", []string{"orders", "billing"}); len(got) != 1 || !got["orders"] {
 		t.Fatalf("repos: %v", got)
@@ -114,5 +118,33 @@ repos:
 	}
 	if n != 6 {
 		t.Fatalf("%d records, want 6", n)
+	}
+
+	// A wrong password, a missing key: errors and the diagnostic log name
+	// keys and files, never a secret value.
+	write("repos/orders/deploy/overlays/rec/kafka.env", fmt.Sprintf("KAFKA_BOOTSTRAP_SERVERS=%s\nIN_USERNAME=orders-app\nIN_PASSWORD=hunter2-wrong\n", c.ListenAddrs()[0]))
+	sess2, err := newKafka(cfg, "kubernetes", nil, "", os.Getenv, log).Open(ctx, "rec", "orders")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sess2.Close()
+	var msgs []string
+	for _, x := range sess2.Topics() {
+		if x.Err == nil {
+			t.Fatalf("%s: read with a wrong password or a missing key", x.Name)
+		}
+		msgs = append(msgs, x.Err.Error())
+	}
+	all := strings.Join(msgs, "\n") + "\n" + logBuf.String()
+	for _, secret := range []string{"pw-in", "pw-out", "hunter2-wrong"} {
+		if strings.Contains(all, secret) {
+			t.Errorf("secret %q leaked:\n%s", secret, all)
+		}
+	}
+	if !strings.Contains(all, "credentials rejected") && !strings.Contains(all, "closed the connection during authentication") {
+		t.Errorf("the wrong password is not explained:\n%s", strings.Join(msgs, "\n"))
+	}
+	if !strings.Contains(all, "KAFKA_TOPIC_OUT") && !strings.Contains(all, "OUT_USERNAME") {
+		t.Errorf("the missing key is not named:\n%s", strings.Join(msgs, "\n"))
 	}
 }

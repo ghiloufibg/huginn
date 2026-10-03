@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"math/big"
 	"net"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -372,5 +373,79 @@ func TestRecordsCarryKeysHeadersAndTime(t *testing.T) {
 	r := recs[0]
 	if !strings.HasPrefix(string(r.Key), "k-") || r.ValueSize != len(r.Value) || r.Time.IsZero() || len(r.Headers) != 1 || r.Headers[0].Key != "traceId" {
 		t.Fatalf("record: %+v", r)
+	}
+}
+
+func TestLostBrokersAreReportedWhileFollowing(t *testing.T) {
+	c, produceN := newCluster(t)
+	produceN(3)
+	src, err := (&Factory{Options: fastOptions(nil)}).Open(context.Background(), conn(c))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer src.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ch, err := src.Read(ctx, ports.TopicRead{Topic: topic, Tail: 5, Limit: 5, Follow: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for b := range ch {
+		if b.HistoryDone {
+			break
+		}
+	}
+	c.Close()
+	timeout := time.After(20 * time.Second)
+	for {
+		select {
+		case b, ok := <-ch:
+			if !ok {
+				t.Fatal("the read ended: it must keep retrying")
+			}
+			if b.Err != nil {
+				t.Fatalf("a lost broker is not fatal: %v", b.Err)
+			}
+			for _, n := range b.Notices {
+				if strings.Contains(n, "unreachable, retrying") {
+					return
+				}
+			}
+		case <-timeout:
+			t.Fatal("no notice after the brokers went away")
+		}
+	}
+}
+
+func TestNoGoroutineLeftAfterReadsAndClose(t *testing.T) {
+	c, produceN := newCluster(t)
+	produceN(30)
+	base := runtime.NumGoroutine()
+	for range 5 {
+		src, err := (&Factory{Options: fastOptions(nil)}).Open(context.Background(), conn(c))
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		ch, err := src.Read(ctx, ports.TopicRead{Topic: topic, Tail: 5, Limit: 5, Follow: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for b := range ch {
+			if b.HistoryDone {
+				break
+			}
+		}
+		cancel()
+		for range ch { //nolint:revive // drain
+		}
+		src.Close()
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for runtime.NumGoroutine() > base+2 && time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+	}
+	if n := runtime.NumGoroutine(); n > base+2 {
+		t.Fatalf("%d goroutines left, %d before", n, base)
 	}
 }

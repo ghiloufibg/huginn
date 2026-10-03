@@ -222,13 +222,13 @@ At open time, on the screen: missing files, sops failures, missing keys, unreada
 | `${KEY}` missing, no default | `<KEY> not found in the sources`, on the topic or in the header for the connection | Only what uses it. |
 | Glob matches 0 or several files | `<glob>: no file` / `<glob>: 3 files: a, b, c` | Same. |
 | Truststore unreadable / wrong password | `truststore <file>: wrong password or not PKCS12/PEM` | Connection not attempted. |
-| DNS fails / VPN down / timeout | `brokers unreachable (<host>): check the network or VPN` | Retried with backoff while the screen is open; `r` retries now. |
+| DNS fails / VPN down / timeout when the screen opens | `brokers unreachable (<host>): check the network or VPN` on the topics | `r` on the topics screen retries. |
 | TLS: unknown authority / name mismatch | `TLS: broker certificate not trusted by <tls.ca>` / `… issued for <name>` | Not retried. |
 | SASL rejected | `credentials rejected for <username key>` (the key name, not the value) | Not retried. |
 | Topic does not exist | `unknown topic` | Never created (auto-creation off). |
 | Not authorized on topic | `not authorized` | Other topics unaffected. |
-| Broker restarts / leader moves | `reconnecting…` in the status bar | Resumes from the last offset read; no record shown twice. |
-| Offset out of range (retention deleted data during the session) | `records before <offset> on p<N> were deleted by retention` | Restart at the earliest offset. |
+| Brokers lost during a read (restart, VPN drop) | `brokers unreachable, retrying…` then `reconnected` in the status bar | The client retries by itself and resumes from the last offset read; no record shown twice. Leader moves are invisible. |
+| Offset out of range (retention deleted data during the session) | nothing: a compacted topic has offset gaps too, so a notice would be wrong as often as right | The client restarts at the earliest offset. |
 | Empty topic / empty window | `no record in <topic> for <window>` | — |
 | Record larger than the caps | `value truncated (N MB)` in zoom | Kept truncated. |
 | Buffer full | `older records dropped` in the status bar | Oldest records evicted. |
@@ -265,8 +265,9 @@ New dependencies: `github.com/twmb/franz-go` (+ `kfake` in tests) and `software.
 - **Bootstrap**: no `kafka/` → no Kafka component, no action; with a profile → marker only on matching repositories.
 - **TUI**: goldens for the topic list, records, zoom, each error state, a narrow terminal.
 - **Secrets**: sentinel secret values never appear in errors, the diagnostic log or goldens.
-- **Benchmarks**: merge of 12 partitions × 10 000 records, preview of 1 MiB JSON values; within the budgets of D-031.
-- **Lifecycle**: no goroutine leak after open/close cycles; `go test -race ./...`; `golangci-lint run`.
+- **Benchmarks** (done): sort and trim of 12 partitions × 10 000 records 46 ms (once per read); one frame of 20 000 records 0.4 ms; the filter over 20 000 records 1.2 ms per keystroke; the preview of a 1 MiB JSON value 0.11 ms (only its first 16 KiB are read; it was 10 ms with a full validation); a buffer append 48 ns without allocation. All within D-031.
+- **Lifecycle** (done): no goroutine left after open/close cycles of sessions and of franz-go reads; brokers lost while following reported and not fatal; `go test -race ./...`; `golangci-lint run`.
+- **Secrets** (done): the end-to-end test checks that passwords, right or wrong, appear neither in topic errors nor in the debug log.
 - **Manual check** before calling it done: `--demo`, then a real `rec` topic compared with the original script on the same records.
 
 ## 9. Steps

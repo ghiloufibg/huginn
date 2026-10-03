@@ -66,7 +66,7 @@ func (s *fakeKafkaSession) Read(_ context.Context, q ports.KafkaQuery) (<-chan p
 	return make(chan ports.KafkaBatch), nil
 }
 
-func newKafkaModel(t *testing.T) (*Model, *fakeKafka) {
+func newKafkaModel(t testing.TB) (*Model, *fakeKafka) {
 	t.Helper()
 	m, _ := newTestModel(t, 1, "")
 	fk := &fakeKafka{repos: map[string]bool{"payment-service": true}, session: &fakeKafkaSession{topics: []ports.KafkaTopicState{
@@ -93,7 +93,7 @@ func snapshotKafka(m *Model) {
 }
 
 // selectRepo moves the services cursor to repo (sorted by name).
-func selectRepo(t *testing.T, m *Model, repo string) {
+func selectRepo(t testing.TB, m *Model, repo string) {
 	t.Helper()
 	press(m, "s", "g")
 	for range 20 {

@@ -55,33 +55,69 @@ func printable(b []byte) bool {
 	return true
 }
 
+// previewBytes is how much of a value its one-line preview looks at: the
+// preview shows a few hundred characters, so a large value costs no more
+// than a small one.
+const previewBytes = 16 << 10
+
 // PayloadPreview is b on one line of at most maxRunes runes: compact JSON,
 // text with its line breaks shown as ⏎, or a description of binary data.
-// Control characters never reach the terminal.
+// Only the start of b is examined. Control characters never reach the
+// terminal.
 func PayloadPreview(b []byte, size int, maxRunes int) string {
-	kind, id := ClassifyPayload(b)
-	var s string
-	switch kind {
-	case PayloadNull:
+	switch {
+	case b == nil:
 		return "∅"
-	case PayloadEmpty:
+	case len(b) == 0:
 		return `""`
-	case PayloadFramed:
-		return fmt.Sprintf("schema %d, %s", id, ByteSize(size))
-	case PayloadBinary:
-		return "binary " + ByteSize(size)
-	case PayloadJSON:
-		var buf bytes.Buffer
-		if json.Compact(&buf, b) == nil {
-			s = buf.String()
-		} else {
-			s = string(b)
+	case b[0] == 0 && len(b) >= 5:
+		return fmt.Sprintf("schema %d, %s", binary.BigEndian.Uint32(b[1:5]), ByteSize(size))
+	}
+	head := b
+	if len(head) > previewBytes {
+		head = head[:previewBytes]
+		for len(head) > 0 && !utf8.RuneStart(head[len(head)-1]) { // do not cut a rune
+			head = head[:len(head)-1]
 		}
-	default:
-		s = string(b)
+		if len(head) > 0 {
+			head = head[:len(head)-1]
+		}
+	}
+	if !utf8.Valid(head) || !printable(head) {
+		return "binary " + ByteSize(size)
+	}
+	s := string(head)
+	if t := bytes.TrimLeft(head, " \t\r\n"); len(t) > 0 && (t[0] == '{' || t[0] == '[') {
+		s = compactJSON(head)
 	}
 	s = strings.NewReplacer("\r\n", "⏎", "\n", "⏎", "\r", "⏎", "\t", " ").Replace(s)
 	return cutRunes(escapeControls(s), maxRunes)
+}
+
+// compactJSON drops the whitespace outside strings, as json.Compact does,
+// without validating: b may be the start of a document.
+func compactJSON(b []byte) string {
+	out := make([]byte, 0, len(b))
+	inString, escaped := false, false
+	for _, c := range b {
+		switch {
+		case inString:
+			out = append(out, c)
+			switch {
+			case escaped:
+				escaped = false
+			case c == '\\':
+				escaped = true
+			case c == '"':
+				inString = false
+			}
+		case c == ' ' || c == '\t' || c == '\n' || c == '\r':
+		default:
+			out = append(out, c)
+			inString = c == '"'
+		}
+	}
+	return string(out)
 }
 
 // PayloadLines is b laid out for reading in full: indented JSON, text as

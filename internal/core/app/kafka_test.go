@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -313,5 +314,50 @@ func TestKafkaSecretsNeverInErrors(t *testing.T) {
 		if ts.Name == "orders.requested" && (ts.Err == nil || !strings.Contains(ts.Err.Error(), "(from ${PROTOCOL:-plaintext})")) {
 			t.Errorf("the error names where the value came from: %v", ts.Err)
 		}
+	}
+}
+
+func TestKafkaSessionsLeaveNoGoroutine(t *testing.T) {
+	s, _, k := kafkaFixture(t)
+	k.Produce(domain.KafkaRecord{Topic: "orders.audit", Time: kafkaNow, Value: []byte("x")})
+	base := runtime.NumGoroutine()
+	for range 20 {
+		sess, err := s.Open(context.Background(), "rec", "orders")
+		if err != nil {
+			t.Fatal(err)
+		}
+		ch, err := sess.Read(context.Background(), ports.KafkaQuery{Topic: "orders.audit", Window: domain.TimeWindow{Tail: 5}, Follow: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		<-ch
+		sess.Close()   // must end the following read too
+		for range ch { //nolint:revive // drain
+		}
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for runtime.NumGoroutine() > base && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if n := runtime.NumGoroutine(); n > base {
+		t.Fatalf("%d goroutines left, %d before", n, base)
+	}
+}
+
+// BenchmarkKafkaHistorySort sorts and trims the history of 12 partitions
+// of 10 000 records each to what the view keeps.
+func BenchmarkKafkaHistorySort(b *testing.B) {
+	k := &kafkaSession{s: &KafkaService{MaxRecords: 20000, MaxBufferBytes: 64 << 20}}
+	src := make([]domain.KafkaRecord, 0, 120000)
+	for p := range int32(12) {
+		for off := range int64(10000) {
+			src = append(src, domain.KafkaRecord{Partition: p, Offset: off, Time: kafkaNow.Add(time.Duration(off)*time.Second + time.Duration(p)*time.Millisecond), Value: []byte(`{"id":1}`)})
+		}
+	}
+	recs := make([]domain.KafkaRecord, len(src))
+	b.ReportAllocs()
+	for b.Loop() {
+		copy(recs, src)
+		_ = k.trim(recs)
 	}
 }

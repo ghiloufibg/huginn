@@ -183,3 +183,43 @@ func FuzzPayload(f *testing.F) {
 		}
 	})
 }
+
+// BenchmarkPayloadPreviewLargeJSON previews a 1 MiB JSON value (once per
+// record: the screen caches it).
+func BenchmarkPayloadPreviewLargeJSON(b *testing.B) {
+	var buf bytes.Buffer
+	buf.WriteString(`{"items":[`)
+	for buf.Len() < 1<<20 {
+		buf.WriteString(`{"id":"ORD-12345","status":"PAID","amount":125.50,"tags":["a","b"]},`)
+	}
+	buf.WriteString(`{}]}`)
+	v := buf.Bytes()
+	b.ReportAllocs()
+	for b.Loop() {
+		_ = PayloadPreview(v, len(v), 400)
+	}
+}
+
+// BenchmarkRecordBufferAppend appends to a full buffer (eviction path).
+func BenchmarkRecordBufferAppend(b *testing.B) {
+	buf := NewRecordBuffer(20000, 64<<20)
+	r := rec(0, `{"id":"ORD-12345","status":"PAID"}`)
+	b.ReportAllocs()
+	for b.Loop() {
+		buf.Append(r)
+	}
+}
+
+func TestPreviewOfLargeValuesLooksAtTheStart(t *testing.T) {
+	big := append([]byte(`{ "a" : "x y",`+"\n"+` "é": [1, 2] `), bytes.Repeat([]byte(`, "k": "v"`), 1<<17)...)
+	if got := PayloadPreview(big, len(big), 30); got != `{"a":"x y","é":[1,2],"k":"v",…` {
+		t.Errorf("large JSON: %q", got)
+	}
+	text := append(bytes.Repeat([]byte("é"), previewBytes), 0xff) // cut inside a rune, junk far away
+	if got := PayloadPreview(text, len(text), 5); got != "éééé…" {
+		t.Errorf("large text: %q", got)
+	}
+	if got := PayloadPreview([]byte(`{"s":"a \" b  c"}`), 18, 80); got != `{"s":"a \" b  c"}` {
+		t.Errorf("spaces inside strings are kept: %q", got)
+	}
+}
