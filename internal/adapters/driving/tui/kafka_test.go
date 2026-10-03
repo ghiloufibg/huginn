@@ -1,0 +1,289 @@
+package tui
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/ghiloufibg/huginn/internal/core/domain"
+	"github.com/ghiloufibg/huginn/internal/core/ports"
+)
+
+// fakeKafka is a ports.Kafka with fixed topics.
+type fakeKafka struct {
+	mu      sync.Mutex
+	repos   map[string]bool
+	asked   int
+	openErr error
+	session *fakeKafkaSession
+}
+
+func (f *fakeKafka) Repos(_ context.Context, _ domain.Env, repos []string) map[string]bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.asked++
+	out := map[string]bool{}
+	for _, r := range repos {
+		if f.repos[r] {
+			out[r] = true
+		}
+	}
+	return out
+}
+
+func (f *fakeKafka) Open(context.Context, domain.Env, string) (ports.KafkaSession, error) {
+	if f.openErr != nil {
+		return nil, f.openErr
+	}
+	return f.session, nil
+}
+
+type fakeKafkaSession struct {
+	mu      sync.Mutex
+	topics  []ports.KafkaTopicState
+	queries []ports.KafkaQuery
+	closed  bool
+}
+
+func (s *fakeKafkaSession) Profile() string                 { return "demo" }
+func (s *fakeKafkaSession) Topics() []ports.KafkaTopicState { return s.topics }
+func (s *fakeKafkaSession) Close() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.closed = true
+}
+
+func (s *fakeKafkaSession) Read(_ context.Context, q ports.KafkaQuery) (<-chan ports.KafkaBatch, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.queries = append(s.queries, q)
+	return make(chan ports.KafkaBatch), nil
+}
+
+func newKafkaModel(t *testing.T) (*Model, *fakeKafka) {
+	t.Helper()
+	m, _ := newTestModel(t, 1, "")
+	fk := &fakeKafka{repos: map[string]bool{"payment-service": true}, session: &fakeKafkaSession{topics: []ports.KafkaTopicState{
+		{Name: "payments.dlq", Direction: domain.TopicProduce, Partitions: 1},
+		{Name: "payments.requested", Direction: domain.TopicConsume, Partitions: 3},
+		{Name: "payments.completed", Direction: domain.TopicBoth, Partitions: 6},
+		{Name: "${TOPIC_AUDIT}", Direction: domain.TopicNone, Err: fmt.Errorf("%w", &domain.MissingKeyError{Key: "TOPIC_AUDIT"})},
+		{Name: "ledger.snapshots", Direction: domain.TopicNone, Partitions: 2, Err: fmt.Errorf("topic ledger.snapshots: %w", domain.ErrForbidden)},
+	}}}
+	m.opts.Kafka, m.opts.KafkaTail, m.opts.KafkaMaxRecords, m.opts.KafkaMaxBytes = fk, 100, 1000, 1<<20
+	snapshotKafka(m)
+	return m, fk
+}
+
+// snapshotKafka sends a snapshot and runs the Kafka question it asks
+// (snapshot drops the commands of the update).
+func snapshotKafka(m *Model) {
+	asked := m.kafkaAsked
+	snapshot(m, mockupSnapshot("rec"))
+	if m.kafkaAsked != asked {
+		m.kafkaAsked = asked
+		run(m, m.askKafka())
+	}
+}
+
+// selectRepo moves the services cursor to repo (sorted by name).
+func selectRepo(t *testing.T, m *Model, repo string) {
+	t.Helper()
+	press(m, "s", "g")
+	for range 20 {
+		if selectedRepo(m) == repo {
+			m.flashText = "" // "sort name" would stay in every golden
+			return
+		}
+		press(m, "j")
+	}
+	t.Fatalf("%s not found", repo)
+}
+
+func kafkaRecords(n int) []domain.KafkaRecord {
+	var out []domain.KafkaRecord
+	for i := range n {
+		v := fmt.Appendf(nil, `{"id":"PAY-%05d","status":"PAID","amount":%d.50}`, i, 10+i)
+		r := domain.KafkaRecord{
+			Topic: "payments.requested", Partition: int32(i % 3), Offset: int64(1000 + i), Time: t0.Add(time.Duration(i) * time.Second), Key: fmt.Appendf(nil, "PAY-%05d", i), Value: v,
+			Headers: []domain.KafkaHeader{{Key: "traceId", Value: []byte("a1b2c3d4e5f60718")}},
+		}
+		switch i {
+		case 2:
+			r.Value = nil
+		case 3:
+			r.Value = []byte{0, 0, 0, 1, 0x9c, 2, 'x'}
+		case 4:
+			r.Value, r.Key = []byte("plain text event\nsecond line"), nil
+		}
+		r.KeySize, r.ValueSize = len(r.Key), len(r.Value)
+		out = append(out, r)
+	}
+	return out
+}
+
+func feedKafka(m *Model, r *kafkaRecordsScreen, b ports.KafkaBatch) {
+	m.Update(kafkaBatchMsg{screen: r, gen: r.gen, batch: b, ch: make(chan ports.KafkaBatch)})
+}
+
+func TestKafkaGolden(t *testing.T) {
+	m, fk := newKafkaModel(t)
+	if fk.asked != 1 {
+		t.Fatalf("Repos asked %d times", fk.asked)
+	}
+	snapshotKafka(m)
+	if fk.asked != 1 {
+		t.Fatal("same repositories: not asked again")
+	}
+	selectRepo(t, m, "payment-service")
+	golden(t, "kafka_services_120x20", render(m, 120, 20))
+
+	press(m, "M")
+	topics, ok := m.top().(*kafkaTopicsScreen)
+	if !ok {
+		t.Fatalf("M must open the Kafka topics, top is %T", m.top())
+	}
+	golden(t, "kafka_topics_120x16", render(m, 120, 16))
+
+	press(m, "enter") // payments.requested: the first consumed topic
+	r, ok := m.top().(*kafkaRecordsScreen)
+	if !ok || r.topic.Name != "payments.requested" {
+		t.Fatalf("enter must open the records, top is %T", m.top())
+	}
+	if q := fk.session.queries[0]; q.Window.Tail != 100 || q.Follow || q.ReadCommitted {
+		t.Fatalf("first read: %+v", q)
+	}
+	golden(t, "kafka_records_loading_120x10", render(m, 120, 10))
+	feedKafka(m, r, ports.KafkaBatch{Records: kafkaRecords(8), HistoryDone: true})
+	golden(t, "kafka_records_120x14", render(m, 120, 14))
+
+	press(m, "k", "k", "k", "enter")
+	golden(t, "kafka_zoom_100x24", render(m, 100, 24))
+	press(m, "esc", "esc", "esc")
+	if m.top() != m.stack[0] || !fk.session.closed {
+		t.Fatalf("esc closes the screens and the session (top %T, closed %v)", m.top(), fk.session.closed)
+	}
+	_ = topics
+}
+
+func TestKafkaRecordsKeys(t *testing.T) {
+	m, fk := newKafkaModel(t)
+	selectRepo(t, m, "payment-service")
+	press(m, "M", "enter")
+	r := m.top().(*kafkaRecordsScreen)
+	feedKafka(m, r, ports.KafkaBatch{Records: kafkaRecords(8), HistoryDone: true})
+
+	press(m, "/", "p", "a", "y", "-", "0", "0", "0", "0", "6", "enter")
+	if len(r.rows) != 1 {
+		t.Fatalf("filter: %d rows", len(r.rows))
+	}
+	press(m, "esc")
+	if len(r.rows) != 8 {
+		t.Fatalf("esc clears the filter: %d rows", len(r.rows))
+	}
+
+	press(m, "space")
+	feedKafka(m, r, ports.KafkaBatch{Records: kafkaRecords(2)})
+	if len(r.rows) != 8 || len(r.held) != 2 {
+		t.Fatalf("paused: rows %d held %d", len(r.rows), len(r.held))
+	}
+	press(m, "space")
+	if len(r.rows) != 10 {
+		t.Fatalf("resumed: %d", len(r.rows))
+	}
+
+	press(m, "f")
+	if q := fk.session.queries[len(fk.session.queries)-1]; !q.Follow || len(r.rows) != 0 {
+		t.Fatalf("f reopens following: %+v", q)
+	}
+	press(m, "i")
+	if q := fk.session.queries[len(fk.session.queries)-1]; !q.ReadCommitted {
+		t.Fatalf("i switches isolation: %+v", q)
+	}
+	press(m, "5")
+	if q := fk.session.queries[len(fk.session.queries)-1]; q.Window.Since != time.Hour {
+		t.Fatalf("5 is the 1h window: %+v", q)
+	}
+	press(m, "0")
+	if q := fk.session.queries[len(fk.session.queries)-1]; q.Window.Tail != 100 {
+		t.Fatalf("0 is the tail: %+v", q)
+	}
+	feedKafka(m, r, ports.KafkaBatch{Err: fmt.Errorf("fetch: %w", domain.ErrUnreachable)})
+	if !strings.Contains(render(m, 120, 12), "Cannot read payments.requested") {
+		t.Fatal("read error shown")
+	}
+}
+
+func TestKafkaBufferBounds(t *testing.T) {
+	m, _ := newKafkaModel(t)
+	m.opts.KafkaMaxRecords = 1000
+	selectRepo(t, m, "payment-service")
+	press(m, "M", "enter")
+	r := m.top().(*kafkaRecordsScreen)
+	for range 3 {
+		feedKafka(m, r, ports.KafkaBatch{Records: kafkaRecords(500)})
+	}
+	if r.buf.Len() != 1000 || len(r.rows) != 1000 || r.buf.Dropped() != 500 || len(r.previews) > 1000 {
+		t.Fatalf("len %d rows %d dropped %d previews %d", r.buf.Len(), len(r.rows), r.buf.Dropped(), len(r.previews))
+	}
+	if !strings.Contains(render(m, 160, 10), "500 older records dropped") {
+		t.Fatal("drops are reported")
+	}
+	// Previews of records hidden by a filter are released once evicted.
+	for i := range r.rows {
+		r.previews[r.rows[i]] = "x"
+	}
+	press(m, "/", "z", "z", "z", "enter")
+	for range 3 {
+		feedKafka(m, r, ports.KafkaBatch{Records: kafkaRecords(1000)})
+	}
+	if len(r.previews) > 2*r.buf.Len() {
+		t.Fatalf("previews kept: %d", len(r.previews))
+	}
+}
+
+func TestKafkaAbsentAndErrors(t *testing.T) {
+	m, _ := newTestModel(t, 1, "")
+	snapshot(m, mockupSnapshot("rec"))
+	selectRepo(t, m, "payment-service")
+	press(m, "M")
+	if _, ok := m.top().(*servicesScreen); !ok {
+		t.Fatal("without Kafka, M does nothing")
+	}
+	if strings.Contains(render(m, 160, 30), "payment-service K") {
+		t.Fatal("no marker without Kafka")
+	}
+
+	m, fk := newKafkaModel(t)
+	selectRepo(t, m, "user-api")
+	press(m, "M")
+	if _, ok := m.top().(*servicesScreen); !ok {
+		t.Fatal("M on a repository without Kafka does nothing")
+	}
+	fk.openErr = fmt.Errorf("sops cannot decrypt x.env: no key: %w", domain.ErrSecretsAccess)
+	selectRepo(t, m, "payment-service")
+	press(m, "M")
+	out := render(m, 120, 14)
+	if !strings.Contains(out, "Cannot open the Kafka topics of payment-service") || !strings.Contains(out, "sops cannot decrypt") {
+		t.Fatalf("open error:\n%s", out)
+	}
+	if !errors.Is(fk.openErr, domain.ErrSecretsAccess) {
+		t.Fatal("unreachable")
+	}
+}
+
+func TestKafkaHelp(t *testing.T) {
+	m, _ := newKafkaModel(t)
+	selectRepo(t, m, "payment-service")
+	press(m, "M", "enter", "?")
+	out := render(m, 100, 60)
+	for _, want := range []string{"KAFKA RECORDS", "isolation", "partition=<n>"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("help misses %q:\n%s", want, out)
+		}
+	}
+}

@@ -1,4 +1,4 @@
-# M5 — Kafka topics, read only  (status: K0 done; K1, K2 to do)
+# M5 — Kafka topics, read only  (status: K0 and K1 done; K2 to do)
 
 ## 0. In one paragraph
 Some services are debugged today with a separate script: it reads the repository's `config.env` files (one encrypted with sops), connects to Kafka with the application's SASL account and truststore, assigns partitions by hand (no consumer group) and prints the last records of a topic. This milestone does **the same thing inside Huginn**: on a service that has Kafka settings, `M` opens a screen listing its topics and their records, read only, with no effect on the cluster or the pods. Nothing else. Every application detail (paths, key names, topics) is in the user's config folder; the code holds the mechanism only (D-030).
@@ -270,7 +270,7 @@ New dependencies: `github.com/twmb/franz-go` (+ `kfake` in tests) and `software.
 
 ## 9. Steps
 1. **K0 — config** (done): structs, validation, schema, `docs/CONFIG.md` §10, `examples/config-kafka/`, `domain` references (`{var}`, `${KEY}`) and dotenv parser, `ports.LocalFiles` / `ports.SecretFiles`, `localfiles` adapter, `sops.Provider.Decrypt`.
-2. **K1 — core and demo**: domain, ports, app, fakes, demo adapter (a profile with literal values in `examples/config/kafka/`), TUI screen, goldens. Usable with `--demo`.
+2. **K1 — core and demo** (done): domain (record buffer by count and bytes, payload detection and rendering with control characters escaped, record filter), ports (`TopicSource`, `Kafka`, `KafkaSession`), `app.KafkaService`, fakes and `RunTopicSourceContract`, demo source and `examples/config/kafka/demo.yaml`, TUI screens and goldens, bootstrap wiring. The screen is three stacked screens (topics, records of a topic, one record) rather than two panes, like the rest of the TUI; copy (`ctrl+y`) waits for a clipboard adapter.
 3. **K2 — real brokers**: franz-go adapter, guard, `kfake` contract suite, failure modes of §6.
 
 K0 → K2 replace the original script. Each step ends green (`go test -race ./...`, `golangci-lint run`) and is its own commit series.

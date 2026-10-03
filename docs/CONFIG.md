@@ -436,7 +436,7 @@ Two rules for columns:
 
 Optional. A Kafka profile says **where the Kafka settings of some repositories are** and **which topics to show**, so Huginn can list the records of those topics, read only. Without a `kafka/` folder, nothing about Kafka exists in Huginn.
 
-> **Status**: the folder is read and checked now. The Kafka screen itself (key `M` on the services screen) arrives with the next steps of milestone M5 ([`docs/plan/M5-kafka.md`](plan/M5-kafka.md)).
+> **Status**: the Kafka screens (key `M` on the services screen, see the README) work with `--demo`, whose `examples/config/kafka/demo.yaml` lists topics of the demo services. Reading a real cluster arrives with the next step of milestone M5 ([`docs/plan/M5-kafka.md`](plan/M5-kafka.md)); until then a real run loads and checks the folder but shows no Kafka screen.
 
 **Read only, always.** Huginn never joins a consumer group, never commits an offset, never produces and never creates a topic. No key of this file can change that. Reading does not take records away from the services that consume them.
 

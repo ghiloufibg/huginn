@@ -62,10 +62,14 @@ type App struct {
 type Env struct {
 	Getenv        func(string) string
 	UserConfigDir func() (string, error)
+	// UserHomeDir expands ~/ in Kafka profiles (nil: no home folder).
+	UserHomeDir func() (string, error)
 }
 
 // SystemEnv is the process environment.
-func SystemEnv() Env { return Env{Getenv: os.Getenv, UserConfigDir: os.UserConfigDir} }
+func SystemEnv() Env {
+	return Env{Getenv: os.Getenv, UserConfigDir: os.UserConfigDir, UserHomeDir: os.UserHomeDir}
+}
 
 // noConfigError reports a config folder that cannot be found or read.
 type noConfigError struct{ error }
@@ -181,6 +185,11 @@ func Build(o cli.Options, e Env, log *slog.Logger) (*App, error) {
 			current = info
 		}
 	}
+	home := ""
+	if e.UserHomeDir != nil {
+		home, _ = e.UserHomeDir()
+	}
+	kl := c.Huginn.Kafka.Limits()
 	return &App{
 		Config: c, Env: env, Cluster: cluster, Log: log,
 		UI: tui.Options{
@@ -191,6 +200,9 @@ func Build(o cli.Options, e Env, log *slog.Logger) (*App, error) {
 			Layouts:  lp.layouts, Layout: lp.fallback, Columns: lp.columns,
 			Windows: windows(c), Window: window, ContainerMode: mode,
 			BufferLines: c.Huginn.Logs.BufferLines, KeyBar: c.UI.KeyBar, LogColumns: c.UI.LogColumns,
+			Kafka:     newKafka(c, clientName, clk, home, e.Getenv, log),
+			KafkaTail: kl.TailRecords, KafkaMaxRecords: kl.MaxRecords, KafkaMaxBytes: int(kl.MaxBufferBytes),
+			KafkaReadCommitted: kl.ReadCommitted,
 		},
 	}, nil
 }

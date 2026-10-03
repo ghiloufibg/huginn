@@ -1,0 +1,10 @@
+ huginn  REC  gke_acme_e…   services / payment-service / kafka / payments.requested   demo · watching · synced 19:14:02 
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                  ⠋ reading payments.requested, last 100 per partition                                  
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+ LOADING   last 100 per partition  ·  0 records  ·  uncommitted                                                         
+ enter zoom  / filter  1-7 window  0 tail  f follow  space pause  i isolation  esc back                                 

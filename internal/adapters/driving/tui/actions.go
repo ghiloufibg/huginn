@@ -72,4 +72,6 @@ var actions = map[Action]actionInfo{
 	ActAllContainers: {"Inspect", "all containers (sidecars and init) or application containers only"},
 	ActColumns:       {"Display", "columns: time, pod, level, thread, class"},
 	ActFocus:         {"Display", "focus layout: hide pod, thread and class"},
+	ActKafka:         {"Services", "Kafka topics of the service, read only (services marked K)"},
+	ActIsolation:     {"Time and stream", "Kafka isolation: every record, or committed records only"},
 }

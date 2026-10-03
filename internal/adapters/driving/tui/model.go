@@ -65,6 +65,14 @@ type Options struct {
 	// LogColumns are the columns shown before the message (time, pod,
 	// level, thread, class); empty means automatic narrowing.
 	LogColumns []string
+	// Kafka reads the Kafka topics of services; nil when the config
+	// folder has no kafka/ profile: the feature is then absent.
+	Kafka ports.Kafka
+	// KafkaTail is the records per partition of the tail (key 0);
+	// KafkaMaxRecords and KafkaMaxBytes bound what a Kafka screen keeps;
+	// KafkaReadCommitted is the isolation a Kafka screen opens with.
+	KafkaTail, KafkaMaxRecords, KafkaMaxBytes int
+	KafkaReadCommitted                        bool
 }
 
 // screen is one page of the UI. The root model routes messages to the
@@ -116,6 +124,11 @@ type Model struct {
 	keyBar        keyBarSize
 	resyncing     bool
 	watchErr      error
+	// kafkaRepos are the repositories with a Kafka screen in the current
+	// environment; kafkaAsked identifies the last question (environment
+	// and repository names), so it is asked once per change.
+	kafkaRepos map[string]bool
+	kafkaAsked string
 }
 
 // Messages from watch plumbing. gen identifies the watch so that messages
@@ -249,7 +262,12 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 			return nil
 		}
 		m.snap, m.resyncing = &msg.snap, false
-		return tea.Batch(m.broadcast(msg), waitSnapshot(msg.gen, msg.ch))
+		return tea.Batch(m.broadcast(msg), waitSnapshot(msg.gen, msg.ch), m.askKafka())
+	case kafkaReposMsg:
+		if msg.env == m.env.Name {
+			m.kafkaRepos = msg.repos
+		}
+		return nil
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
 	case flashDoneMsg:
@@ -343,6 +361,7 @@ func (m *Model) switchEnv(e EnvInfo) tea.Cmd {
 	}
 	m.note = fmt.Sprintf("switched %s -> %s at %s", m.env.Name, e.Name, m.opts.Now().Format("15:04:05"))
 	m.env, m.snap, m.watchErr = e, nil, nil
+	m.kafkaRepos, m.kafkaAsked = nil, ""
 	m.reset(newServicesScreen(""))
 	return m.startWatch()
 }

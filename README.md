@@ -72,6 +72,7 @@ Pods that no known workload owns are listed too, grouped by owner: a bare pod sh
 |---|---|
 | `j` `k` `↑` `↓` `pgup` `pgdn` `g` `G`, mouse wheel | move |
 | `enter` | open the repository |
+| `M` | Kafka topics of the repository, read only (repositories marked `K`; only with a `kafka/` folder) |
 | `/` or `ctrl+f` | filter by name (enter keeps, esc clears) |
 | `s` | sort: status, name, restarts, age |
 | `p` | preview of the selected service on/off |
@@ -118,6 +119,22 @@ The pod strip shows each pod's state: a container that is not running says `wait
 
 Every key can be remapped with `ui.keymap` in the configuration.
 
+## Kafka screens
+
+Optional: only when the config folder has a `kafka/` folder ([`docs/CONFIG.md`](docs/CONFIG.md#10-kafkanameyaml)). Repositories a Kafka profile applies to are marked `K` on the services screen; `M` lists their topics, grouped as consumed, produced and others, with their partition count or why they cannot be read. `enter` shows the records of a topic, oldest first, merged across partitions by timestamp: time, partition, offset, key and a one-line value (compact JSON, text, `binary N B`, `schema <id>` for schema-registry framing, `tombstone`). `enter` on a record shows it in full: headers, timestamp type, the value indented or as a hex dump.
+
+**Read only, always**: Huginn never joins a consumer group, never commits an offset, never produces: the services reading a topic are not affected (docs/DECISIONS.md D-040). It reads only when asked: the last records of each partition when a topic opens (`kafka.tail_records`), a window, or live records with `f`. With `--demo`, records are generated; reading a real cluster comes with the next step of milestone M5.
+
+| Key | Action |
+|---|---|
+| `0` / `1`…`7` | last records of each partition / records since 15m … 2d |
+| `f` | follow live records on/off |
+| `space` | pause / resume |
+| `i` | isolation: every record, or committed records only |
+| `/` | filter: `key=…`, `partition=N`, `header.<name>=…`, or text in the key, value or headers |
+| `enter` | the topic's records / the record in full (`J`/`K` next/previous record) |
+| `r` | reconnect / read again |
+
 ## Configuration: your config folder
 
 Huginn holds no knowledge of any application. You give it a **config folder** with fixed file names:
@@ -130,7 +147,8 @@ acme-huginn/
 ├── containers.yaml       sidecars to hide              (optional)
 ├── ui.yaml               theme, keymap, key bar         (optional)
 ├── formats/<name>.yaml   how to read log lines: JSON fields, a regex for text, chosen per container
-└── layouts/<name>.yaml   how to draw log lines: columns as templates such as "[{thread|last:15|right:15}]"
+├── layouts/<name>.yaml   how to draw log lines: columns as templates such as "[{thread|last:15|right:15}]"
+└── kafka/<name>.yaml     where a service's Kafka settings are and which topics to show (optional)
 ```
 
 It is read from `--config`, `$HUGINN_CONFIG` or `<user config dir>/huginn/` (`~/.config/huginn` on Linux, `~/Library/Application Support/huginn` on macOS, `%AppData%\huginn` on Windows), and checked before the UI opens. If anything is wrong, every problem is listed with its position and Huginn exits.
@@ -140,6 +158,7 @@ It is read from `--config`, `$HUGINN_CONFIG` or `<user config dir>/huginn/` (`~/
   - [`examples/config/`](examples/config): Spring Boot + logstash JSON; also the `--demo` folder.
   - [`examples/config-node/`](examples/config-node): Node.js pino.
   - [`examples/config-nginx/`](examples/config-nginx): nginx access lines read with a regex, next to JSON logs.
+  - [`examples/config-kafka/`](examples/config-kafka): Kafka profiles reading a repository's dotenv overlays, sops and truststore.
 - **Editor completion**: JSON schemas, one per file, in [`docs/schema/`](docs/schema).
 
 ## Development

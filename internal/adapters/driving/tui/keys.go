@@ -84,6 +84,8 @@ const (
 	ActCopy          Action = "copy"
 	ActSave          Action = "save"
 	ActBugReport     Action = "bug_report"
+	ActKafka         Action = "kafka"
+	ActIsolation     Action = "kafka_isolation"
 )
 
 // defaultKeys are the default bindings (docs/DECISIONS.md D-007, D-008,
@@ -109,6 +111,7 @@ var defaultKeys = map[Action][]string{
 	ActErrorGroups: {"E"}, ActPodScope: {"tab"}, ActPodSelector: {"S"}, ActFullscreen: {"F"},
 	ActWrap: {"W"}, ActTimestamps: {"ctrl+t"}, ActCycleColumns: {"c"}, ActResetDisplay: {"R"}, ActPodID: {"I"}, ActMark: {"m"}, ActAllContainers: {"A"},
 	ActCopy: {"ctrl+y"}, ActSave: {"ctrl+s"}, ActBugReport: {"B"},
+	ActKafka: {"M"}, ActIsolation: {"i"},
 }
 
 // Keymap binds actions to keys.
