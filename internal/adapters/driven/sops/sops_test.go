@@ -92,7 +92,8 @@ func TestDecryptReturnsThePlaintextEveryTime(t *testing.T) {
 		t.Fatalf("decrypted %d times, want 2 (no cache)", calls)
 	}
 	p.Run = func(context.Context, string, ...string) ([]byte, error) { return nil, errors.New("no key") }
-	if _, err := p.Decrypt(context.Background(), "/abs.env", "dotenv"); !errors.Is(err, domain.ErrSecretsAccess) || !strings.Contains(err.Error(), "/abs.env") {
+	abs := filepath.Join(t.TempDir(), "abs.env") // absolute on every system
+	if _, err := p.Decrypt(context.Background(), abs, "dotenv"); !errors.Is(err, domain.ErrSecretsAccess) || !strings.Contains(err.Error(), abs) {
 		t.Fatalf("err = %v", err)
 	}
 }

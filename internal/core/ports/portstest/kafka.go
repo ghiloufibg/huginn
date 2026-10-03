@@ -15,6 +15,8 @@ import (
 
 // FakeLocalFiles serves dotenv files and truststores from memory. Glob
 // matches whole paths with filepath.Match; "**" matches any folders.
+// Paths are compared in slash form without their volume, so "/repos/x"
+// in a test is the file "C:\repos\x" on Windows.
 type FakeLocalFiles struct {
 	mu sync.Mutex
 	// Env holds dotenv files by path; Encrypted marks those sops would
@@ -22,7 +24,7 @@ type FakeLocalFiles struct {
 	Env       map[string]map[string]string
 	Encrypted map[string]bool
 	Stores    map[string]FakeTrustStore
-	// Reads counts ReadEnv calls by path.
+	// Reads counts ReadEnv calls by path, in slash form without volume.
 	Reads map[string]int
 }
 
@@ -45,12 +47,33 @@ func (f *FakeLocalFiles) Glob(_ context.Context, pattern string) ([]string, erro
 	defer f.mu.Unlock()
 	var out []string
 	for _, p := range slices.Concat(slices.Collect(maps.Keys(f.Env)), slices.Collect(maps.Keys(f.Stores))) {
-		if globMatch(pattern, p) {
-			out = append(out, p)
+		if globMatch(fakePath(pattern), fakePath(p)) {
+			// In the system's form, like the real adapter's.
+			out = append(out, filepath.VolumeName(pattern)+filepath.FromSlash(fakePath(p)))
 		}
 	}
 	slices.Sort(out)
 	return out, nil
+}
+
+// fakePath is the form paths are compared in.
+func fakePath(p string) string {
+	return filepath.ToSlash(strings.TrimPrefix(p, filepath.VolumeName(p)))
+}
+
+// lookup finds the key of m naming the file at path.
+func lookup[V any](m map[string]V, path string) (V, bool) {
+	if v, ok := m[path]; ok {
+		return v, true
+	}
+	want := fakePath(path)
+	for k, v := range m {
+		if fakePath(k) == want {
+			return v, true
+		}
+	}
+	var zero V
+	return zero, false
 }
 
 // globMatch matches path elements one by one; "**" matches zero or more.
@@ -82,13 +105,13 @@ func matchParts(ps, ns []string) bool {
 func (f *FakeLocalFiles) ReadEnv(_ context.Context, path string, encrypted bool) (map[string]domain.Secret, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.Reads[path]++
-	values, ok := f.Env[path]
+	f.Reads[fakePath(path)]++
+	values, ok := lookup(f.Env, path)
 	if !ok {
 		return nil, fmt.Errorf("%s not found: %w", path, domain.ErrNotFound)
 	}
-	if f.Encrypted[path] != encrypted {
-		return nil, fmt.Errorf("%s: encrypted is %v, read with %v: %w", path, f.Encrypted[path], encrypted, domain.ErrSecretsAccess)
+	if enc, _ := lookup(f.Encrypted, path); enc != encrypted {
+		return nil, fmt.Errorf("%s: encrypted is %v, read with %v: %w", path, enc, encrypted, domain.ErrSecretsAccess)
 	}
 	out := map[string]domain.Secret{}
 	for k, v := range values {
@@ -101,7 +124,7 @@ func (f *FakeLocalFiles) ReadEnv(_ context.Context, path string, encrypted bool)
 func (f *FakeLocalFiles) ReadTrustStore(_ context.Context, path string, password domain.Secret) ([][]byte, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	s, ok := f.Stores[path]
+	s, ok := lookup(f.Stores, path)
 	switch {
 	case !ok:
 		return nil, fmt.Errorf("%s not found: %w", path, domain.ErrNotFound)

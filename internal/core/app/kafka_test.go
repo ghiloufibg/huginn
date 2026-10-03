@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
@@ -14,6 +15,15 @@ import (
 	"github.com/ghiloufibg/huginn/internal/core/ports"
 	"github.com/ghiloufibg/huginn/internal/core/ports/portstest"
 )
+
+// osRoot makes a test root absolute on this system: "/repos" is not
+// absolute on Windows.
+func osRoot(p string) string {
+	if runtime.GOOS == "windows" {
+		return "C:" + filepath.FromSlash(p)
+	}
+	return p
+}
 
 var kafkaNow = time.Date(2026, 10, 3, 12, 0, 0, 0, time.UTC)
 
@@ -37,7 +47,7 @@ func kafkaFixture(t *testing.T) (*KafkaService, *portstest.FakeLocalFiles, *port
 	k.AddTopic("orders.confirmed", 1)
 	k.AddTopic("orders.audit", 1)
 	s := &KafkaService{
-		Files: files, Sources: k, ConfigDir: "/cfg", ReposRoot: "/repos", Home: "/home/me",
+		Files: files, Sources: k, ConfigDir: osRoot("/cfg"), ReposRoot: osRoot("/repos"), Home: osRoot("/home/me"),
 		Getenv:     func(k string) string { return map[string]string{"MY_PASS": "mine"}[k] },
 		MaxRecords: 1000, MaxBufferBytes: 1 << 20, MaxValueBytes: 64,
 		Profiles: []KafkaProfile{{
