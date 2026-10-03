@@ -15,21 +15,9 @@ import (
 var kafkaReserved = []string{"env", "repo", "repo_dir"}
 
 var (
-	kafkaSecurity   = []string{"plaintext", "ssl", "sasl_plaintext", "sasl_ssl"}
-	kafkaMechanisms = []string{"plain", "scram-sha-256", "scram-sha-512"}
+	kafkaSecurity   = domain.KafkaSecurities
+	kafkaMechanisms = domain.KafkaMechanisms
 )
-
-// NormalizeSecurity returns a security protocol in the spelling of
-// docs/CONFIG.md (lower case, '_'), so SASL_SSL from a dotenv file works.
-func NormalizeSecurity(s string) string {
-	return strings.ReplaceAll(strings.ToLower(strings.TrimSpace(s)), "-", "_")
-}
-
-// NormalizeMechanism returns a SASL mechanism in the spelling of
-// docs/CONFIG.md (lower case, '-'), so SCRAM-SHA-512 works.
-func NormalizeMechanism(s string) string {
-	return strings.ReplaceAll(strings.ToLower(strings.TrimSpace(s)), "_", "-")
-}
 
 // literal reports whether s is a value known at load time: no ${KEY}
 // reference, no env: value and no placeholder.
@@ -236,11 +224,11 @@ func (v *validator) kafkaConnection(file, p string, c KafkaConnection, profile b
 			v.add(file, p, "missing required key %q", "security")
 		}
 	}
-	sec := NormalizeSecurity(c.Security)
+	sec := domain.NormalizeKafkaSecurity(c.Security)
 	if c.Security != "" && literal(c.Security) && !slices.Contains(kafkaSecurity, sec) {
 		v.enumProblem(file, p+".security", c.Security, kafkaSecurity)
 	}
-	if m := c.SASL.Mechanism; m != "" && literal(m) && !slices.Contains(kafkaMechanisms, NormalizeMechanism(m)) {
+	if m := c.SASL.Mechanism; m != "" && literal(m) && !slices.Contains(kafkaMechanisms, domain.NormalizeKafkaMechanism(m)) {
 		v.enumProblem(file, p+".sasl.mechanism", m, kafkaMechanisms)
 	}
 	sasl := c.SASL != (KafkaSASL{})
