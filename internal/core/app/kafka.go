@@ -353,7 +353,7 @@ func (s *KafkaService) connection(ctx context.Context, a applied, vars map[strin
 	}
 	c.Security = domain.NormalizeKafkaSecurity(sec)
 	if !slices.Contains(domain.KafkaSecurities, c.Security) {
-		return c, "", fmt.Errorf("connection.security %q is not one of: %s: %w", sec, strings.Join(domain.KafkaSecurities, ", "), domain.ErrConfig)
+		return c, "", fmt.Errorf("connection.security %s is not one of: %s: %w", shown(spec.Security, sec), strings.Join(domain.KafkaSecurities, ", "), domain.ErrConfig)
 	}
 	if c.SASL() {
 		mech, err := get("sasl.mechanism", spec.Mechanism)
@@ -362,7 +362,7 @@ func (s *KafkaService) connection(ctx context.Context, a applied, vars map[strin
 		}
 		c.Mechanism = domain.NormalizeKafkaMechanism(mech)
 		if !slices.Contains(domain.KafkaMechanisms, c.Mechanism) {
-			return c, "", fmt.Errorf("connection.sasl.mechanism %q is not one of: %s: %w", mech, strings.Join(domain.KafkaMechanisms, ", "), domain.ErrConfig)
+			return c, "", fmt.Errorf("connection.sasl.mechanism %s is not one of: %s: %w", shown(spec.Mechanism, mech), strings.Join(domain.KafkaMechanisms, ", "), domain.ErrConfig)
 		}
 		user, err := get("sasl.username", spec.Username)
 		if err != nil {
@@ -401,6 +401,16 @@ func (s *KafkaService) connection(ctx context.Context, a applied, vars map[strin
 	}
 	fmt.Fprintf(&key, "\x00%s\x00%s\x00%s\x00%s\x00%s", strings.Join(c.Bootstrap, ","), c.Security, c.Mechanism, c.Username.Reveal(), c.Password.Reveal())
 	return c, key.String(), nil
+}
+
+// shown quotes a resolved value in a message only when the profile wrote
+// it literally: a value read from a source or the environment may come
+// from an encrypted file, so the message names where it came from.
+func shown(raw, value string) string {
+	if strings.Contains(raw, "${") || strings.HasPrefix(raw, "env:") {
+		return "(from " + raw + ")"
+	}
+	return fmt.Sprintf("%q", value)
 }
 
 // connect opens one client for a group of topics and describes them.
