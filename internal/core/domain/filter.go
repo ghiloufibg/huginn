@@ -7,11 +7,14 @@ import (
 )
 
 // TextFilter matches log entries against a text or a regular expression,
-// case-insensitively. Invert keeps the entries that do not match.
+// case-insensitively. Invert keeps the entries that do not match. With
+// Field set, it is a field filter instead: it matches the entries whose
+// field Field is exactly Pattern (see FieldFilter).
 type TextFilter struct {
 	Pattern string
 	Regex   bool
 	Invert  bool
+	Field   string
 	re      *regexp.Regexp // for regex filters and for match ranges
 	lower   string         // lower-cased pattern for substring matching
 	// For regexes: a match implies one of these lower-cased literals is
@@ -48,8 +51,46 @@ func ParseTextFilter(input string, regex bool) (TextFilter, error) {
 	return f, nil
 }
 
-// String renders the filter as typed, with regex slashes: /a|b/ or text.
+// FieldFilter returns a filter keeping the entries whose field key (see
+// FieldValue) is exactly value, case-sensitive; invert keeps the others,
+// including entries without the field.
+func FieldFilter(key, value string, invert bool) TextFilter {
+	return TextFilter{Field: key, Pattern: value, Invert: invert}
+}
+
+// FieldValue returns the value of a field of e and whether e has it: the
+// standard fields logger, thread, trace_id, app and pid first, then the
+// visible fields. Hidden fields are not read: that would decode the line
+// again.
+func FieldValue(e *LogEntry, key string) (string, bool) {
+	var v string
+	switch key {
+	case "logger":
+		v = e.Logger
+	case "thread":
+		v = e.Thread
+	case "trace_id":
+		v = e.TraceID
+	case "app":
+		v = e.App
+	case "pid":
+		v = e.PID
+	default:
+		v, ok := e.Fields[key]
+		return v, ok
+	}
+	return v, v != ""
+}
+
+// String renders the filter as typed, with regex slashes: /a|b/ or text;
+// a field filter as key=value or key≠value.
 func (f TextFilter) String() string {
+	if f.Field != "" {
+		if f.Invert {
+			return f.Field + "≠" + f.Pattern
+		}
+		return f.Field + "=" + f.Pattern
+	}
 	s := f.Pattern
 	if f.Regex {
 		s = "/" + s + "/"
@@ -61,7 +102,7 @@ func (f TextFilter) String() string {
 }
 
 // Empty reports whether the filter matches everything.
-func (f TextFilter) Empty() bool { return f.Pattern == "" }
+func (f TextFilter) Empty() bool { return f.Pattern == "" && f.Field == "" }
 
 // matchLower reports whether the lower-cased text contains the pattern
 // (ignoring Invert).
@@ -94,13 +135,19 @@ func (f TextFilter) Matches(e *LogEntry) bool {
 	return f.found(e) != f.Invert
 }
 
-func (f TextFilter) found(e *LogEntry) bool { return f.matchLower(e.searchText()) }
+func (f TextFilter) found(e *LogEntry) bool {
+	if f.Field != "" {
+		v, ok := FieldValue(e, f.Field)
+		return ok && v == f.Pattern
+	}
+	return f.matchLower(e.searchText())
+}
 
 // Ranges returns the byte ranges of the matches in s, for highlighting.
 // Inverted and empty filters highlight nothing.
 func (f TextFilter) Ranges(s string) [][2]int {
-	if f.Invert || f.Empty() {
-		return nil
+	if f.Invert || f.Empty() || f.Field != "" {
+		return nil // a field's value may not be drawn at all
 	}
 	var out [][2]int
 	for _, m := range f.re.FindAllStringIndex(s, -1) {
@@ -149,6 +196,21 @@ func (f LogFilter) Active() bool {
 	return false
 }
 
+// levelTable is a LevelSet as an array, for loops over many entries.
+type levelTable [LevelError + 1]bool
+
+func (t *levelTable) has(l Level) bool { return l >= 0 && int(l) < len(t) && t[l] }
+
+// levelTable returns the selected levels as a table; a nil set selects
+// every level, as LevelOK.
+func (f LogFilter) levelTable() *levelTable {
+	var t levelTable
+	for l := range t {
+		t[l] = f.Levels == nil || f.Levels[Level(l)]
+	}
+	return &t
+}
+
 // LevelOK reports whether the entry's level is selected.
 func (f LogFilter) LevelOK(e *LogEntry) bool { return f.Levels == nil || f.Levels[e.Level] }
 
@@ -195,14 +257,18 @@ func (f LogFilter) Select(n int, get func(int) *LogEntry) []Row {
 // many times a second can reuse its buffer.
 func (f LogFilter) SelectAppend(dst []Row, n int, get func(int) *LogEntry) []Row {
 	rows := dst[:0]
-	if f.Mode == ModeHighlight || !f.Active() || f.Context <= 0 {
+	// Hoisted out of the loop over every buffered entry: the level set
+	// as a table (a map lookup per entry was a quarter of a rebuild), and
+	// whether any text filter is set.
+	levels, active := f.levelTable(), f.Active()
+	if f.Mode == ModeHighlight || !active || f.Context <= 0 {
 		for i := range n {
 			e := get(i)
-			if !f.LevelOK(e) {
+			if !levels.has(e.Level) {
 				continue
 			}
-			match := f.Active() && f.TextOK(e)
-			if f.Mode == ModeFilter && f.Active() && !match {
+			match := active && f.TextOK(e)
+			if f.Mode == ModeFilter && active && !match {
 				continue
 			}
 			rows = append(rows, Row{Index: i, Match: match})
@@ -211,7 +277,8 @@ func (f LogFilter) SelectAppend(dst []Row, n int, get func(int) *LogEntry) []Row
 	}
 	matched := make([]bool, n)
 	for i := range n {
-		matched[i] = f.Match(get(i))
+		e := get(i)
+		matched[i] = levels.has(e.Level) && f.TextOK(e)
 	}
 	last := -1 // last index emitted
 	for i := range n {

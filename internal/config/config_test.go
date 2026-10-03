@@ -54,7 +54,7 @@ func TestMinimalFolderLoadsWithNeutralDefaults(t *testing.T) {
 	if strings.Join(c.Environments.Names, ",") != "rec,prd" {
 		t.Fatalf("environments keep file order: %v", c.Environments.Names)
 	}
-	if c.Huginn.Windows.Default != "15m" || c.Huginn.Windows.HeadLines != 500 || c.Huginn.Logs.BufferLines != 50000 || c.UI.Theme != "light" {
+	if c.Huginn.Windows.Default != "15m" || c.Huginn.Windows.HeadLines != 500 || c.Huginn.Logs.BufferLines != 50000 || c.UI.Theme != "auto" {
 		t.Fatalf("defaults: %+v %+v", c.Huginn, c.UI)
 	}
 	l := c.Layouts["basic"]
@@ -234,4 +234,137 @@ func TestContainersModeAndStandalonePods(t *testing.T) {
 	fs["containers.yaml"] = &fstest.MapFile{Data: []byte("version: 1\ndefault_mode: sidecars\n")}
 	_, msg = load(t, fs)
 	wantErrors(t, msg, "containers.yaml", "default_mode")
+}
+
+func TestTransform(t *testing.T) {
+	fsys := valid()
+	fsys["formats/app.yaml"].Data = []byte("version: 1\ndecoder: json\nfields: {message: msg}\ntransform:\n  message:\n    pattern: '^(?:\\S+=\\S*\\s+)*-\\s+(?P<message>.*?)\\s+-'\nlayout: basic\n")
+	c, msg := load(t, fsys)
+	if msg != "" {
+		t.Fatal(msg)
+	}
+	if got := c.Formats[0].Transform["message"].Pattern; !strings.Contains(got, "(?P<message>") {
+		t.Fatalf("transform: %q", got)
+	}
+
+	fsys["formats/app.yaml"].Data = []byte("version: 1\ndecoder: json\nfields: {message: msg}\ntransform:\n  message:\n    pattern: '^route=(?P<route>\\S*) (?P<ctx>.*?) - (?P<message>.*)'\n    pairs: [ctx]\nlayout: basic\n")
+	c, msg = load(t, fsys)
+	if msg != "" {
+		t.Fatal(msg)
+	}
+	if got := c.Formats[0].Transform["message"].Pairs; len(got) != 1 || got[0] != "ctx" {
+		t.Fatalf("pairs: %v", got)
+	}
+	if tr := c.Formats[0].Transform["message"]; tr.MaxBytes != DefaultTransformMaxBytes || tr.MaxFields != DefaultTransformMaxFields {
+		t.Fatalf("default limits: %+v", tr)
+	}
+
+	fsys["formats/app.yaml"].Data = []byte(`version: 1
+decoder: json
+fields: {message: msg, logger: logger, thread: thread}
+transform:
+  message: {pattern: '(?P<ctx>.*) - (?P<message>.*)', pairs: [ctx], pair_pattern: '(?P<key>\w+): (?P<value>\S*)'}
+  logger: {pattern: '(?P<logger>.*)', pair_pattern: '(?P<key>\w+)=(?P<v>\S*'}
+  thread: {pattern: '(?P<ctx>.*) (?P<thread>.*)', pairs: [ctx], pair_pattern: '(?P<key>\w+)=(?P<v>\S*)'}
+layout: basic
+`)
+	_, msg = load(t, fsys)
+	wantErrors(t, msg,
+		"formats/app.yaml:6:39  transform.logger.pair_pattern: pair_pattern needs pairs",
+		"transform.logger.pair_pattern: invalid regular expression",
+		"transform.thread.pair_pattern: name exactly the groups (?P<key>…) and (?P<value>…), once each",
+	)
+
+	fsys["formats/app.yaml"].Data = []byte("version: 1\ndecoder: json\nfields: {message: msg}\ntransform:\n  message: {pattern: '(?P<message>.*)', max_bytes: -1, max_fields: -5}\nlayout: basic\n")
+	_, msg = load(t, fsys)
+	wantErrors(t, msg, "transform.message.max_bytes: must be at least 1", "transform.message.max_fields: must be at least 1")
+	fsys["formats/app.yaml"].Data = []byte("version: 1\ndecoder: json\nfields: {message: msg}\ntransform:\n  message: {pattern: '(?P<message>.*)', max_bytes: 100, max_fields: 3}\nlayout: basic\n")
+	c, msg = load(t, fsys)
+	if msg != "" {
+		t.Fatal(msg)
+	}
+	if tr := c.Formats[0].Transform["message"]; tr.MaxBytes != 100 || tr.MaxFields != 3 {
+		t.Fatalf("limits set in the file win: %+v", tr)
+	}
+	if strings.Contains(msg, "transform.message") {
+		t.Errorf("a valid pair_pattern is accepted:\n%s", msg)
+	}
+
+	fsys["formats/app.yaml"].Data = []byte(`version: 1
+decoder: json
+fields: {message: msg}
+transform:
+  message: {pattern: '(?P<a>\S+) (?P<a>\S+) (?P<time>\S+) - (?P<message>.*)', pairs: [a, b, message]}
+  logger: {pattern: '(?P<logger>\S+'}
+  thread: {pattern: '(?P<name>.*)'}
+  time: {pattern: '(?P<time>.*)'}
+  app: {}
+layout: basic
+`)
+	fsys["formats/web.yaml"] = &fstest.MapFile{Data: []byte("version: 1\ndecoder: regex\npattern: '(?P<message>.*)'\ntransform: {message: {pattern: '(?P<message>.*)'}}\nlayout: basic\n")}
+	_, msg = load(t, fsys)
+	wantErrors(t, msg,
+		`formats/app.yaml:5:13  transform.message.pattern: group "a" is named twice`,
+		`transform.message.pattern: group "time": time and stack cannot be set by a transform`,
+		`transform.message.pairs[1]: "b" is not a group of pattern`,
+		`transform.message.pairs[2]: "message" is a standard field, not a group of key=value text`,
+		"formats/app.yaml:6:12  transform.logger.pattern: invalid regular expression",
+		"transform.logger: fields.logger is not mapped",
+		"transform.thread.pattern: missing group (?P<thread>…)",
+		`transform.time: "time" is not one of: message, logger, thread, trace_id, app, pid`,
+		`transform.app: missing required key "pattern"`,
+		"formats/web.yaml:4:1  transform: transform is for the json decoder",
+	)
+}
+
+func TestLevelFromJSON(t *testing.T) {
+	fsys := valid()
+	fsys["formats/app.yaml"].Data = []byte("version: 1\ndecoder: json\nfields: {message: msg}\nlevel_from:\n  field: http.status\n  map: {\"5*\": error, \"4*\": warn}\nlayout: basic\n")
+	c, msg := load(t, fsys)
+	if msg != "" {
+		t.Fatal(msg)
+	}
+	if lf := c.Formats[0].LevelFrom; lf.Field != "http.status" || lf.Map["5*"] != "error" {
+		t.Fatalf("level_from: %+v", lf)
+	}
+
+	fsys["formats/app.yaml"].Data = []byte("version: 1\ndecoder: json\nfields: {message: msg}\nlevel_from:\n  map: {\"[\": fatal}\nlayout: basic\n")
+	fsys["formats/b.yaml"] = &fstest.MapFile{Data: []byte("version: 1\ndecoder: json\nfields: {message: msg}\nlevel_from: {field: status}\nlayout: basic\n")}
+	fsys["formats/c.yaml"] = &fstest.MapFile{Data: []byte("version: 1\ndecoder: plain\nlevel_from: {field: status, map: {\"5*\": error}}\nlayout: basic\n")}
+	_, msg = load(t, fsys)
+	wantErrors(t, msg,
+		"formats/app.yaml:4:1  level_from: level_from.map needs level_from.field",
+		`formats/app.yaml:5:9  level_from.map.[: invalid glob "["`,
+		`level_from.map.[: "fatal" is not one of: error, warn, info, debug`,
+		"formats/b.yaml:4:1  level_from: level_from.field needs a map with at least one rule",
+		"formats/c.yaml:2:1  decoder: the plain decoder reads no fields, pattern or level_from",
+	)
+}
+
+func TestUICopy(t *testing.T) {
+	c, msg := load(t, valid())
+	if msg != "" {
+		t.Fatal(msg)
+	}
+	if c.UI.Clipboard != "auto" || c.UI.Copy.MaxBytes != DefaultCopyMaxBytes {
+		t.Fatalf("defaults: %q %d", c.UI.Clipboard, c.UI.Copy.MaxBytes)
+	}
+	fsys := valid()
+	fsys["ui.yaml"] = &fstest.MapFile{Data: []byte("version: 1\nclipboard: system\ncopy: {max_bytes: 4096}\n")}
+	if c, msg = load(t, fsys); msg != "" || c.UI.Clipboard != "system" || c.UI.Copy.MaxBytes != 4096 {
+		t.Fatalf("set: %q %+v %s", c.UI.Clipboard, c.UI.Copy, msg)
+	}
+	if c, msg = load(t, valid()); msg != "" || c.UI.Mouse == nil || !*c.UI.Mouse || c.UI.Save.Dir != "" || len(c.UI.Redact) != 0 {
+		t.Fatalf("defaults: mouse %v, save %+v, redact %v %s", c.UI.Mouse, c.UI.Save, c.UI.Redact, msg)
+	}
+	fsys["ui.yaml"].Data = []byte("version: 1\nmouse: false\nsave: {dir: ~/logs}\nredact: ['(?i)bearer \\S+']\n")
+	c, msg = load(t, fsys)
+	wantSuffix := string(filepath.Separator) + "logs"
+	if msg != "" || *c.UI.Mouse || !strings.HasSuffix(c.UI.Save.Dir, wantSuffix) || strings.HasPrefix(c.UI.Save.Dir, "~") || len(c.UI.Redact) != 1 {
+		t.Fatalf("set: mouse %v save %q redact %v %s", *c.UI.Mouse, c.UI.Save.Dir, c.UI.Redact, msg)
+	}
+	fsys["ui.yaml"].Data = []byte("version: 1\nclipboard: xclip\ncopy: {max_bytes: -1}\nredact: [ok, '(']\n")
+	_, msg = load(t, fsys)
+	wantErrors(t, msg, `ui.yaml:2:1  clipboard: "xclip" is not one of: auto, osc52, system, off`, "ui.yaml:3:8  copy.max_bytes: must be at least 1",
+		"ui.yaml:4:14  redact[1]: invalid regular expression")
 }

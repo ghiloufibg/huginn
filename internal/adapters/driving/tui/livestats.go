@@ -19,7 +19,7 @@ func (l *logsScreen) count(r viewRow, delta int) {
 // bar, colored so problems stand out without scrolling (> and < jump to
 // them). Empty when there are none.
 func (l *logsScreen) levelCounts(m *Model) string {
-	t := m.opts.Theme
+	t := &m.opts.Theme
 	var parts []string
 	if n := l.levels[domain.LevelError]; n > 0 {
 		parts = append(parts, t.Bad.Inherit(l.bar(m)).Render(plural(n, "error")))

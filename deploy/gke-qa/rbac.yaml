@@ -1,0 +1,26 @@
+# Namespaced RBAC for the real IAM read-only identity
+# (huginn-reader@huginn-kube-tui.iam.gserviceaccount.com). GKE maps an
+# authenticated IAM principal straight to a Kubernetes "User" of the same
+# name, so unlike deploy/lab/rbac.yaml there is no in-cluster ServiceAccount
+# here -- the subject is the external IAM identity itself. Scoped to qa-rec
+# only: qa-restricted has no Role/RoleBinding, so the API server returns a
+# real "forbidden" for it (see M5 §5, §7).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: huginn-reader, namespace: qa-rec}
+rules:
+  - apiGroups: [""]
+    resources: [pods, pods/log, events]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [deployments, replicasets, statefulsets, daemonsets]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: huginn-reader, namespace: qa-rec}
+subjects:
+  - kind: User
+    name: huginn-reader@huginn-kube-tui.iam.gserviceaccount.com
+    apiGroup: rbac.authorization.k8s.io
+roleRef: {kind: Role, name: huginn-reader, apiGroup: rbac.authorization.k8s.io}

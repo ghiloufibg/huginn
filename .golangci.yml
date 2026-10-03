@@ -17,18 +17,18 @@ linters:
     - unused
   settings:
     forbidigo:
-      # docs/DECISIONS.md D-040: the Kafka adapter is read only. These
+      # docs/DECISIONS.md D-057: the Kafka adapter is read only. These
       # franz-go calls write to a cluster or join a consumer group; the
       # adapter's guard refuses them at runtime too.
       analyze-types: true
       forbid:
         - pattern: '^kgo\.(ConsumerGroup|ProduceRequestTimeout|TransactionalID|AllowAutoTopicCreation|DefaultProduceTopic|RequiredAcks)$'
-          msg: "read only (D-040): no consumer group, no produce, no topic creation"
+          msg: "read only (D-057): no consumer group, no produce, no topic creation"
         - pattern: '\.(Produce|ProduceSync|TryProduce|CommitOffsets|CommitOffsetsSync|CommitRecords|CommitUncommittedOffsets|CommitMarkedOffsets|BeginTransaction|EndTransaction|AbortBufferedRecords)$'
           pkg: '^github\.com/twmb/franz-go/pkg/kgo$'
-          msg: "read only (D-040): never produce or commit"
+          msg: "read only (D-057): never produce or commit"
         - pattern: '^kmsg\.NewPtr(Produce|OffsetCommit|JoinGroup|SyncGroup|Heartbeat|CreateTopics|DeleteTopics|DeleteRecords|InitProducerID|AddPartitionsToTxn|EndTxn|CreatePartitions|AlterConfigs|IncrementalAlterConfigs)Request$'
-          msg: "read only (D-040): only Metadata, ListOffsets and Fetch requests are sent"
+          msg: "read only (D-057): only Metadata, ListOffsets and Fetch requests are sent"
     revive:
       rules:
         - name: exported

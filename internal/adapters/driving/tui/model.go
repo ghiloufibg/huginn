@@ -73,6 +73,23 @@ type Options struct {
 	// KafkaReadCommitted is the isolation a Kafka screen opens with.
 	KafkaTail, KafkaMaxRecords, KafkaMaxBytes int
 	KafkaReadCommitted                        bool
+	// ClipboardOSC52 sends copies to the terminal's clipboard; Clipboard,
+	// when set, is the system one (ui.yaml clipboard). CopyMaxBytes bounds
+	// one copy.
+	ClipboardOSC52 bool
+	Clipboard      ports.Clipboard
+	CopyMaxBytes   int
+	// Files saves exported lines (ctrl+s); nil disables saving. Redactor
+	// hides patterns in everything copied or saved (ui.yaml redact).
+	Files    ports.FileSink
+	Redactor domain.Redactor
+	// Mouse reads the mouse (ui.yaml mouse); false leaves it to the
+	// terminal's own selection.
+	Mouse bool
+	// AutoTheme asks the terminal its background color and switches Theme
+	// to light or dark accordingly; PaintBackground is ui.yaml's.
+	AutoTheme       bool
+	PaintBackground bool
 }
 
 // screen is one page of the UI. The root model routes messages to the
@@ -124,6 +141,7 @@ type Model struct {
 	keyBar        keyBarSize
 	resyncing     bool
 	watchErr      error
+	watchStart    time.Time // when the current watch was started
 	// kafkaRepos are the repositories with a Kafka screen in the current
 	// environment; kafkaAsked identifies the last question (environment
 	// and repository names), so it is asked once per change.
@@ -173,7 +191,32 @@ func NewModel(o Options) *Model {
 }
 
 // Init implements tea.Model.
-func (m *Model) Init() tea.Cmd { return tea.Batch(m.startWatch(), m.schedule()) }
+func (m *Model) Init() tea.Cmd {
+	cmds := []tea.Cmd{m.startWatch(), m.schedule()}
+	if m.opts.AutoTheme {
+		cmds = append(cmds, tea.RequestBackgroundColor)
+	}
+	return tea.Batch(cmds...)
+}
+
+// adaptTheme switches an auto theme to the terminal's background, light or
+// dark. A terminal that does not answer keeps the guess of bootstrap.
+func (m *Model) adaptTheme(msg tea.BackgroundColorMsg) {
+	if !m.opts.AutoTheme {
+		return
+	}
+	name := "light"
+	if msg.IsDark() {
+		name = "dark"
+	}
+	if name == m.opts.Theme.Name {
+		return
+	}
+	if t, err := NewTheme(name, m.opts.PaintBackground); err == nil {
+		m.opts.Theme = t
+		m.inks = nil // inks are painted with the old theme
+	}
+}
 
 func (m *Model) startWatch() tea.Cmd {
 	if m.cancel != nil {
@@ -183,6 +226,7 @@ func (m *Model) startWatch() tea.Cmd {
 		return nil
 	}
 	m.gen++
+	m.watchStart = m.opts.Now()
 	ctx, cancel := context.WithCancel(m.opts.Context)
 	m.cancel = cancel
 	gen, env, catalog := m.gen, domain.Env(m.env.Name), m.opts.Catalog
@@ -277,12 +321,27 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		}
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
+	case tea.BackgroundColorMsg:
+		m.adaptTheme(msg)
+		return nil
+	case clipboardDoneMsg:
+		m.clipboardDone(msg)
+		return nil
+	case saveDoneMsg:
+		m.saveDone(msg)
+		return nil
 	case flashDoneMsg:
 		if msg.id == m.flashID {
 			m.flashText = ""
 		}
 		return nil
 	case tea.MouseWheelMsg:
+		_, cmd := m.top().update(m, msg)
+		return cmd
+	case tea.MouseClickMsg, tea.MouseMotionMsg, tea.MouseReleaseMsg:
+		if m.popup != nil {
+			return nil // a popup is modal
+		}
 		_, cmd := m.top().update(m, msg)
 		return cmd
 	}
@@ -377,7 +436,9 @@ func (m *Model) switchEnv(e EnvInfo) tea.Cmd {
 func (m *Model) View() tea.View {
 	v := tea.NewView(m.render())
 	v.AltScreen = true
-	v.MouseMode = tea.MouseModeCellMotion
+	if m.opts.Mouse {
+		v.MouseMode = tea.MouseModeCellMotion // reports motion while a button is held: drags
+	}
 	v.WindowTitle = "huginn · " + m.env.Name
 	return v
 }
@@ -431,10 +492,26 @@ func (m *Model) header() string {
 		current = current.Foreground(bar.GetForeground())
 	}
 	path += current.Inherit(bar).Render(crumbs[len(crumbs)-1])
-	right := m.connection(bar) + bar.Render(" ")
-	head := brand.Inherit(bar).Render(" huginn ") + tag.Render(strings.ToUpper(e.Name)) + bar.Render(" ")
-	// The context is the first thing to shorten on narrow terminals: the
-	// environment and the breadcrumb matter more.
+	envTag := tag.Render(strings.ToUpper(e.Name)) + bar.Render(" ")
+	head := brand.Inherit(bar).Render(" huginn ") + envTag
+	// On narrow terminals the environment never goes: it says where the
+	// user is, production above all. The context shortens first, then the
+	// connection state loses its source, then the brand goes, then the
+	// connection state is cut.
+	right := m.connection(bar, false) + bar.Render(" ")
+	fits := func() bool { return lipgloss.Width(head)+lipgloss.Width(path)+1+lipgloss.Width(right) <= m.width }
+	if !fits() {
+		right = m.connection(bar, true) + bar.Render(" ")
+	}
+	if !fits() {
+		head = bar.Render(" ") + envTag
+	}
+	if avail := m.width - lipgloss.Width(head) - lipgloss.Width(path) - 1; !fits() {
+		right = ""
+		if avail >= 10 {
+			right = ansi.Truncate(m.connection(bar, true), avail-2, "…") + bar.Render(" ")
+		}
+	}
 	room := m.width - lipgloss.Width(head) - lipgloss.Width(path) - lipgloss.Width(right) - 6
 	if room < 8 {
 		where = ""
@@ -448,10 +525,14 @@ func (m *Model) header() string {
 	return fill(bar, left+path, right, m.width)
 }
 
-// connection describes the watch state on the right of the header.
-func (m *Model) connection(bar lipgloss.Style) string {
-	t := m.opts.Theme
+// connection describes the watch state on the right of the header;
+// compact leaves out the source, for narrow terminals.
+func (m *Model) connection(bar lipgloss.Style, compact bool) string {
+	t := &m.opts.Theme
 	src := bar.Render(m.opts.Source + " · ")
+	if compact {
+		src = ""
+	}
 	switch {
 	case m.watchErr != nil:
 		return src + t.Bad.Inherit(bar).Render("error: "+errKind(m.watchErr))
@@ -467,12 +548,16 @@ func (m *Model) connection(bar lipgloss.Style) string {
 		if !m.snap.Synced || len(m.snap.Warnings) > 0 {
 			state = "partial"
 		}
-		return src + bar.Render(state+" · synced "+m.snap.UpdatedAt.In(time.Local).Format("15:04:05"))
+		synced := " · synced "
+		if compact {
+			synced = " · "
+		}
+		return src + bar.Render(state+synced+m.snap.UpdatedAt.In(time.Local).Format("15:04:05"))
 	}
 }
 
 func (m *Model) statusBar() string {
-	t := m.opts.Theme
+	t := &m.opts.Theme
 	bar, left := t.Status, ""
 	if m.env.Production {
 		bar, left = t.StatusProd, t.ChipProd.Render("PRODUCTION")+bar.Render(" ")

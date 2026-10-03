@@ -13,13 +13,16 @@ import (
 	"syscall"
 
 	"github.com/ghiloufibg/huginn/examples"
+	"github.com/ghiloufibg/huginn/internal/adapters/driven/clipboard"
 	"github.com/ghiloufibg/huginn/internal/adapters/driven/clock"
+	"github.com/ghiloufibg/huginn/internal/adapters/driven/filesink"
 	"github.com/ghiloufibg/huginn/internal/adapters/driven/sops"
 	"github.com/ghiloufibg/huginn/internal/adapters/driving/cli"
 	"github.com/ghiloufibg/huginn/internal/adapters/driving/tui"
 	"github.com/ghiloufibg/huginn/internal/buildinfo"
 	"github.com/ghiloufibg/huginn/internal/config"
 	"github.com/ghiloufibg/huginn/internal/core/domain"
+	"github.com/ghiloufibg/huginn/internal/core/ports"
 	"github.com/ghiloufibg/huginn/internal/diag"
 )
 
@@ -169,7 +172,12 @@ func Build(o cli.Options, e Env, log *slog.Logger) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	theme, err := tui.NewTheme(ResolveTheme(o.Theme, e.Getenv, c), c.UI.PaintBackground)
+	themeName := ResolveTheme(o.Theme, e.Getenv, c)
+	auto := themeName == "auto"
+	if auto {
+		themeName = BackgroundGuess(e.Getenv) // the TUI asks the terminal and switches (D-051)
+	}
+	theme, err := tui.NewTheme(themeName, c.UI.PaintBackground)
 	if err != nil {
 		return nil, err
 	}
@@ -184,6 +192,10 @@ func Build(o cli.Options, e Env, log *slog.Logger) (*App, error) {
 		if name == env.String() {
 			current = info
 		}
+	}
+	redactor, err := domain.NewRedactor(c.UI.Redact) // validated with the folder
+	if err != nil {
+		return nil, err
 	}
 	home := ""
 	if e.UserHomeDir != nil {
@@ -200,11 +212,31 @@ func Build(o cli.Options, e Env, log *slog.Logger) (*App, error) {
 			Layouts:  lp.layouts, Layout: lp.fallback, Columns: lp.columns,
 			Windows: windows(c), Window: window, ContainerMode: mode,
 			BufferLines: c.Huginn.Logs.BufferLines, KeyBar: c.UI.KeyBar, LogColumns: c.UI.LogColumns,
+			ClipboardOSC52: c.UI.Clipboard == "auto" || c.UI.Clipboard == "osc52",
+			Clipboard:      systemClipboard(c.UI.Clipboard), CopyMaxBytes: c.UI.Copy.MaxBytes,
+			Files: filesink.Dir{Path: c.UI.Save.Dir}, Redactor: redactor, Mouse: c.UI.Mouse == nil || *c.UI.Mouse,
+			AutoTheme: auto, PaintBackground: c.UI.PaintBackground,
 			Kafka:     newKafka(c, clientName, clk, home, e.Getenv, log),
 			KafkaTail: kl.TailRecords, KafkaMaxRecords: kl.MaxRecords, KafkaMaxBytes: int(kl.MaxBufferBytes),
 			KafkaReadCommitted: kl.ReadCommitted,
 		},
 	}, nil
+}
+
+// systemClipboard is the system clipboard of ui.yaml clipboard, nil when
+// it is not used. In auto mode it is used only when a clipboard command is
+// installed: over SSH or in a container the terminal (OSC 52) is enough,
+// and a missing command is not worth a warning on every copy.
+func systemClipboard(mode string) ports.Clipboard {
+	switch mode {
+	case "system":
+		return &clipboard.System{}
+	case "auto":
+		if s := (&clipboard.System{}); s.Tool() != "" {
+			return s
+		}
+	}
+	return nil
 }
 
 // windows returns the presets of keys 1…7 followed by the tail window

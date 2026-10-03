@@ -1,0 +1,16 @@
+ huginn  REC  services      error: not logged in · retrying 
+                                                            
+                                                            
+                    Not logged in to rec                    
+                                                            
+  namespace app-rec: getting credentials: exec: executable  
+  gke-gcloud-auth-plugin failed with exit code 1            
+                                                            
+  Log in again: on GKE, run gcloud auth login.              
+                                                            
+  retrying automatically · press r to retry now             
+                                                            
+                                                            
+                                                            
+ SERVICES   0 repos  ·  sort status                         
+ enter logs  / filter  s sort  p preview  r resync  ? help  

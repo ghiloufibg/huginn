@@ -1,5 +1,5 @@
 // Package kafka implements ports.TopicSourceFactory with franz-go, strictly
-// read only (docs/DECISIONS.md D-040): partitions are assigned by hand,
+// read only (docs/DECISIONS.md D-057): partitions are assigned by hand,
 // with no consumer group, so no rebalance and no offset commit can happen;
 // every connection goes through a guard that refuses any request that is
 // not a read (guard.go). It is the only package importing franz-go.

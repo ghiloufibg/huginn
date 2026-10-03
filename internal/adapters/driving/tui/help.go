@@ -45,11 +45,11 @@ func helpActions(s screen) (string, []Action) {
 			ActUp, ActDown, ActPageUp, ActPageDown, ActTop, ActBottom, ActNextError, ActPrevError,
 			ActFollow, ActPause, ActPreviousLogs, ActWindowNext, ActWindowPick, ActWindow1, ActWindow2, ActWindow3, ActWindow4, ActWindow5, ActWindow6, ActWindow7, ActWindowTail, ActWindowHead,
 			ActFilter, ActFilterMode, ActRegex, ActAddFilter, ActContext, ActNextMatch, ActPrevMatch, ActLevels, ActErrorsOnly, ActWarnAndError, ActAllLevels,
-			ActOpen, ActPodScope, ActPodSelector, ActAllContainers,
+			ActOpen, ActViewTrace, ActSelect, ActMark, ActCopy, ActCopyRaw, ActSave, ActPodScope, ActPodSelector, ActAllContainers,
 			ActOrder, ActCycleColumns, ActTimestamps, ActPodID, ActColumns, ActFocus, ActResetDisplay, ActWrap, ActPanLeft, ActPanRight, ActPanLeftHalf, ActPanRightHalf, ActFullscreen,
 		}
 	case *zoomScreen:
-		return "Zoom", []Action{ActUp, ActDown, ActPageUp, ActPageDown, ActTop, ActNextEntry, ActPrevEntry, ActJSONView, ActOpen}
+		return "Zoom", []Action{ActUp, ActDown, ActPageUp, ActPageDown, ActTop, ActNextEntry, ActPrevEntry, ActJSONView, ActOpen, ActViewTrace, ActCopy, ActCopyRaw, ActFieldNext, ActFieldPrev, ActFieldKeep, ActFieldExclude}
 	case *podSelector:
 		return "Pod selector", []Action{ActUp, ActDown, ActAllLevels, ActFilter, ActOpen}
 	}
@@ -168,7 +168,7 @@ func (h *helpScreen) visible() []helpLine {
 
 func (h *helpScreen) view(m *Model, w, height int) string {
 	h.height = height
-	t := m.opts.Theme
+	t := &m.opts.Theme
 	lines := h.visible()
 	width := 0
 	for _, l := range lines {
@@ -208,6 +208,6 @@ func (h *helpScreen) prompt(m *Model) string {
 	if !h.editing && h.search.String() == "" {
 		return ""
 	}
-	t := m.opts.Theme
+	t := &m.opts.Theme
 	return t.Prompt.Render("search help") + t.Bold.Inherit(t.Status).Render(" "+h.search.String()+"_")
 }

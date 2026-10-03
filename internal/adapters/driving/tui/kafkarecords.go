@@ -425,11 +425,10 @@ func (r *kafkaRecordsScreen) windowLabel() string {
 
 func (r *kafkaRecordsScreen) view(m *Model, w, h int) string {
 	r.height = h
-	t := m.opts.Theme
+	t := &m.opts.Theme
 	switch {
 	case r.err != nil && len(r.rows) == 0:
-		return centered(t.Bad.Render("Cannot read "+r.topic.Name+": "+errKind(r.err))+"\n\n"+
-			t.Dim.Render(wrapErr(r.err, w))+"\n\n"+t.Dim.Render("press ")+t.Key.Render(m.label(ActRefresh))+t.Dim.Render(" to retry"), w, h)
+		return errorPanel(t, "Cannot read "+r.topic.Name+": "+errKind(r.err), r.err, kafkaErrFix(r.err), kafkaRetry(m), w, h)
 	case r.loading && len(r.rows) == 0:
 		return centered(t.Key.Render(m.spinner())+t.Dim.Render(" reading "+r.topic.Name+", "+r.windowLabel()), w, h)
 	case len(r.rows) == 0:
@@ -558,7 +557,7 @@ func (r *kafkaRecordsScreen) newer() int {
 }
 
 func (r *kafkaRecordsScreen) statusLeft(m *Model) string {
-	t := m.opts.Theme
+	t := &m.opts.Theme
 	bar := t.Status
 	if m.env.Production {
 		bar = t.StatusProd
@@ -615,12 +614,10 @@ func (r *kafkaRecordsScreen) hints(m *Model) []hint {
 	}
 }
 
-// maxCopyBytes bounds what one copy sends: terminals limit OSC 52.
-const maxCopyBytes = 64 << 10
-
-// copyRecord puts a record's value on the clipboard (OSC 52, D-012): the
-// bytes as received for text and JSON, a hex dump for binary data. Only
-// on this explicit request does a value leave the screen.
+// copyRecord copies a record's value like any copy (D-049, ui.yaml
+// clipboard, redact, copy.max_bytes): the bytes as received for text and
+// JSON, a hex dump for binary data. Only on this explicit request does a
+// value leave the screen.
 func copyRecord(m *Model, rec *domain.KafkaRecord) tea.Cmd {
 	where := fmt.Sprintf("p%d #%d", rec.Partition, rec.Offset)
 	if rec.Value == nil {
@@ -634,22 +631,21 @@ func copyRecord(m *Model, rec *domain.KafkaRecord) tea.Cmd {
 	default:
 		text = strings.Join(domain.PayloadLines(rec.Value), "\n")
 	}
-	note := ""
-	if len(text) > maxCopyBytes {
-		text, note = text[:maxCopyBytes], ", first "+domain.ByteSize(maxCopyBytes)
+	form := "value"
+	if limit := m.opts.CopyMaxBytes; limit > 0 && len(text) > limit {
+		text, form = text[:limit], "value, first "+domain.ByteSize(limit)+" (ui.yaml copy.max_bytes)"
 	}
 	if rec.Truncated() {
-		note += ", cut by kafka.max_value_bytes"
+		form += ", cut by kafka.max_value_bytes"
 	}
-	m.flash(fmt.Sprintf("copied the value of %s (%s%s)", where, domain.ByteSize(len(text)), note))
-	return tea.SetClipboard(text)
+	return m.copyText(cleanCopy(m.opts.Redactor.Redact(text)), where, form)
 }
 
 func (r *kafkaRecordsScreen) prompt(m *Model) string {
 	if !r.editing && r.input.String() == "" {
 		return ""
 	}
-	t := m.opts.Theme
+	t := &m.opts.Theme
 	text := " " + r.input.String()
 	if r.editing {
 		text += "_"

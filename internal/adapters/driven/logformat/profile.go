@@ -16,4 +16,12 @@ type Profile struct {
 	// Hidden lists glob patterns (path.Match syntax) of flattened keys
 	// moved to LogEntry.Hidden, e.g. "kubernetes.*".
 	Hidden []string
+	// Transforms keep part of standard fields' values, applied in order
+	// after the fields are read.
+	Transforms []FieldTransform
+	// LevelField, when set, raises the level from the value of this JSON
+	// path, else of this field extracted by Transforms, with LevelRules
+	// (globs, longest first); see raise.
+	LevelField string
+	LevelRules []LevelRule
 }

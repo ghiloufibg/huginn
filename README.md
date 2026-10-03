@@ -4,11 +4,11 @@
 
 Huginn is a keyboard-driven, **read-only** terminal UI for reading the logs of application pods on Kubernetes (GKE), from inside your IDE's terminal. It feels like k9s and kl, but does one thing: help a developer debug from logs.
 
-**Status: prototype, milestone M4.2 done: works against real clusters (GKE, kind, minikube).** Everything Huginn knows about your applications comes from a [config folder](docs/CONFIG.md) you provide. Services screen (with a WHY column and a preview of the selected service) and logs screen (merged live logs of a repository's application containers, drawn with the layout of your config folder, time windows, follow/pause, pod scope, zoom), level and live text filters with highlight, and help on every screen (`?` / `F1`). Crash loops show as waiting and `P` reads the previous instance; `9` shows the first lines of each container (how it started), of the previous instance with `P`. A local lab ([`deploy/lab`](deploy/lab)) runs everything against a real cluster without GKE. See [`docs/plan/M0.md`](docs/plan/M0.md) and the design mockups linked from [`docs/DECISIONS.md`](docs/DECISIONS.md).
+**Status: prototype, works against real clusters (GKE, kind, minikube), QA'd twice against real GKE with real Spring Boot workloads.** Everything Huginn knows about your applications comes from a [config folder](docs/CONFIG.md) you provide. Services screen (with a WHY column and a preview of the selected service) and logs screen (merged live logs of a repository's application containers, drawn with the layout of your config folder, time windows, follow/pause, pod scope, zoom, trace view), level and live text filters with highlight, field filters from zoom, select/copy/save with redaction,, read-only Kafka topic screens for the services that use Kafka (optional), and help on every screen (`?` / `F1`). Crash loops show as waiting and `P` reads the previous instance; `9` shows the first lines of each container (how it started), of the previous instance with `P`. A local lab ([`deploy/lab`](deploy/lab)) runs everything against a real cluster without GKE. See [`docs/plan/M0.md`](docs/plan/M0.md) and the design mockups linked from [`docs/DECISIONS.md`](docs/DECISIONS.md).
 
 ## Try it
 
-Requires Go 1.26+.
+Binaries for linux, macOS and Windows are attached to each [GitHub release](https://github.com/ghiloufibg/huginn/releases). To build from source, Go 1.26+ is required:
 
 ```sh
 make build            # or: CGO_ENABLED=0 go build -o bin/huginn ./cmd/huginn
@@ -25,12 +25,21 @@ Huginn reads your kubeconfig (`KUBECONFIG`, else `~/.kube/config`) and never log
 
 1. Install `gcloud` and the `gke-gcloud-auth-plugin`, then `gcloud auth login`.
 2. `gcloud container clusters get-credentials <cluster> --region <region> --project <project>` creates the kube context.
-3. Put that context and your namespaces in `environments.yaml` of your config folder (or `namespace_from: sops:<file>#<key>` to read the namespace from a sops-encrypted dotenv file, with the `sops` command installed).
+3. Put that context and your namespaces in `environments.yaml` of your config folder (or `namespace_from: sops:<file>#<key>` to read the namespace from a sops-encrypted dotenv file, with the `sops` command installed — the encrypted file itself must sit **outside** the config folder, e.g. `sops:../namespace.env.enc#KEY`, since the config loader rejects any file in the folder that isn't one it recognizes).
 4. `huginn --config <folder> <env>`.
 
 It only gets, lists and watches pods, workloads and events, and reads pod logs, in the configured namespaces (never cluster-wide): namespaced read access (`pods`, `pods/log`, `events`, and `deployments`/`statefulsets`/`daemonsets`/`cronjobs` in `apps`/`batch`) is enough, and a workload kind you cannot read is skipped. `HTTPS_PROXY`/`NO_PROXY` and `SSL_CERT_FILE` work as for `kubectl`.
 
-When something is wrong the services screen says what: `unauthorized` (log in again: `gcloud auth login`), `forbidden` for one namespace (the others keep working), `configuration error` for an unknown context (not retried: fix `environments.yaml`), `secrets unavailable` when sops cannot decrypt.
+**IAM and RBAC are a union, not an intersection.** Don't grant the
+read-only identity a project-level role like `roles/container.viewer`
+alongside a namespaced `Role`/`RoleBinding` meant to restrict it — the
+broader IAM role alone grants read access to every cluster and namespace
+in the project regardless of what RBAC says, silently defeating the
+namespace scoping. Grant only the namespaced `Role`/`RoleBinding`; IAM is
+still needed to authenticate the principal and fetch cluster credentials,
+but nothing above that.
+
+When something is wrong the services screen says what: `not logged in` (log in again: `gcloud auth login`; the auth plugin's own messages go to the log, never over the screen), `forbidden` for one namespace (the others keep working), `configuration error` for an unknown context (not retried: fix `environments.yaml`), `secrets unavailable` when sops cannot decrypt.
 
 **First run on GKE, checklist:** the services screen lists your repositories with their states; open a repository's logs; press `P` on a service that restarted; switch environment with `ctrl+e`; an environment with `namespace_from` opens.
 
@@ -51,7 +60,7 @@ Flags
       --containers string containers the logs open on: app or all
       --config string     config folder (default: $HUGINN_CONFIG, else <user config dir>/huginn)
       --demo              synthetic cluster
-      --theme string      light, accessible, classic, none
+      --theme string      auto (from the terminal background), light, dark, accessible, classic, none
       --log-level string  write a diagnostic log (debug, info, warn, error)
       --version
 ```
@@ -106,7 +115,12 @@ The pod strip shows each pod's state: a container that is not running says `wait
 |---|---|
 | `j` `k` `pgup` `pgdn` `g` `G`, mouse wheel | move (`G` returns to the live tail) |
 | `>` `<` | next / previous ERROR |
-| `enter` | zoom on the entry (`J`/`K` next/previous, `p` raw JSON, `enter` metadata) |
+| `V` / `m` | select lines: `V` starts a range at the cursor (move to extend, `V` again to end it), `m` marks single lines. The gutter shows `▌` for the range and `*` for marks; `esc` clears the selection |
+| `y` / `Y` | copy the selected lines, or the cursor line, **as shown** (uncolored, never cut, with whole stack traces) or **raw** (the line as received, e.g. the JSON). Only displayed lines are copied. Also in zoom. See `clipboard` in `ui.yaml` |
+| `ctrl+s` | save the selected lines, or every displayed line, to a file (`save.dir` in `ui.yaml`), in the form of the last copy; `redact` patterns hide secrets in copies and saves |
+| mouse | click moves the cursor, `shift`+click selects from the cursor, drag selects lines, wheel scrolls; `mouse: false` in `ui.yaml` leaves the mouse to the terminal |
+| `v` | trace view: every line of the service with the same `trace_id`, on all pods, ordered by their own time, with the time since the first one. Filters, levels and pod scope are set aside and come back with `esc`. Also from zoom |
+| `enter` | zoom on the entry (`J`/`K` next/previous, `p` raw JSON, `enter` hidden fields, `tab`/`shift+tab` select a field, then `=` keep or `!` hide the lines whose field has exactly this value) |
 | `f` | follow on/off |
 | `space` | pause / resume (the screen keeps its lines; new ones wait, up to the buffer size, and the lines dropped beyond are counted) |
 | `P` | previous instance of the restarted containers (why it crashed, OOM, exit); again for the current logs |
@@ -138,7 +152,7 @@ Optional: only when the config folder has a `kafka/` folder ([`docs/CONFIG.md`](
 
 To check a profile without the TUI or a Kubernetes cluster, use `huginn kafka check <repo>` (see Usage).
 
-**Read only, always**: Huginn never joins a consumer group, never commits an offset, never produces: the services reading a topic are not affected (docs/DECISIONS.md D-040). It reads only when asked: the last records of each partition when a topic opens (`kafka.tail_records`), a window, or live records with `f`. Every request to the brokers goes through a guard that refuses anything but reads. With `--demo`, records are generated.
+**Read only, always**: Huginn never joins a consumer group, never commits an offset, never produces: the services reading a topic are not affected (docs/DECISIONS.md D-057). It reads only when asked: the last records of each partition when a topic opens (`kafka.tail_records`), a window, or live records with `f`. Every request to the brokers goes through a guard that refuses anything but reads. With `--demo`, records are generated.
 
 | Key | Action |
 |---|---|
@@ -149,7 +163,7 @@ To check a profile without the TUI or a Kubernetes cluster, use `huginn kafka ch
 | `/` | filter: `key=…`, `partition=N`, `header.<name>=…`, or text in the key, value or headers |
 | `enter` | the topic's records / the record in full (`J`/`K` next/previous record) |
 | `o` | newest or oldest first |
-| `ctrl+y` | copy the record's value to the clipboard (OSC 52: text and JSON as received, a hex dump for binary data, at most 64 KiB) |
+| `y` | copy the record's value (like log copies: `ui.yaml clipboard`, `redact`, `copy.max_bytes`; text and JSON as received, a hex dump for binary data) |
 | `r` | reconnect / read again |
 
 ## Configuration: your config folder
@@ -186,5 +200,7 @@ make lint    # golangci-lint run (v2, built with Go 1.26)
 make cross   # CGO-free builds for linux/darwin/windows x amd64/arm64
 make schema  # regenerate docs/schema/*.json after changing internal/config structs
 ```
+
+Releases: [`docs/RELEASING.md`](docs/RELEASING.md).
 
 Read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) before changing code: Huginn uses a hexagonal architecture whose rules are enforced by a test.

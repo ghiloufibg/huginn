@@ -1,0 +1,46 @@
+# yaml-language-server: $schema=../../../docs/schema/format.schema.json
+# Spring Boot services whose Logback pattern writes the MDC context into the
+# message text: "key=value… - message - key=value…", mostly empty values.
+# Tried before spring-json.yaml (file name order), for these repositories only.
+# Reference: docs/CONFIG.md#formatsnameyaml
+version: 1
+
+decoder: json
+
+match:
+  repos: [order-orchestrator]
+
+fields:
+  time:     ["@timestamp", timestamp, time]
+  level:    [level, severity, log.level]
+  logger:   [logger_name, logger, log.logger]
+  thread:   [thread_name, thread]
+  message:  [message, msg]
+  stack:    [stack_trace, error.stack_trace, exception]
+  trace_id: [traceId, trace_id, trace.id]
+  app:      [app, application, service.name]
+  pid:      [pid, process.pid]
+
+# Keep only the text between the " - " separators on the stream, and turn
+# every key=value of the context into a field of the line: zoom lists them,
+# text filters search them (correlation-id=…), layouts can draw them
+# ({field:route}). Empty values are left out; the zoom raw view (p) keeps
+# the whole message. Lines without the context are left as they are.
+transform:
+  message:
+    pattern: '^(?P<before>(?:[\w.-]+=\S*\s+)*)-\s+(?P<message>.*?)\s+-\s+(?P<after>(?:[\w.-]+=\S*\s*)*)$'
+    pairs: [before, after]
+
+# A request that answered 5xx is an error even when its line was logged at
+# INFO or WARN (and 4xx a warning); the level is never lowered, and lines
+# without http_status keep theirs.
+level_from:
+  field: http_status
+  map: { "5*": error, "4*": warn }
+
+hidden:
+  - "kubernetes.*"
+  - "@version"
+  - level_value
+
+layout: spring

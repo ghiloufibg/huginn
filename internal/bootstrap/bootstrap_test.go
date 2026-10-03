@@ -67,7 +67,7 @@ func TestResolveEnv(t *testing.T) {
 
 func TestResolveTheme(t *testing.T) {
 	c := demoConfig(t)
-	if got := ResolveTheme("", env(nil), c); got != "light" {
+	if got := ResolveTheme("", env(nil), c); got != "auto" {
 		t.Errorf("default: %s", got)
 	}
 	if got := ResolveTheme("", env(map[string]string{EnvNoColor: "1", EnvTheme: "classic"}), c); got != "none" {
@@ -166,5 +166,22 @@ func TestContainersFlag(t *testing.T) {
 	}
 	if _, err := Build(cli.Options{Demo: true, Containers: "sidecars"}, noFiles(), diag.Discard()); err == nil || !strings.Contains(err.Error(), "--containers") {
 		t.Fatalf("bad value: %v", err)
+	}
+}
+
+func TestSystemClipboardByMode(t *testing.T) {
+	if systemClipboard("off") != nil || systemClipboard("osc52") != nil {
+		t.Error("off and osc52 use no system clipboard")
+	}
+	if systemClipboard("system") == nil {
+		t.Error("system always uses it, and reports a missing command on copy")
+	}
+}
+
+func TestBackgroundGuess(t *testing.T) {
+	for v, want := range map[string]string{"": "dark", "15;0": "dark", "0;15": "light", "0;default;7": "light", "12;8": "dark", "garbage": "dark"} {
+		if got := BackgroundGuess(env(map[string]string{"COLORFGBG": v})); got != want {
+			t.Errorf("COLORFGBG=%q: %s, want %s", v, got, want)
+		}
 	}
 }

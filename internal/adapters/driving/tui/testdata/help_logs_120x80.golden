@@ -38,6 +38,12 @@
      a                all levels                                                                                        
    Inspect                                                                                                              
      enter            open / zoom / apply                                                                               
+     v                trace view: every line with this line's trace_id, on all pods, with time deltas (esc back)        
+     V                select lines: start a range at the cursor, move to extend, again to end it                        
+     m                mark or unmark the line (marked lines are copied with the range)                                  
+     y  ctrl+y        copy the selected lines, or the cursor line, as shown (uncolored, whole, with stack traces)       
+     Y                copy the selected lines, or the cursor line, as received (raw JSON)                               
+     ctrl+s           save the selected lines, or every displayed line, to a file, in the form of the last copy         
      tab              pod scope: all, then each pod                                                                     
      S                select pods and containers (fullscreen)                                                           
      A                all containers (sidecars and init) or application containers only                                 
@@ -69,12 +75,6 @@
      !                invert (as first character; \! for a literal !)                                                   
      ctrl+a           stack another filter (AND)                                                                        
      enter / esc      keep / cancel the edit                                                                            
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
                                                                                                                         
  sort name   HELP   keys follow keymap in ui.yaml                                                                       
  j/k scroll  / search  esc close                                                                                        

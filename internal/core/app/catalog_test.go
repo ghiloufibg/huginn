@@ -205,3 +205,36 @@ func BenchmarkSnapshot500Repos(b *testing.B) {
 		c.snapshot(context.Background(), domain.Env("rec"), []string{"ns"}, st)
 	}
 }
+
+// TestCatalogStaleSince: a namespace that loses its watch keeps its
+// services as last seen; the snapshot says since when, from the first
+// failure (retries do not move it) until the watch is back.
+func TestCatalogStaleSince(t *testing.T) {
+	st := &state{workloads: map[string]domain.Workload{}, pods: map[string]domain.Pod{}, nsErr: map[string]error{}, connected: map[string]bool{}}
+	c := newCatalog(nil, portstest.NewFakeClock(t0), "a", "b")
+	snap := func() ports.CatalogSnapshot {
+		return c.snapshot(context.Background(), domain.Env("rec"), []string{"a", "b"}, st)
+	}
+	for _, ns := range []string{"a", "b"} {
+		st.apply(feedMsg{ns: ns, reset: true}, t0)
+		st.apply(feedMsg{ns: ns, workload: &ports.WorkloadEvent{Workload: deployment(ns, "api-"+ns, "shop-"+ns, 1, 1)}}, t0)
+	}
+	if s := snap(); !s.StaleSince.IsZero() {
+		t.Fatalf("all watched: stale since %v", s.StaleSince)
+	}
+	st.apply(feedMsg{ns: "b", err: domain.ErrUnauthorized}, t0.Add(time.Minute))
+	st.apply(feedMsg{ns: "a", err: domain.ErrUnauthorized}, t0.Add(2*time.Minute))
+	st.apply(feedMsg{ns: "b", err: domain.ErrUnauthorized}, t0.Add(3*time.Minute)) // a retry
+	s := snap()
+	if !s.StaleSince.Equal(t0.Add(time.Minute)) || len(s.Services) != 2 {
+		t.Fatalf("stale since %v, %d services; want %v and the services kept", s.StaleSince, len(s.Services), t0.Add(time.Minute))
+	}
+	st.apply(feedMsg{ns: "b", reset: true}, t0.Add(4*time.Minute))
+	if s := snap(); !s.StaleSince.Equal(t0.Add(2 * time.Minute)) {
+		t.Fatalf("b is back: stale since %v, want a's %v", s.StaleSince, t0.Add(2*time.Minute))
+	}
+	st.apply(feedMsg{ns: "a", reset: true}, t0.Add(5*time.Minute))
+	if s := snap(); !s.StaleSince.IsZero() {
+		t.Fatalf("all back: stale since %v", s.StaleSince)
+	}
+}

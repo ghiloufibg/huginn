@@ -1,4 +1,4 @@
- huginn  REC  services / payment-service / kafka / payments.requ… demo · watching · synced 19:14:02 
+  REC  services / payment-service / kafka / payments.requested / p1 #1004       watching · 19:14:02 
  topic      payments.requested                                                                      
  partition  1   offset 1004                                                                         
  time       2026-09-26 19:14:06.000 UTC  (producer time)                                            
@@ -21,4 +21,4 @@
                                                                                                     
                                                                                                     
  RECORD   read only                                                                                 
- J/K next/previous record  j/k scroll  ctrl+y copy value  esc back                                  
+ J/K next/previous record  j/k scroll  y copy value  esc back                                       

@@ -53,7 +53,7 @@ type RecordBatch struct {
 
 // TopicSource reads topics of one cluster with one set of credentials,
 // strictly read only: it never joins a consumer group, commits an
-// offset, produces or creates a topic (docs/DECISIONS.md D-040).
+// offset, produces or creates a topic (docs/DECISIONS.md D-057).
 type TopicSource interface {
 	// Describe returns the partitions of each topic, in the order given.
 	Describe(ctx context.Context, topics []string) ([]TopicInfo, error)

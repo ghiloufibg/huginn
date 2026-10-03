@@ -57,7 +57,7 @@ func warnAndError() domain.LevelSet {
 }
 
 func (p *levelPicker) view(m *Model) string {
-	t := m.opts.Theme
+	t := &m.opts.Theme
 	hints := map[domain.Level]string{
 		domain.LevelError: m.label(ActErrorsOnly) + "  errors only", domain.LevelWarn: m.label(ActWarnAndError) + "  warn and error",
 		domain.LevelInfo: m.label(ActAllLevels) + "  all levels", domain.LevelUnknown: "(no level detected)",

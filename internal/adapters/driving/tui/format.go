@@ -26,7 +26,7 @@ func errKind(err error) string {
 	case err == nil:
 		return ""
 	case errors.Is(err, domain.ErrUnauthorized):
-		return "unauthorized"
+		return "not logged in"
 	case errors.Is(err, domain.ErrForbidden):
 		return "forbidden"
 	case errors.Is(err, domain.ErrUnreachable):
@@ -44,18 +44,6 @@ func errKind(err error) string {
 	default:
 		return "error"
 	}
-}
-
-// errAdvice tells what to do about a cluster error: permanent errors are
-// not retried, so the user must act.
-func errAdvice(err error) string {
-	switch {
-	case domain.Permanent(err):
-		return "fix the configuration (environments.yaml, kubeconfig)"
-	case errors.Is(err, domain.ErrUnauthorized):
-		return "log in again (on GKE: gcloud auth login) · retrying automatically"
-	}
-	return "retrying automatically"
 }
 
 // statusCounts summarizes rows for the status bar.
@@ -86,16 +74,19 @@ func statusCounts(rows []domain.ServiceSummary) string {
 		}
 		groups[statusGroup(r.Status)]++
 	}
-	parts := []string{plural(repos, "repo")}
-	if orphans > 0 {
-		parts[0] += fmt.Sprintf(" + %d without repo", orphans)
-	}
+	// The status groups go first, from the most urgent: a narrow terminal
+	// cuts the end of the line, and the repository count matters least.
+	var parts []string
 	for i, n := range groups {
 		if n > 0 {
 			parts = append(parts, fmt.Sprintf("%d %s", n, statusGroups[i]))
 		}
 	}
-	return strings.Join(parts, " · ")
+	total := plural(repos, "repo")
+	if orphans > 0 {
+		total += fmt.Sprintf(" + %d without repo", orphans)
+	}
+	return strings.Join(append(parts, total), " · ")
 }
 
 func plural(n int, what string) string {

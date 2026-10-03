@@ -3,11 +3,13 @@ package bootstrap
 import (
 	"context"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/ghiloufibg/huginn/internal/adapters/driven/demo"
+	"github.com/ghiloufibg/huginn/internal/config"
 	"github.com/ghiloufibg/huginn/internal/core/domain"
 	"github.com/ghiloufibg/huginn/internal/core/ports"
 	"github.com/ghiloufibg/huginn/internal/core/ports/portstest"
@@ -49,6 +51,11 @@ func (r *logReader) until(step time.Duration, ok func() bool) {
 
 func openDemoLogs(t *testing.T, q ports.LogQuery) *logReader {
 	t.Helper()
+	return openDemoRepoLogs(t, "payment-service", q)
+}
+
+func openDemoRepoLogs(t *testing.T, repo string, q ports.LogQuery) *logReader {
+	t.Helper()
 	c := demoConfig(t)
 	clock := portstest.NewFakeClock(t0)
 	cluster := demo.New(demo.Options{Seed: c.Huginn.Demo.Seed, Rate: c.Huginn.Demo.Rate, Clock: clock})
@@ -57,7 +64,7 @@ func openDemoLogs(t *testing.T, q ports.LogQuery) *logReader {
 		t.Fatal(probs)
 	}
 	s := newLogSessions(c, scopes(c, nil), cluster, clock, containerFilter(c), lp.decoders, diag.Discard())
-	q.Env, q.Repo = domain.Env("rec"), "payment-service"
+	q.Env, q.Repo = domain.Env("rec"), repo
 	ch, err := s.Open(t.Context(), q)
 	if err != nil {
 		t.Fatal(err)
@@ -86,6 +93,66 @@ func TestDemoLogsAreOrderedAppOnlyAndDecoded(t *testing.T) {
 	}
 	if len(pods) != 4 {
 		t.Errorf("lines from %d pods, want 4 (2 workloads x 2 replicas)", len(pods))
+	}
+}
+
+// TestDemoTransformExtractsContext reads the demo repository whose messages
+// carry an MDC context with the example format that strips it and turns
+// its key=value pairs into fields.
+func TestDemoTransformExtractsContext(t *testing.T) {
+	r := openDemoRepoLogs(t, "order-orchestrator", ports.LogQuery{Window: domain.TimeWindow{Since: 15 * time.Minute}})
+	r.until(10*time.Millisecond, func() bool { return r.history })
+	var withContext, requests, failed int
+	for _, e := range r.entries {
+		if !e.Structured {
+			continue // startup banner
+		}
+		if e.Format != "mdc-json" {
+			t.Fatalf("read with format %q", e.Format)
+		}
+		if strings.Contains(e.Message, "correlation-id=") {
+			t.Fatalf("context left in the message: %q", e.Message)
+		}
+		if !strings.Contains(e.Raw, "process_instance_id=") {
+			continue
+		}
+		withContext++
+		if _, ok := e.Fields["user_id"]; ok {
+			t.Fatalf("empty values are left out: %v", e.Fields)
+		}
+		if strings.HasPrefix(e.Fields["http_status"], "5") {
+			failed++
+			if e.Level != domain.LevelError {
+				t.Fatalf("a 5xx request is an error (level_from): %v %q", e.Level, e.Raw)
+			}
+		}
+		if e.TraceID != "" {
+			requests++
+			if e.Fields["correlation-id"] != e.TraceID[:16] || e.Fields["route"] != "/v1/orders" || e.Fields["http_status"] == "" {
+				t.Fatalf("context fields of a request: %v", e.Fields)
+			}
+		}
+	}
+	pods := map[string]map[string]bool{} // trace id → pods
+	for _, e := range r.entries {
+		if e.TraceID != "" {
+			if pods[e.TraceID] == nil {
+				pods[e.TraceID] = map[string]bool{}
+			}
+			pods[e.TraceID][e.Pod] = true
+		}
+	}
+	var spread int
+	for _, ps := range pods {
+		if len(ps) >= 2 {
+			spread++
+		}
+	}
+	if spread < 10 {
+		t.Fatalf("only %d traces span several pods: the trace view has nothing to show", spread)
+	}
+	if withContext < 50 || requests < 10 || failed < 5 {
+		t.Fatalf("only %d lines with a context, %d requests, %d failed", withContext, requests, failed)
 	}
 }
 
@@ -148,5 +215,25 @@ func TestClosedSessionsLeaveNoGoroutines(t *testing.T) {
 	if n := runtime.NumGoroutine(); n > base+2 {
 		buf := make([]byte, 1<<16)
 		t.Fatalf("%d goroutines left (was %d):\n%s", n, base, buf[:runtime.Stack(buf, true)])
+	}
+}
+
+// TestTransformsCarryEverySetting guards the wiring of formats/*.yaml
+// transform into the decoder, in the fixed field order.
+func TestTransformsCarryEverySetting(t *testing.T) {
+	f := config.Format{Transform: map[string]config.Transform{
+		"logger":  {Pattern: `(?P<logger>.*)`},
+		"message": {Pattern: `(?P<ctx>.*) - (?P<message>.*)`, Pairs: []string{"ctx"}, PairPattern: `(?P<key>\w+): (?P<value>\S*)`, MaxBytes: 100, MaxFields: 3},
+	}}
+	got := transforms(f)
+	if len(got) != 2 || got[0].Field != "message" || got[1].Field != "logger" {
+		t.Fatalf("order: %+v", got)
+	}
+	m := got[0]
+	if m.Pattern.String() != f.Transform["message"].Pattern || !slices.Equal(m.Pairs, []string{"ctx"}) || m.PairPattern == nil || m.PairPattern.String() != f.Transform["message"].PairPattern || m.MaxBytes != 100 || m.MaxFields != 3 {
+		t.Errorf("message transform: %+v", m)
+	}
+	if got[1].PairPattern != nil {
+		t.Error("no pair_pattern: the default syntax")
 	}
 }

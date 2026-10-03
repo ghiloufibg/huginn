@@ -20,7 +20,7 @@ import (
 
 // KafkaService implements ports.Kafka: it finds the profile of a
 // repository, reads its sources, resolves each topic's connection and
-// reads topics through TopicSources, strictly read only (D-040).
+// reads topics through TopicSources, strictly read only (D-057).
 type KafkaService struct {
 	Profiles []KafkaProfile
 	Files    ports.LocalFiles

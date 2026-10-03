@@ -71,7 +71,7 @@ func (m *Model) keyBarLines() []string {
 		last := items[n-1]
 		help, items = &last, items[:n-1]
 	}
-	t := m.opts.Theme
+	t := &m.opts.Theme
 	render := func(h hint) string { return t.Key.Render(h.key) + " " + t.Dim.Render(h.what) }
 	helpW := 0
 	if help != nil {

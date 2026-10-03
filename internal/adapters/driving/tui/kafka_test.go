@@ -315,8 +315,15 @@ func TestKafkaOrderAndCopy(t *testing.T) {
 		t.Fatalf("g goes to the top, the newest: %d", r.cursor)
 	}
 
-	if cmd := r.copyCmd(m); cmd == nil || !strings.Contains(m.flashText, "copied the value of p1 #1007 (") {
+	fc := withClipboards(m)
+	m.opts.Redactor, _ = domain.NewRedactor([]string{`PAY-\d+`})
+	cmd := r.copyCmd(m)
+	if cmd == nil || !strings.Contains(m.flashText, "copied p1 #1007 (") {
 		t.Fatalf("copy: %q", m.flashText)
+	}
+	run(m, cmd)
+	if got := lastCopy(t, fc); got != `{"id":"[redacted]","status":"PAID","amount":17.50}` {
+		t.Fatalf("the value as received, redacted: %q", got)
 	}
 	r.cursor = 2 // the tombstone
 	if cmd := r.copyCmd(m); cmd != nil || !strings.Contains(m.flashText, "tombstone") {
@@ -458,7 +465,7 @@ func TestJSONKeyLine(t *testing.T) {
 		{`  }`, ""},
 		{`  "unterminated`, ""},
 	} {
-		got := jsonKeyLine(th, tc.in)
+		got := jsonKeyLine(&th, tc.in)
 		if ansi.Strip(got) != tc.in {
 			t.Errorf("%q: text changed to %q", tc.in, ansi.Strip(got))
 		}

@@ -88,7 +88,7 @@ func (z *kafkaZoomScreen) step(dir int) {
 	}
 }
 
-func (z *kafkaZoomScreen) lines(t Theme) []string {
+func (z *kafkaZoomScreen) lines(t *Theme) []string {
 	rec, ok := z.record()
 	if !ok {
 		return []string{t.Dim.Render("this record left the buffer (older records are dropped first)")}
@@ -138,7 +138,7 @@ func (z *kafkaZoomScreen) lines(t Theme) []string {
 
 // jsonKeyLine colours the member name of an indented JSON line, so keys
 // and values read apart: `  "id": "PAY-1",`.
-func jsonKeyLine(t Theme, line string) string {
+func jsonKeyLine(t *Theme, line string) string {
 	body := strings.TrimLeft(line, " ")
 	if !strings.HasPrefix(body, `"`) {
 		return line
@@ -159,7 +159,7 @@ func jsonKeyLine(t Theme, line string) string {
 func (z *kafkaZoomScreen) view(m *Model, w, h int) string {
 	z.height = h
 	if z.cache == nil || z.cached != z.seq {
-		z.cache, z.cached = z.lines(m.opts.Theme), z.seq
+		z.cache, z.cached = z.lines(&m.opts.Theme), z.seq
 	}
 	lines := slices.Clone(z.cache)
 	z.offset = min(z.offset, max(len(lines)-h, 0))
@@ -172,7 +172,7 @@ func (z *kafkaZoomScreen) view(m *Model, w, h int) string {
 }
 
 func (z *kafkaZoomScreen) statusLeft(m *Model) string {
-	t := m.opts.Theme
+	t := &m.opts.Theme
 	bar := t.Status
 	if m.env.Production {
 		bar = t.StatusProd

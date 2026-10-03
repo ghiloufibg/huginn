@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -13,7 +14,7 @@ import (
 	"github.com/ghiloufibg/huginn/internal/core/ports"
 )
 
-// The Kafka screens (docs/plan/M5-kafka.md): the topics of a repository,
+// The Kafka screens (docs/plan/M11-kafka.md): the topics of a repository,
 // the records of a topic, one record. Read only: nothing here can write
 // to Kafka.
 
@@ -206,13 +207,12 @@ func (k *kafkaTopicsScreen) current() (ports.KafkaTopicState, bool) {
 
 func (k *kafkaTopicsScreen) view(m *Model, w, h int) string {
 	k.height = h
-	t := m.opts.Theme
+	t := &m.opts.Theme
 	switch {
 	case k.loading:
 		return centered(t.Key.Render(m.spinner())+t.Dim.Render(" reading the Kafka settings of "+k.repo), w, h)
 	case k.err != nil:
-		return centered(t.Bad.Render("Cannot open the Kafka topics of "+k.repo+": "+errKind(k.err))+"\n\n"+
-			t.Dim.Render(wrapErr(k.err, w))+"\n\n"+t.Dim.Render("press ")+t.Key.Render(m.label(ActRefresh))+t.Dim.Render(" to retry"), w, h)
+		return errorPanel(t, "Cannot open the Kafka topics of "+k.repo+": "+errKind(k.err), k.err, kafkaErrFix(k.err), kafkaRetry(m), w, h)
 	case len(k.rows) == 0:
 		return centered(t.Dim.Render("no topic for "+k.repo), w, h)
 	}
@@ -224,7 +224,7 @@ func (k *kafkaTopicsScreen) view(m *Model, w, h int) string {
 	return k.tbl.render(len(k.rows), func(i int) []cell { return k.cells(t, k.rows[i]) }, flex, w, h, t)
 }
 
-func (k *kafkaTopicsScreen) cells(t Theme, r ports.KafkaTopicState) []cell {
+func (k *kafkaTopicsScreen) cells(t *Theme, r ports.KafkaTopicState) []cell {
 	dir := map[domain.TopicDirection]string{domain.TopicConsume: "in", domain.TopicProduce: "out", domain.TopicBoth: "in+out"}[r.Direction]
 	parts := ""
 	if r.Partitions > 0 {
@@ -238,7 +238,7 @@ func (k *kafkaTopicsScreen) cells(t Theme, r ports.KafkaTopicState) []cell {
 }
 
 func (k *kafkaTopicsScreen) statusLeft(m *Model) string {
-	t := m.opts.Theme
+	t := &m.opts.Theme
 	bar := t.Status
 	if m.env.Production {
 		bar = t.StatusProd
@@ -265,3 +265,23 @@ func (k *kafkaTopicsScreen) hints(m *Model) []hint {
 }
 
 func (k *kafkaTopicsScreen) prompt(*Model) string { return "" }
+
+// kafkaErrFix tells what the user can do about a Kafka error, or "".
+func kafkaErrFix(err error) string {
+	switch {
+	case errors.Is(err, domain.ErrConfig):
+		return "Fix the kafka/ profile of this repository (docs/CONFIG.md §10), or check it with huginn kafka check."
+	case errors.Is(err, domain.ErrUnauthorized):
+		return "Check the SASL user and password the profile reads from its sources."
+	case errors.Is(err, domain.ErrForbidden):
+		return "Ask for read access (Describe and Read ACLs) on the topic."
+	case errors.Is(err, domain.ErrUnreachable):
+		return "Check the bootstrap servers, the truststore and your network or VPN access to the brokers."
+	}
+	return ""
+}
+
+func kafkaRetry(m *Model) string {
+	t := &m.opts.Theme
+	return t.Dim.Render("press ") + t.Key.Render(m.label(ActRefresh)) + t.Dim.Render(" to retry")
+}

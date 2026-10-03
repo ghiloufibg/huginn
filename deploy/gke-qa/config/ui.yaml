@@ -1,0 +1,16 @@
+# yaml-language-server: $schema=../../../docs/schema/ui.schema.json
+version: 1
+
+theme: light
+key_bar: compact
+keymap: {}
+
+# M9/M10: select/copy/save/redaction against real data. See
+# docs/plan/M10-gke-qa.md §5 and workloads.yaml's noisy-fixture, which
+# embeds a fake email/bearer token these patterns are meant to catch.
+redact:
+  - '\b[\w.+-]+@[\w-]+\.[\w.-]+\b'
+  - '\bBearer [A-Za-z0-9._-]+\b'
+save:
+  dir: ~/huginn-gke-qa-saves
+clipboard: auto

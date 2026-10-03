@@ -1,4 +1,4 @@
-# M5 — Kafka topics, read only  (status: done: K0 to K4)
+# M11 — Kafka topics, read only  (status: done: K0 to K4)
 
 ## 0. In one paragraph
 Some services are debugged today with a separate script: it reads the repository's `config.env` files (one encrypted with sops), connects to Kafka with the application's SASL account and truststore, assigns partitions by hand (no consumer group) and prints the last records of a topic. This milestone does **the same thing inside Huginn**: on a service that has Kafka settings, `M` opens a screen listing its topics and their records, read only, with no effect on the cluster or the pods. Nothing else. Every application detail (paths, key names, topics) is in the user's config folder; the code holds the mechanism only (D-030).
@@ -29,7 +29,7 @@ Some services are debugged today with a separate script: it reads the repository
 - **Topics**: `CONSUMES` / `PRODUCES` when the config gives a direction, `TOPICS` otherwise (directions are optional). Each shows its partition count, or a short reason it cannot be read (§6).
 - **Records**, merged across partitions by timestamp: time, partition, offset, key, one-line value preview.
 - **Zoom** (`enter`): headers, key, timestamp and its type, partition, offset, value pretty-printed (JSON indented, text wrapped, hex dump for binary).
-- **Same keys as the logs screen**: `0` tail (last N records per partition, the default), `1`…`7` windows (records since that time), `f` follow live, `space` pause, `/` filter (text, `key=…`, `partition=…`, `header.<name>=…`), `o` order, `ctrl+y` copy of the value. No `n`/`N`: the filter hides the other records, there is no match to jump to. Plus `i`: isolation `read_uncommitted` (default, like the script and Spring Kafka) ↔ `read_committed`.
+- **Same keys as the logs screen**: `0` tail (last N records per partition, the default), `1`…`7` windows (records since that time), `f` follow live, `space` pause, `/` filter (text, `key=…`, `partition=…`, `header.<name>=…`), `o` order, `y` copy of the value. No `n`/`N`: the filter hides the other records, there is no match to jump to. Plus `i`: isolation `read_uncommitted` (default, like the script and Spring Kafka) ↔ `read_committed`.
 - **Status bar**: records loaded, dropped by the buffer limit, truncated values, live/paused/stopped.
 - **Production environment**: the red banner, as on every screen.
 
@@ -66,7 +66,7 @@ Some services are debugged today with a separate script: it reads the repository
 - Decrypted files and every credential stay in memory as `domain.Secret`, revealed only inside the Kafka adapter and the truststore loader. Never written to disk, never in the diagnostic log, never in an error message (errors name the **key** and the **file**, never a value).
 - sops runs as today (D-003): `sops --decrypt` with output captured in memory, once per file per screen; the buffer is cleared after parsing.
 - Truststores are converted in memory (no `openssl`, no temporary file).
-- Copy (`ctrl+y`) and save (`ctrl+s`) are explicit actions on visible records only.
+- Copy (`y`) and save (`ctrl+s`) are explicit actions on visible records only.
 
 ### 2.5 Nothing on the cluster side
 No pod, no port-forward, no Kubernetes call for this feature, no change to any file of the repository. Brokers are reached directly from the workstation (VPN), as the script does.

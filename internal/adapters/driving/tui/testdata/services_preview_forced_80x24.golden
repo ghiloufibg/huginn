@@ -20,5 +20,5 @@
  SIDECARS                                                                       
    istio-proxy                                                                  
                                                                                 
- preview on   SERVICES   14 repos + 1 without repo · 3 failing · 2 degraded/pe… 
+ preview on   SERVICES   3 failing · 2 degraded/pending · 2 rolling · 8 health… 
  enter logs  / filter  s sort  p preview  r resync  ctrl+e env  f2 keys  ? help 

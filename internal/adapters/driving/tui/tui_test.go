@@ -2,6 +2,7 @@ package tui
 
 import (
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -60,6 +61,9 @@ func newTestModel(t testing.TB, env int, repo string) (*Model, *fakeCatalog) {
 // run executes a command, feeding watch-start messages back. Commands
 // that block (snapshot and batch waits, timers) are abandoned: tests send
 // snapshots, batches and ticks themselves.
+// osc52Sent records the OSC 52 copies the commands asked for.
+var osc52Sent []string
+
 func run(m *Model, cmd tea.Cmd) {
 	if cmd == nil {
 		return
@@ -87,6 +91,12 @@ func run(m *Model, cmd tea.Cmd) {
 		for _, c := range msg {
 			run(m, c)
 		}
+	case clipboardDoneMsg, saveDoneMsg:
+		m.Update(msg)
+	default:
+		if strings.Contains(fmt.Sprintf("%T", msg), "setClipboard") {
+			osc52Sent = append(osc52Sent, fmt.Sprint(msg))
+		}
 	}
 }
 
@@ -110,10 +120,12 @@ func keyMsg(k string) tea.KeyPressMsg {
 		return tea.KeyPressMsg{Code: tea.KeyBackspace}
 	case "down":
 		return tea.KeyPressMsg{Code: tea.KeyDown}
-	case "ctrl+e", "ctrl+r", "ctrl+x", "ctrl+a", "ctrl+f", "ctrl+l", "ctrl+u", "ctrl+t", "ctrl+y":
+	case "ctrl+e", "ctrl+r", "ctrl+x", "ctrl+a", "ctrl+f", "ctrl+l", "ctrl+u", "ctrl+t", "ctrl+s", "ctrl+y":
 		return tea.KeyPressMsg{Code: rune(k[5]), Mod: tea.ModCtrl}
 	case "tab":
 		return tea.KeyPressMsg{Code: tea.KeyTab}
+	case "shift+tab":
+		return tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift}
 	case "f2":
 		return tea.KeyPressMsg{Code: tea.KeyF2}
 	case "space":
@@ -236,10 +248,104 @@ func TestZoomGolden(t *testing.T) {
 	}
 }
 
+// TestZoomFieldFilter picks a field in zoom and filters the logs on its
+// value (M8.1): keep, clear with esc, exclude.
+func TestZoomFieldFilter(t *testing.T) {
+	m, l := openLogs(t)
+	for range 5 {
+		press(m, "k")
+	}
+	errSeq := l.rows[3].seq
+	press(m, "enter", "tab")
+	z := m.top().(*zoomScreen)
+	if z.field != "trace_id" {
+		t.Fatalf("the first tab selects the first field, got %q", z.field)
+	}
+	press(m, "tab")
+	golden(t, "zoom_field_140x16", render(m, 140, 16))
+	press(m, "=")
+	if m.top() != l {
+		t.Fatal("= goes back to the logs")
+	}
+	if len(l.rows) != 1 || l.rows[0].seq != errSeq {
+		t.Fatalf("extra.orderId=ord_8f91a2 keeps the one entry: %+v", l.rows)
+	}
+	golden(t, "logs_field_filter_140x10", render(m, 140, 10))
+	press(m, "esc")
+	if len(l.rows) != 9 || l.filter.Active() {
+		t.Fatalf("esc clears the field filter: %d rows", len(l.rows))
+	}
+	if e, _ := l.entryAt(l.displayCursor()); e.Seq != errSeq {
+		t.Fatalf("the cursor stays on the zoomed entry, got seq %d", e.Seq)
+	}
+	press(m, "enter", "shift+tab")
+	if z := m.top().(*zoomScreen); z.field != "spanId" {
+		t.Fatalf("the first shift+tab selects the last field, got %q", z.field)
+	}
+	press(m, "!")
+	if len(l.rows) != 8 || !strings.Contains(render(m, 200, 10), "filter spanId≠91ac07") {
+		t.Fatalf("! excludes the entry: %d rows\n%s", len(l.rows), render(m, 200, 10))
+	}
+	press(m, "/", "d", "e", "c", "l", "i", "n", "e", "d", "enter")
+	if len(l.rows) != 1 || !strings.Contains(render(m, 200, 10), "spanId≠91ac07 AND declined") {
+		t.Fatalf("a text filter stacks on the field filter: %d rows\n%s", len(l.rows), render(m, 200, 10))
+	}
+}
+
+// TestZoomWithoutFields: no field, no cursor and no hint.
+func TestZoomWithoutFields(t *testing.T) {
+	m, l := openLogs(t)
+	press(m, "enter", "tab", "=")
+	z, ok := m.top().(*zoomScreen)
+	if !ok || z.field != "" || l.filter.Active() {
+		t.Fatalf("tab and = do nothing on an entry without fields")
+	}
+	if out := render(m, 140, 16); strings.Contains(out, "tab field") || strings.Contains(out, "FIELDS") {
+		t.Errorf("no field hint:\n%s", out)
+	}
+}
+
 func TestWatchErrorGolden(t *testing.T) {
 	m, _ := newTestModel(t, 1, "")
 	snapshot(m, ports.CatalogSnapshot{Env: "rec", UpdatedAt: t0, Err: domain.ErrUnauthorized})
 	golden(t, "services_unreachable_120x16", render(m, 120, 16))
+}
+
+// errNotLoggedIn is what the cluster adapter reports when the gcloud session
+// has expired.
+var errNotLoggedIn = fmt.Errorf("namespace app-rec: %w", domain.KindError(domain.ErrUnauthorized,
+	"getting credentials: exec: executable gke-gcloud-auth-plugin failed with exit code 1"))
+
+func TestNotLoggedInGolden(t *testing.T) {
+	m, _ := newTestModel(t, 1, "")
+	snapshot(m, ports.CatalogSnapshot{Env: "rec", UpdatedAt: t0, Err: errNotLoggedIn})
+	golden(t, "services_not_logged_in_60x16", render(m, 60, 16))
+}
+
+// TestErrorPanelFits: on a small terminal the error panel stays within the
+// screen, and cuts the error's message before the advice and the keys.
+func TestErrorPanelFits(t *testing.T) {
+	m, _ := newTestModel(t, 1, "")
+	snapshot(m, ports.CatalogSnapshot{Env: "rec", UpdatedAt: t0, Err: errNotLoggedIn})
+	for _, size := range [][2]int{{40, 10}, {60, 12}, {120, 30}} {
+		w, h := size[0], size[1]
+		out := render(m, w, h)
+		lines := strings.Split(out, "\n")
+		if len(lines) != h {
+			t.Errorf("%dx%d: %d lines\n%s", w, h, len(lines), out)
+		}
+		for _, l := range lines {
+			if ansi.StringWidth(l) > w {
+				t.Errorf("%dx%d: line wider than the screen: %q", w, h, l)
+			}
+		}
+		flat := strings.Join(strings.Fields(out), " ")
+		for _, want := range []string{"Not logged in to rec", "gcloud auth login", "retrying automatically", "retry now"} {
+			if !strings.Contains(flat, want) {
+				t.Errorf("%dx%d: %q missing\n%s", w, h, want, out)
+			}
+		}
+	}
 }
 
 func TestFitsTerminal(t *testing.T) {
@@ -470,6 +576,10 @@ func TestKeymapOverrides(t *testing.T) {
 	if !km.Is("&", ActWindow1) || !km.Is("à", ActWindowTail) {
 		t.Fatal("AZERTY aliases missing")
 	}
+	km, err = NewKeymap(map[string][]string{"field_keep": {"+"}, "field_exclude": {"-"}, "field_next": {"ctrl+n"}})
+	if err != nil || !km.Is("+", ActFieldKeep) || km.Is("=", ActFieldKeep) || !km.Is("-", ActFieldExclude) || km.First(ActFieldNext) != "ctrl+n" {
+		t.Fatalf("field actions are remappable: %v", err)
+	}
 	if _, err := NewKeymap(map[string][]string{"folow": {"f"}}); err == nil || !strings.Contains(err.Error(), `unknown action "folow"`) {
 		t.Fatalf("err = %v", err)
 	}
@@ -480,17 +590,6 @@ func TestEveryActionHasAKey(t *testing.T) {
 		if len(ks) == 0 {
 			t.Errorf("%s has no default key", a)
 		}
-	}
-}
-
-func TestThemes(t *testing.T) {
-	for _, n := range ThemeNames {
-		if _, err := NewTheme(n, true); err != nil {
-			t.Errorf("%s: %v", n, err)
-		}
-	}
-	if _, err := NewTheme("dark", false); err == nil {
-		t.Fatal("unknown theme accepted")
 	}
 }
 

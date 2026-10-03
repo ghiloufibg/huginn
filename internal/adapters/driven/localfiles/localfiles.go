@@ -1,6 +1,6 @@
 // Package localfiles implements ports.LocalFiles: it reads the dotenv
 // sources and truststores a Kafka profile names on the user's workstation
-// (docs/plan/M5-kafka.md). Decrypted content and certificates stay in
+// (docs/plan/M11-kafka.md). Decrypted content and certificates stay in
 // memory; reads are bounded in size, globs in the entries they visit.
 package localfiles
 

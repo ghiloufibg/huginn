@@ -116,6 +116,16 @@ type logsScreen struct {
 	before    string // input before editing, restored by esc
 	dirty     bool   // rows must be recomputed (debounced while typing)
 	pending   bool   // a debounce tick is scheduled
+
+	trace *traceState // the trace view (trace.go), nil outside it
+	sel   selection   // lines selected for copying (selection.go)
+	// mouse (mouse.go): the display position of the line on each screen
+	// row of the last frame, the screen row of the first one, and a drag.
+	screenRows []int
+	linesTop   int
+	dragging   bool
+	dragFrom   uint64
+	lastForm   copyForm // the form of the last copy, which ctrl+s saves in
 }
 
 // viewRow is one displayed entry.
@@ -217,6 +227,9 @@ func (l *logsScreen) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 		case tea.MouseWheelUp:
 			l.scroll(-3)
 		}
+		return true, nil
+	case tea.MouseClickMsg, tea.MouseMotionMsg, tea.MouseReleaseMsg:
+		l.mouse(m, msg.(tea.MouseMsg))
 		return true, nil
 	case tea.KeyPressMsg:
 		return l.key(m, msg)
@@ -325,6 +338,9 @@ func (l *logsScreen) mergeLate(late []domain.LogEntry) {
 	if keep != 0 {
 		keep, _ = renumber(keep)
 	}
+	if l.trace != nil {
+		l.trace.seq, _ = renumber(l.trace.seq)
+	}
 	l.rebuildFrom(keep)
 }
 
@@ -350,6 +366,8 @@ func (l *logsScreen) ingest(entries []domain.LogEntry) {
 	}
 	if l.dirty && !l.editing {
 		l.rebuild()
+	} else if l.trace != nil && added > 0 {
+		l.keepCursor(l.orderTrace)
 	}
 	if l.newestTop && !l.tail && !l.paused {
 		// New entries are inserted above: keep the same entries on screen.
@@ -362,6 +380,27 @@ func (l *logsScreen) ingest(entries []domain.LogEntry) {
 // the same entry.
 func (l *logsScreen) evict() {
 	first := l.buf.FirstSeq()
+	if l.sel.active() {
+		l.pruneSelection()
+	}
+	if l.trace != nil && len(l.rows) > 0 && !slices.ContainsFunc(l.rows, func(r viewRow) bool { return r.seq < first }) {
+		return
+	}
+	if l.trace != nil {
+		// Trace rows are ordered by entry time, not by sequence: drop the
+		// evicted ones wherever they are.
+		kept := l.rows[:0]
+		for _, r := range l.rows {
+			if r.seq < first {
+				l.count(r, -1)
+				continue
+			}
+			kept = append(kept, r)
+		}
+		l.rows = kept
+		l.orderTrace()
+		return
+	}
 	n := 0
 	for n < len(l.rows) && l.rows[n].seq < first {
 		n++
@@ -452,8 +491,9 @@ func (l *logsScreen) rebuildFrom(keep uint64) {
 		}
 	}
 	idx := l.idxBuf[:0]
+	all := l.scope == nil && l.containerScope == nil // no pod or container chosen
 	for i := range l.buf.Len() {
-		if l.entryInScope(l.buf.At(i)) {
+		if all || l.entryInScope(l.buf.At(i)) {
 			idx = append(idx, i)
 		}
 	}
@@ -469,6 +509,16 @@ func (l *logsScreen) rebuildFrom(keep uint64) {
 		l.count(row, 1)
 	}
 	l.dirty, l.paused = false, false
+	if l.trace != nil {
+		l.orderTrace() // rows by entry time: the cursor goes on keep itself
+		if i := slices.IndexFunc(l.rows, func(r viewRow) bool { return r.seq == keep }); keep != 0 && i >= 0 {
+			l.cursor = i
+			if l.newestTop {
+				l.cursor = len(l.rows) - 1 - i
+			}
+			return
+		}
+	}
 	if keep != 0 {
 		for i, r := range l.rows {
 			if r.seq >= keep {
@@ -560,6 +610,8 @@ func (l *logsScreen) key(m *Model, k tea.KeyPressMsg) (bool, tea.Cmd) {
 		l.jumpError(-1)
 	case keys.Is(key, ActFilter):
 		l.startEditing()
+	case keys.Is(key, ActFilterMode) && l.trace != nil:
+		m.flash("the trace view keeps only the lines of the trace")
 	case keys.Is(key, ActFilterMode):
 		l.toggleMode(m)
 		l.rebuild()
@@ -655,9 +707,27 @@ func (l *logsScreen) key(m *Model, k tea.KeyPressMsg) (bool, tea.Cmd) {
 		l.pan = max(l.pan-max(m.width/2, 8), 0)
 	case keys.Is(key, ActFullscreen):
 		l.fullscreen = !l.fullscreen
+	case keys.Is(key, ActBack) && l.sel.active():
+		l.clearSelection(m)
 	case keys.Is(key, ActBack) && l.fullscreen:
 		l.fullscreen = false
+	case keys.Is(key, ActBack) && l.trace != nil && !l.traceHasExtraFilters():
+		l.exitTrace(m)
 	case keys.Is(key, ActBack) && l.clearLastFilter(m):
+	case keys.Is(key, ActSelect):
+		l.toggleRange(m)
+	case keys.Is(key, ActMark):
+		l.toggleMark(m)
+	case keys.Is(key, ActCopy):
+		return true, l.copyLines(m, l.selected(), copyShown)
+	case keys.Is(key, ActCopyRaw):
+		return true, l.copyLines(m, l.selected(), copyRaw)
+	case keys.Is(key, ActSave):
+		return true, l.save(m)
+	case keys.Is(key, ActViewTrace):
+		if e, ok := l.entryAt(l.displayCursor()); ok {
+			l.enterTrace(m, e.Seq)
+		}
 	case keys.Is(key, ActPodScope):
 		l.cycleScope()
 		m.flash("scope " + l.scopeLabel())
@@ -775,17 +845,19 @@ func (l *logsScreen) jumpError(dir int) {
 // --- rendering ---
 
 func (l *logsScreen) view(m *Model, w, h int) string {
-	t := m.opts.Theme
+	t := &m.opts.Theme
 	var parts []string
+	l.linesTop, l.screenRows = 1, l.screenRows[:0] // below the header; rows filled by lines
 	if !l.fullscreen {
 		parts = append(parts, l.podStrip(m, w))
 		h--
+		l.linesTop++
 	}
 	l.height = h
 	switch {
 	case l.err != nil:
-		parts = append(parts, centered(t.Bad.Render("Cannot read the logs of "+l.repo+": "+errKind(l.err))+"\n\n"+t.Dim.Render(wrapErr(l.err, w))+
-			"\n\n"+l.keyHint(m, ActRefresh, "retry", ActBack, "back"), w, h))
+		parts = append(parts, errorPanel(t, "Cannot read the logs of "+l.repo+": "+errKind(l.err), l.err, errFix(t, l.err),
+			l.keyHint(m, ActRefresh, "retry", ActBack, "back"), w, h))
 	case l.shown() == 0 && l.loading:
 		parts = append(parts, centered(t.Key.Render(m.spinner())+t.Dim.Render(fmt.Sprintf(" loading %s of %s", l.window.Label(), l.repo)), w, h))
 	case l.shown() == 0:
@@ -798,7 +870,7 @@ func (l *logsScreen) view(m *Model, w, h int) string {
 
 // emptyMessage explains an empty view and offers the next step.
 func (l *logsScreen) emptyMessage(m *Model) string {
-	t := m.opts.Theme
+	t := &m.opts.Theme
 	switch {
 	case l.buf.Len() > 0 && (l.filter.Active() || levelsLabel(l.filter.Levels) != "all"):
 		return t.Dim.Render(fmt.Sprintf("no line out of %d matches the filters", l.buf.Len())) + "\n\n" +
@@ -816,7 +888,7 @@ func (l *logsScreen) emptyMessage(m *Model) string {
 
 // keyHint formats key/description pairs: "t longer window  ·  0 last lines".
 func (l *logsScreen) keyHint(m *Model, pairs ...any) string {
-	t := m.opts.Theme
+	t := &m.opts.Theme
 	var parts []string
 	for i := 0; i+1 < len(pairs); i += 2 {
 		parts = append(parts, t.Key.Render(m.label(pairs[i].(Action)))+" "+t.Dim.Render(pairs[i+1].(string)))
@@ -831,6 +903,10 @@ func (l *logsScreen) lines(m *Model, w, h int) string {
 	cur := l.displayCursor()
 	f := l.frame(m, w)
 	cache := map[int][]string{}
+	// With a selection, a one-column gutter marks the range (▌) and the
+	// marked lines (*); the range is located once per frame.
+	selecting := l.sel.active()
+	lo, hi, inRange := l.rangeBounds()
 	render := func(i int) []string {
 		if rows, ok := cache[i]; ok {
 			return rows
@@ -838,7 +914,15 @@ func (l *logsScreen) lines(m *Model, w, h int) string {
 		var rows []string
 		if e, ok := l.entryAt(i); ok {
 			r, _ := l.rowAt(i)
-			rows = l.renderRows(m, e, r, w, f)
+			if selecting {
+				rows = l.renderRows(m, e, r, max(w-1, 1), f)
+				mark := m.ink("key", func() lipgloss.Style { return m.opts.Theme.Key }).paint(l.gutter(i, e.Seq, lo, hi, inRange))
+				for j := range rows {
+					rows[j] = mark + rows[j]
+				}
+			} else {
+				rows = l.renderRows(m, e, r, w, f)
+			}
 		}
 		cache[i] = rows
 		return rows
@@ -879,11 +963,14 @@ func (l *logsScreen) lines(m *Model, w, h int) string {
 		sel  bool
 	}
 	var rows []row
+	l.screenRows = l.screenRows[:0]
 	for i := start; i < l.shown() && len(rows) < h; i++ {
 		for _, r := range render(i) {
 			rows = append(rows, row{r, i == cur})
+			l.screenRows = append(l.screenRows, i)
 		}
 	}
+	l.screenRows = l.screenRows[:min(len(l.screenRows), h)]
 	sel := m.opts.Theme.Selected
 	out := make([]string, 0, h)
 	for _, r := range rows[:min(len(rows), h)] {
@@ -923,6 +1010,9 @@ func (l *logsScreen) renderEntry(m *Model, e *domain.LogEntry, row viewRow, w in
 func (l *logsScreen) renderRows(m *Model, e *domain.LogEntry, row viewRow, w int, f frameState) []string {
 	var b strings.Builder
 	b.WriteString(" ")
+	if l.trace != nil {
+		b.WriteString(m.segmentInk(e, ports.RoleTimestamp).paint(l.traceDelta(e)))
+	}
 	if id := l.podLabel(e.Pod); id != "" {
 		b.WriteString(m.podInk(l.podColor[e.Pod]).paint(id))
 		if l.multiContainer && e.Container != "" {
@@ -983,7 +1073,7 @@ func (l *logsScreen) renderRows(m *Model, e *domain.LogEntry, row viewRow, w int
 	return rows
 }
 
-func (l *logsScreen) segmentStyle(t Theme, e *domain.LogEntry, r ports.Role) lipgloss.Style {
+func (l *logsScreen) segmentStyle(t *Theme, e *domain.LogEntry, r ports.Role) lipgloss.Style {
 	switch r {
 	case ports.RoleTimestamp:
 		return t.Timestamp
@@ -1007,8 +1097,11 @@ func (l *logsScreen) segmentStyle(t Theme, e *domain.LogEntry, r ports.Role) lip
 
 // podLabel identifies a pod: its generated suffix (the part after the
 // last dash), the full name, or nothing.
-func (l *logsScreen) podLabel(pod string) string {
-	switch l.podID {
+func (l *logsScreen) podLabel(pod string) string { return podLabelFor(pod, l.podID) }
+
+// podLabelFor is the pod column of pod in a pod-id mode.
+func podLabelFor(pod string, mode podIDMode) string {
+	switch mode {
 	case podIDFull:
 		return pod
 	case podIDNone:
@@ -1021,7 +1114,7 @@ func (l *logsScreen) podLabel(pod string) string {
 }
 
 func (l *logsScreen) podStrip(m *Model, w int) string {
-	t := m.opts.Theme
+	t := &m.opts.Theme
 	scope := "all " + fmt.Sprint(len(l.pods))
 	if l.scope != nil {
 		scope = fmt.Sprintf("%d of %d", len(l.scope), len(l.pods))
@@ -1130,7 +1223,7 @@ func (l *logsScreen) bar(m *Model) lipgloss.Style {
 }
 
 func (l *logsScreen) statusLeft(m *Model) string {
-	t := m.opts.Theme
+	t := &m.opts.Theme
 	bar := l.bar(m)
 	live := "LIVE"
 	if r := l.rate.label(m.opts.Now()); r != "" {
@@ -1139,6 +1232,10 @@ func (l *logsScreen) statusLeft(m *Model) string {
 	var chip string
 	gone := l.repoGone(m)
 	switch {
+	case l.trace != nil:
+		chip = t.Chip.Render("TRACE")
+	case l.sel.active():
+		chip = t.Chip.Render("SELECT")
 	case l.err != nil:
 		chip = t.Chip.Render("NOT LOADED")
 	case gone != "":
@@ -1182,8 +1279,13 @@ func (l *logsScreen) statusLeft(m *Model) string {
 	if c := l.containersLabel(m); c != "" {
 		fields = append(fields[:2], append([]string{c}, fields[2:]...)...)
 	}
-	if f := l.filterSummary(); f != "" {
+	if l.trace != nil {
+		fields = append(l.traceSummary(), window)
+	} else if f := l.filterSummary(); f != "" {
 		fields = append(fields, f)
+	}
+	if l.sel.active() {
+		fields = append([]string{l.selectionSummary()}, fields...)
 	}
 	// Most useful first: a narrow terminal truncates the end.
 	if gone == "REMOVED" {
@@ -1220,6 +1322,16 @@ func (l *logsScreen) hints(m *Model) []hint {
 		}
 	case l.paused:
 		return []hint{m.h(ActPause, "resume"), m.pair(ActDown, ActUp, "scroll"), m.h(ActOpen, "zoom"), m.h(ActFilter, "filter"), m.h(ActHelp, "help")}
+	case l.sel.active():
+		return []hint{
+			m.h(ActCopy, "copy"), m.h(ActCopyRaw, "copy raw"), m.h(ActSave, "save"), m.h(ActSelect, "range"), m.h(ActMark, "mark"),
+			m.pair(ActDown, ActUp, "move"), m.h(ActBack, "clear"), m.h(ActHelp, "help"),
+		}
+	case l.trace != nil:
+		return []hint{
+			m.h(ActBack, "back to the logs"), m.h(ActOpen, "zoom"), m.h(ActFilter, "filter"), m.pair(ActNextError, ActPrevError, "error"),
+			m.h(ActViewTrace, "trace of this line"), m.h(ActWindowNext, "window"), m.h(ActHelp, "help"),
+		}
 	}
 	return []hint{
 		m.h(ActFilter, "filter"), m.h(ActLevels, "levels"), m.h(ActFilterMode, "mode"), m.pair(ActNextMatch, ActPrevMatch, "match"),

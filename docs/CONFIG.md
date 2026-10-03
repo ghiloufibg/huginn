@@ -147,7 +147,7 @@ environments:
 | `environments` | map | yes | | At least one environment. Names use lower-case letters, digits and `-`, 32 characters at most. |
 | `environments.<env>.context` | string | | current context | kubeconfig context. It must already exist, for example after `gcloud container clusters get-credentials`. Huginn never logs in for you. |
 | `environments.<env>.namespaces` | list | one of the two | | Namespaces holding the environment's workloads. |
-| `environments.<env>.namespace_from` | string | one of the two | | Read the namespace from a sops-encrypted dotenv file: `sops:<file>#<key>`. A relative `<file>` is relative to the config folder (for example `sops:../infra/overlays/prd/config.env#K8S_NAMESPACE`); `~/` is your home folder. The `sops` command must be installed and able to decrypt the file with your usual keys (age, GCP KMS…). It runs once, when the environment is first opened; the decrypted content stays in memory. If it fails, the services screen shows sops' reason. |
+| `environments.<env>.namespace_from` | string | one of the two | | Read the namespace from a sops-encrypted dotenv file: `sops:<file>#<key>`. A relative `<file>` is relative to the config folder (for example `sops:../infra/overlays/prd/config.env#K8S_NAMESPACE`); `~/` is your home folder. The `sops` command must be installed and able to decrypt the file with your usual keys (age, GCP KMS…). It runs once, when the environment is first opened; the decrypted content stays in memory. If it fails, the services screen shows sops' reason. **The encrypted file itself must sit outside the config folder** (use `../`, as in the example) — the folder's names are fixed (§2), so a `.env.enc` dropped inside it fails to load with `unexpected file`. |
 | `environments.<env>.production` | bool | | `false` | Shows the red production banner. |
 
 Several environments may share one context (one cluster, one namespace each) or use different clusters.
@@ -217,7 +217,7 @@ Optional. These are personal display choices, usually not shared by a team.
 
 ```yaml
 version: 1
-theme: light
+theme: auto
 key_bar: compact
 keymap:
   follow: [f, ctrl+l]
@@ -227,11 +227,16 @@ log_columns: [time, level, logger]
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `version` | int | | Must be `1` (required). |
-| `theme` | `light`, `accessible`, `classic`, `none` | `light` | `--theme`, `NO_COLOR` and `HUGINN_THEME` override it. |
-| `paint_background` | bool | `false` | Paint the theme background instead of keeping the terminal's. |
+| `theme` | `auto`, `light`, `dark`, `accessible`, `classic`, `none` | `auto` | `auto` asks the terminal for its background color and picks `light` or `dark`. If the terminal does not answer, it uses `COLORFGBG` when set, else `dark`. `light` is for light terminal backgrounds and `dark` for dark ones. Both use fixed 256-color shades with readable contrast on common terminal palettes (VS Code, JetBrains, xterm, Solarized), whatever the terminal's own 16 colors. `accessible` keeps the terminal's 16 colors, `classic` is a k9s-like dark theme, and `none` uses no color. `--theme`, `NO_COLOR` and `HUGINN_THEME` override it. |
+| `paint_background` | bool | `false` | Paint the theme's own background (`light`: white, `dark`: near black) instead of keeping the terminal's. |
 | `key_bar` | `compact`, `full`, `hidden` | `compact` | Key bar at the bottom (`f2` cycles it). |
-| `keymap` | map action → keys | | Replaces all default keys of an action. The action names are those of the help screen (`?`) and the README; for example `follow`, `filter`, `columns_cycle`. |
+| `keymap` | map action → keys | | Replaces all default keys of an action. The action names are those of the help screen (`?`) and the README; for example `follow`, `filter`, `columns_cycle`, `field_next`, `field_prev`, `field_keep` and `field_exclude` for filtering on a field from zoom, or `select`, `mark`, `copy`, `copy_raw` and `save` for copying and saving lines. |
 | `log_columns` | list | | Columns shown when a logs screen opens: `pod` and column names from `layouts/`. Without it, every visible column is shown and narrowed automatically. |
+| `clipboard` | `auto`, `osc52`, `system`, `off` | | Where `y`/`Y` copy. `osc52`: the terminal's clipboard, through the OSC 52 sequence, which works over SSH, in tmux (`set -g set-clipboard on`), Windows Terminal, iTerm2, kitty, WezTerm and IDE terminals. `system`: the first command found among `pbcopy`, `wl-copy`, `xclip`, `xsel` and `clip.exe`. `auto`: the terminal, and the system command when one is installed. `off`: no copying. Default `auto`. |
+| `copy.max_bytes` | int | | Largest copy, in bytes. Terminals cap what OSC 52 carries. Past it, nothing is copied and a message says so. Default `1048576` (1 MiB). |
+| `save.dir` | path | | Where `ctrl+s` writes files. It must exist; `~` is the home directory. Files are named `<repo>-<env>-<yyyymmdd-hhmmss>.log` (`.raw.log` after a raw copy), never overwrite a file, and are readable by you only. Default: the current directory. |
+| `redact` | list | | Go regular expressions whose matches become `[redacted]` in everything copied (`y`, `Y`) or saved (`ctrl+s`). The screen still shows the logs as they are. None by default, for example `'(?i)bearer [a-z0-9._-]+'`. |
+| `mouse` | bool | | `true`: Huginn reads the mouse. The wheel scrolls, a click moves the cursor, `shift`+click selects from the cursor, and a drag selects lines. `false` leaves the mouse to the terminal, whose own selection then works directly. Default `true`. |
 
 ## 8. `formats/<name>.yaml`
 
@@ -250,7 +255,21 @@ Common keys:
 | `match.repos` | list of globs | | Repositories read with this format; empty means any. |
 | `match.containers` | list of globs | | Containers read with this format; empty means any. Both lists must accept a container when both are given. |
 | `levels` | map level → spellings | | Extra spellings of each level in these logs, case ignored. The keys are `error`, `warn`, `info` and `debug`. Common spellings are already understood: `ERROR`, `ERR`, `FATAL`, `SEVERE`, `CRITICAL`, `WARN`, `WARNING`, `INFO`, `NOTICE`, `DEBUG`, `TRACE`, `FINE`, and klog letters. |
+| `level_from.field` | string | | `json` and `regex` decoders: a field whose value can **raise** the level of a line, for example an HTTP status. For `regex`, a group of `pattern`. For `json`, a JSON path, read like `fields`, hidden or not; if absent, a field extracted by a `transform`. |
+| `level_from.map` | map glob → level | with `field` | Value glob to `error`, `warn`, `info` or `debug`; the longest glob is tried first. |
 | `layout` | string | yes | Layout drawing these lines: a file name of `layouts/` without extension. |
+
+**`level_from`** helps when a line's level is not its real severity, for example a request logged at `INFO` that answered 500:
+
+```yaml
+level_from:
+  field: http_status
+  map: { "5*": error, "4*": warn }
+```
+
+- The line takes **the more severe** of its own level and the level of the matching rule. `INFO` with `503` becomes `ERROR`. The level is **never lowered**: `ERROR` with `200` stays `ERROR`, so a real error is always kept by `e` and found by `>`.
+- A line whose value matches no rule, or that has no such field, keeps its level. A catch-all `"*"` rule is only useful to give a level to lines that have none.
+- A line with no level at all takes the level of the matching rule.
 
 ### `decoder: json`: one JSON object per line
 
@@ -276,7 +295,7 @@ layout: spring
 | Key | Type | Req. | Meaning |
 |---|---|---|---|
 | `fields.<field>` | paths | `message` is | Where each **standard field** is. Candidates are tried in order and the first one present wins. A path is first looked up as a key (`log.level` as one key), then as a walk into nested objects (`log` → `level`). |
-| `hidden` | list of globs | | Fields never shown on the stream, only in the zoom view's metadata section. Typical use: the Kubernetes metadata your log agent adds. |
+| `hidden` | list of globs | | Fields never shown on the stream, only in the zoom view's hidden fields section (`enter`), and not searched. Typical use: the Kubernetes metadata your log agent adds. |
 
 The standard fields are:
 
@@ -288,7 +307,7 @@ The standard fields are:
 | `thread` | Thread name. |
 | `message` | The message. |
 | `stack` | Stack trace, folded on the stream and shown in full in zoom. |
-| `trace_id` | Correlation id, shown in zoom and searchable. |
+| `trace_id` | Correlation id, shown in zoom and searchable. `v` on a line shows every line of the service with the same `trace_id`: the trace view. It can come from a JSON key, or from text through a `transform` group named `trace_id`. |
 | `app` | Application name. |
 | `pid` | Process id. |
 
@@ -302,6 +321,56 @@ Every other field of the object stays available:
 - zoom shows it;
 - text filters search it (`key=value`);
 - layouts can draw it with `{field:<path>}`, where `<path>` is its dotted path, for example `http.status`.
+
+#### `transform`: context inside a field
+
+Some logging stacks write context **into the text** of a field instead of in separate keys, for example a Logback MDC pattern giving `route=/v1/orders method=POST correlation-id=c1 - Order created - user_id= request_id=r1`. A `transform` reads such a field with a regular expression. It keeps only the part you want on the stream and turns the rest into fields of the line:
+
+```yaml
+transform:
+  message:
+    pattern: '^(?P<before>(?:[\w.-]+=\S*\s+)*)-\s+(?P<message>.*?)\s+-\s+(?P<after>(?:[\w.-]+=\S*\s*)*)$'
+    pairs: [before, after]
+```
+
+With this transform, the stream shows `Order created`. The line gets the fields `route`, `method`, `correlation-id` and `request_id`. `user_id` is left out because its value is empty.
+
+| Key | Type | Req. | Meaning |
+|---|---|---|---|
+| `transform.<field>` | map | | The standard field to read: `message`, `logger`, `thread`, `trace_id`, `app` or `pid`. It must be mapped in `fields`. |
+| `transform.<field>.pattern` | string | yes | A Go regular expression with **a group named after the field** (`(?P<message>…)`). |
+| `transform.<field>.pairs` | list | | Groups of `pattern` holding pairs, by default `key=value` separated by spaces. |
+| `transform.<field>.pair_pattern` | string | | A Go regular expression reading **one pair** of a `pairs` group, with the groups `(?P<key>…)` and `(?P<value>…)`. Default: `key=value` separated by white space. |
+| `transform.<field>.max_bytes` | int | | Values longer than this are left as they are (still shown, just not transformed). Default `16384`. |
+| `transform.<field>.max_fields` | int | | At most this many fields extracted per line; the others stay in the raw view. Default `64`. |
+
+When the pattern matches:
+- **The group named after the field becomes its value.** Write the parts you only want to drop as `(?:…)`.
+- **A group listed in `pairs`** is split into pairs, and each one becomes the field `key`, spelled as written (`{field:correlation-id}`). Keys never need to be listed, so a new key in the logs becomes a new field by itself. By default a pair is `key=value` and pairs are separated by white space. If one piece of the text is not a pair, the whole group is kept as one field named after the group.
+- **Another pair syntax** is set with `pair_pattern`. Put the separator in the pattern: the pairs it reads must cover the whole group, except white space, otherwise the group is kept whole. For example, `user: "bob smith"; route: "/a"` is read with:
+
+  ```yaml
+  pair_pattern: '(?P<key>[\w.-]+): "(?P<value>[^"]*)";?'
+  ```
+- **Another named group** becomes a field: `route=(?P<route>\S*)` gives the field `route`. Capture the value, not the `route=` before it.
+- **A group named like a standard field** (`level`, `logger`, `thread`, `trace_id`, `app`, `pid`) fills that field when the JSON left it empty. For example, `correlation-id=(?P<trace_id>\S*)` makes the correlation id the trace id. `time` and `stack` groups are not allowed.
+
+Rules:
+- **Empty values are left out**, so `user_id=` adds no field.
+- **A JSON key wins** over an extracted field of the same name. Between groups, named groups come first, then `pairs` in list order, and the first one wins.
+- **When the pattern does not match, nothing changes.** Lines without the context are shown unchanged, never as an error.
+- **Nothing is lost:** the raw view of zoom (`p`) shows the original line.
+- Extracted fields are like the other fields of the object:
+  - zoom lists them;
+  - text filters search them (`correlation-id=c1`);
+  - layouts can draw them;
+  - `hidden` applies to them.
+
+  They are never drawn on the stream unless a layout column names them, so they do not need to be hidden to keep lines short. Hiding them also takes them out of text search.
+- **Without `pairs` or other named groups, the removed parts leave text search.** They stay in the raw view.
+- Several transforms apply in the order `message`, `logger`, `thread`, `trace_id`, `app`, `pid`. Each one reads its own field only.
+- Lines that are not JSON are not transformed.
+- **Cost:** the regular expression reads about 20 MB/s. That is 5 to 10 µs per line for a context of 13 keys, and about 50 µs per KiB of value. `max_bytes` bounds a line to about 1 ms, and `max_fields` bounds the memory a line adds to the buffer. Give a transformed format a `match` so other containers do not pay the cost.
 
 ### `decoder: regex`: text lines
 
@@ -321,8 +390,7 @@ layout: access
 |---|---|---|---|
 | `pattern` | string | yes | A Go regular expression ([syntax](https://pkg.go.dev/regexp/syntax)) with **named groups** `(?P<name>…)`. Write it between single quotes in YAML. Groups named like standard fields fill them (`time`, `level`, `logger`, `thread`, `message`, `trace_id`, `app`, `pid`). Other groups become extra fields (`{field:status}`). A `message` group is required. |
 | `time_format` | string | | Layout of the `time` group in Go's reference-date notation, as described under `time_format` in [Layouts](#9-layoutsnameyaml). Default: RFC 3339. |
-| `level_from.field` | string | | A group whose value decides the level, for example an HTTP status. It must be a group of `pattern`. |
-| `level_from.map` | map glob → level | | Value glob to `error`, `warn`, `info` or `debug`; the longest glob is tried first. |
+| `level_from` | | | Raise the level from a group, for example the HTTP status, as described in the common keys above. |
 
 `fields` and `hidden` are not used by this decoder.
 

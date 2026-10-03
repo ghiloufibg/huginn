@@ -22,7 +22,7 @@ Huginn is built first as a **prototype** and will then be adapted to an enterpri
 | Layer | Package(s) | Contains | May import |
 |---|---|---|---|
 | Domain | `internal/core/domain` | Pure types and rules: Env, Repo, Workload, Pod, Container, Status aggregation, LogEntry, Level, TimeWindow, Filter, Fingerprint, redaction, filter engine | stdlib only |
-| Ports | `internal/core/ports` | Interfaces only. **Driven**: `ClusterClient`, `LogSource`, `LogDecoder`, `LogRenderer`, `ManifestScanner`, `RepoResolver`, `SecretsProvider`, `Clock`, `Clipboard`, `Opener`. **Driving**: `ServiceCatalog`, `LogSession`, `PodEvents`, `Diagnostics` (use cases the UI calls) | domain |
+| Ports | `internal/core/ports` | Interfaces only. **Driven**: `ClusterClient`, `LogSource`, `LogDecoder`, `LogRenderer`, `ManifestScanner`, `RepoResolver`, `SecretsProvider`, `Clock`, `Clipboard`, `FileSink`, `Opener`. **Driving**: `ServiceCatalog`, `LogSession`, `PodEvents`, `Diagnostics` (use cases the UI calls) | domain |
 | Application | `internal/core/app` | Use-case implementations: build the service list, open a log session, merge streams, apply filters, group errors. Orchestrates ports, no I/O of its own | domain, ports |
 | Driven adapters | `internal/adapters/driven/<name>` | One technology each: client-go, sops CLI, Kustomize scanner, JSON log decoder, Spring Boot renderer, demo cluster, file system, OS clipboard | domain, ports, third-party libs |
 | Driving adapters | `internal/adapters/driving/tui`, `…/cli` | Bubble Tea UI, Cobra CLI. Talk to the core **only through driving ports** | domain, ports |
@@ -90,7 +90,9 @@ internal/
   adapters/driven/demo/         synthetic cluster + log generator (--demo)
   adapters/driven/kubernetes/   client-go adapter (M4; placeholder until then)
   adapters/driven/clock/        system clock
-  adapters/driven/kafka/        TopicSourceFactory with franz-go, read only behind a request guard (D-040)
+  adapters/driven/clipboard/    Clipboard: the system clipboard command (pbcopy, wl-copy, xclip, xsel, clip.exe)
+  adapters/driven/filesink/     FileSink: saved lines, new files only, mode 0600
+  adapters/driven/kafka/        TopicSourceFactory with franz-go, read only behind a request guard (D-057)
   adapters/driven/localfiles/   LocalFiles: dotenv sources, truststores, globs of Kafka profiles
   adapters/driven/logformat/    LogDecoder: json, regex, plain; Selector (format per container)
   adapters/driven/layout/       LogLayout from templates (layouts/*.yaml)

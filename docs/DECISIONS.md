@@ -296,8 +296,200 @@ Status: accepted.
 - **With `P`**, the head reads the first lines of the previous instance: how the crashed instance started, for N lines instead of the whole instance.
 Status: accepted.
 
-## D-040 Kafka topics, read only (M5, proposed)
-- **Scope: replace the debug script, nothing more.** Dotenv sources (sops for encrypted ones), SASL plain/scram, PEM or PKCS12 truststore, topics listed or discovered in the sources, tail/windows/follow. Other formats, auth methods, decoders and group lag wait for a real need (docs/plan/M5-kafka.md §10).
+## D-040 Real GKE QA (M5)
+
+- **GKE Autopilot** for the QA cluster (`huginn-qa`, `us-central1`,
+  project `huginn-kube-tui`): scale-to-zero, no node-pool sizing
+  decisions, free cluster-management fee for one cluster/month — the
+  realistic way to waste the $300 free-trial credit here is a
+  forgotten-standing cluster, not a runaway bill (the free-trial
+  billing account cannot be charged past its balance; see
+  `docs/plan/M5-gke-qa.md` §1).
+- **Real Spring Boot 3.5 structured logging**
+  (`logging.structured.format.console=logstash`, no extra dependency)
+  validated end to end against `deploy/lab/config/formats/20-spring-json.yaml`/
+  `layouts/spring.yaml` unchanged: real `@timestamp`/`logger_name`/
+  `thread_name`/MDC fields, real multi-frame `stack_trace`s on a genuine
+  Hibernate/Hikari startup failure and JVM OOM, real logger-name
+  abbreviation at real package depth, real `/actuator/health`-backed
+  pods. No format-file change was needed — it decoded real output on the
+  first try.
+- **Real RBAC-driven `forbidden`**: `huginn-reader`'s IAM principal maps
+  straight to a Kubernetes `User` on GKE (IAM authenticates, RBAC
+  authorizes); a namespaced `Role`/`RoleBinding` scoped to `qa-rec` only
+  reproduces the lab's local-kubeconfig-context `forbidden` test with a
+  real cluster decision instead of a faked context swap.
+- **GCP-KMS-backed `namespace_from`**: closes the one gap
+  `deploy/lab/QA-SESSION.md` §0.1 left explicit (the lab only exercises
+  `age` keys) — `sops` decrypts a dotenv via a GCP KMS key, the read-only
+  principal needing `roles/cloudkms.cryptoKeyDecrypter` on it. The
+  sops-encrypted file cannot live inside the config folder itself: the
+  config loader validates the folder against a fixed allow-list and
+  rejects any other file, so it sits one level up
+  (`deploy/gke-qa/namespace.env.enc`, referenced as `../namespace.env.enc`
+  per `docs/CONFIG.md`'s documented relative-path convention).
+- **IAM/RBAC is a union, not an intersection — do not grant
+  `roles/container.viewer` at the project level.** That role alone grants
+  read access to every cluster and namespace in the project regardless of
+  a principal's namespaced `Role`/`RoleBinding`; GKE authorization is the
+  union of whatever IAM and RBAC each separately allow, not their
+  intersection. `rbac.yaml`'s namespaced Role/RoleBinding is therefore
+  the read-only principal's **only** grant — no project-level IAM role at
+  all — otherwise the `qa-restricted` "forbidden" test would silently
+  pass for the wrong reason (IAM-level access, not an RBAC gap).
+- **`gcloud billing budgets create` does not accept a free-trial billing
+  account.** The command returned `INVALID_ARGUMENT` against
+  `huginn-kube-tui`'s billing account; free-trial accounts cannot be
+  budgeted through this API path (confirmed against Google's own
+  documentation, not assumed). Since a free-trial account cannot be
+  overspent by construction (§1), this blocks a nice-to-have guardrail,
+  not the session itself — flagged as a non-blocking platform
+  limitation, not retried further.
+- **Cost**: three small real Spring Boot pods (100m CPU / 192Mi request
+  each) plus a KMS key ring for a few hours; well under the free-trial
+  credit, consistent with the order-of-magnitude estimate in
+  `docs/plan/M5-gke-qa.md` §1.
+- **Findings, none code bugs**: see `deploy/gke-qa/QA-REPORT.md` in full —
+  a tmux-server stale-environment gotcha and a `wsl.exe` argument-mangling
+  gotcha (both host/tooling, worked around in `deploy/gke-qa/e2e.sh`), and
+  an inconclusive `unauthorized` repro (disabling the read-only
+  principal's IAM key did not retroactively invalidate an already-issued
+  access token within the session's time budget).
+Status: accepted.
+
+## D-041 Field transforms: strip (M6.1)
+- **A regular expression on a decoded field, in the JSON decoder.** Context written into a field's text (a Logback MDC pattern such as `key=value… - message - key=value…`) is a decoding concern: `transform.<field>.pattern` runs in `logformat` after the standard fields are read. The core does not change. `decoder: regex` was rejected, because it would re-parse the whole JSON line with one pattern.
+- **One group named after the field** is the new value. No match leaves the value unchanged, as "lines a format cannot parse keep their text". Only text fields can be transformed (`message`, `logger`, `thread`, `trace_id`, `app`, `pid`): `time` and `level` are parsed values, and `stack` is multi-line and large.
+- **Other named groups were rejected in M6.1**, so M6.2 could give them a meaning without changing the folders written for M6.1 (D-042).
+- **Fixed order** (message, logger, thread, trace_id, app, pid), whatever the order of the file.
+- **Search follows the shown value**: the stripped parts leave text search and stay in the raw view. M6.2 brings them back as fields.
+- **Cost**: Go's `regexp` runs in linear time, with no backtracking blow-up. The 13-key MDC line costs about +5 µs per line (2.3 µs → 7.6 µs to decode), all of it in the regexp engine. This is acceptable for a TUI buffer (50 000 lines ≈ 0.25 s), and a `match` keeps other containers free of it.
+Status: accepted.
+
+## D-042 Field transforms: extract (M6.2)
+- **`pairs` instead of a key list.** A group listed in `pairs` is split into `key=value` fields, with keys spelled as written. The MDC keys of a logging stack are open-ended (a service adds one, another drops one), so neither the code nor the config lists them. A group that is not entirely `key=value` is kept whole as one field named after the group, so nothing is dropped. Values containing spaces need a named group.
+- **Other named groups become fields**, as in `decoder: regex`. A group named like a standard field fills it **only when the JSON left it empty**, since an explicit key is more reliable than text. `time` and `stack` groups are rejected, as are duplicate group names.
+- **Empty values are left out.** A context of 13 mostly empty keys would otherwise add 13 empty rows to zoom and `key=` noise to search. The raw view keeps them.
+- **A JSON key wins** over an extracted field of the same name, like "repeated keys: the first occurrence wins". Between extracted fields, named groups come first, then `pairs` in list order.
+- **Extracted fields are ordinary fields**: searchable, drawable, and subject to `hidden`. The lazy hidden-field loader runs the transforms again. They are never drawn on the stream unless a layout names them, so hiding them is never needed for a compact line.
+- **The zoom section "KUBERNETES METADATA" is now "HIDDEN FIELDS"** (key bar: `enter hidden fields`). It always held whatever `hidden` matched, and with transforms that includes fields that do not come from Kubernetes.
+- **Cost**: `pairs` on the 13-key line decodes in about 10.5 µs instead of 2.3 µs. The JSON decode path without transforms is unchanged, with the same allocations.
+Status: accepted.
+
+## D-043 Pair syntax in the config; the trace id named by its standard field
+- **`pair_pattern`**: the `pairs` of D-042 assumed one convention (`key=value` separated by white space), so a stack writing `key: value;` or quoted values would have needed a code change. A transform now takes an optional `pair_pattern`, a regular expression with exactly the groups `key` and `value`, read with `FindAll`. The pairs it reads must cover the group except white space, so the separator belongs to the pattern. Otherwise the group is kept whole, as with the default syntax.
+- **The default stays hand-written**, not a regular expression: `key=value` split on white space is the common case and costs less without a regexp. A fuzz test checks that it agrees with the same syntax written as `pair_pattern` (`(?P<key>[^\s=]+)=(?P<value>\S*)`). That test found and fixed one difference (a group of white space only).
+- **Zoom labels the trace id `trace_id`**, the standard field's name, instead of `traceId`, the key of one encoder, whatever path the format reads it from. `internal/archtest` now forbids `traceid` in generic code.
+Status: accepted.
+
+## D-044 Field transforms: limits and hardening (M6 QA)
+- **Limits per transform, in the config** (`max_bytes`, default 16 KiB; `max_fields`, default 64). With submatches, Go's `regexp` reads about 20 MB/s, so a 1 MiB value took 45 to 60 ms per line and could stall ingestion. Past `max_bytes` the value is shown as it is, and a 1 MiB line costs 0.8 ms, its JSON parse. `max_fields` bounds what one line adds to the buffer. Both are resource limits, not application knowledge, so neutral defaults are allowed (`config/defaults.go`).
+- **Linear de-duplication**: extracted keys were checked by scanning, which is quadratic (10 000 pairs took 162 ms). A set now takes over past 16 keys, and the same line takes 12 ms, all of it regexp time.
+- **The adapter never panics**, whatever `FieldTransform` it is given (missing groups, a `pair_pattern` without `key`, fields that cannot be transformed). It does not rely on validation, and a test feeds it transforms the validation rejects. `hiddenOf` also recovers, since it runs on the UI goroutine, from the zoom view and layout columns.
+- **Hidden fields are decoded again without the transforms** unless one of them extracted a hidden field. A layout column naming a hidden field costs 2.6 µs per drawn row, as before M6, instead of 12 µs.
+- Measured end to end (15 min demo window, 50 000 lines): the transforms add no measurable time over line generation. Retained memory goes from 2 103 to 2 110 B/line with 6.1 extracted fields per line, because extracted values are substrings of the message and small maps share one group. See `docs/plan/M6-qa.md`.
+Status: accepted.
+
+## D-045 `level_from` for JSON; it only raises the level (M7)
+- **Same key for `json` as for `regex`.** A JSON line's severity can live elsewhere than its level key, for example in an HTTP status that is a JSON key or a field extracted by a transform (M6). `level_from.field` is read as a JSON path, like `fields` and including hidden keys, since hiding is about display. Otherwise it is read as an extracted field. The rules are shared with `regex` in `logformat/levelfrom.go`. The core and the TUI do not change: the level is a plain `LogEntry.Level`.
+- **Only raises.** The line takes the more severe of its level and the matching rule's level. Override was rejected because a `*` rule would turn an ERROR logged during a request that answered 200 into INFO, which hides real errors from `e`, `>` and the counts. A value that matches no rule, or a missing field, keeps the level. `regex` did override, and gave UNKNOWN when no rule matched. It now follows the same rule, so one key has one meaning. The example folders are unchanged: nginx has no level group and uses a `*` rule, which a test checks.
+- **Cost**: about +0.2 µs and 2 allocations per JSON line with `level_from` (stringifying the value).
+- The plain decoder rejects `level_from`, and `field` and `map` must be set together.
+Status: accepted.
+
+## D-046 Filter on a field from zoom (M8.1)
+- **Equality, not a substring.** A text filter searches a substring of the searchable text, so `request_id=d04b1995` also matched `request_id=d04b19951` and `x_request_id=…`. A field filter (`domain.FieldFilter`, a `TextFilter` with `Field` set) matches when the field is exactly the value, case-sensitive, since ids are. `≠` keeps the lines without the field. It stacks with text filters in the same list, so `esc`, `x`, `n`/`N` and `X` work unchanged. It highlights nothing inside the line, since the value may not be drawn.
+- **The fields are those zoom lists**: `trace_id`, then the visible fields. `domain.FieldValue` also reads `logger`, `thread`, `app` and `pid` for later uses. **Hidden fields cannot be filtered**, because that would decode every buffered line again (about 12 µs per line with transforms, D-044), and they are already out of text search. A visible field named like a standard one is shadowed by the standard field.
+- **Keys** (remappable): `tab`/`shift+tab` select a field. There is no cursor until then, so zoom reads as before. `=` keeps and `!` excludes. Both then go back to the logs, on the zoomed entry when it still shows. `enter` keeps toggling the hidden fields.
+- **Cost**: one map lookup per line. `Select` over 50 000 lines takes 3.0 ms with a field filter, against 9.3 ms with a text filter.
+Status: accepted.
+
+## D-047 Trace view (M8.2)
+- **The trace is a field filter on `trace_id`** (D-046), over the buffer of the logs screen. The loaded window and the pods of the service are its scope. The config decides what `trace_id` is (a JSON key or a transform group), so the TUI knows no application field. Searching across services or before the window remains V2 (Cloud Logging, D-010).
+- **Filters, levels and pod scope are set aside, not applied**, because a trace is only useful whole. They are saved with the cursor entry and the scroll position, and restored on `esc`.
+  - Inside the trace, `/` adds filters that narrow it, and `esc` removes them first.
+  - `x` (highlight) is refused, since it would mix every line into the trace.
+  - Changing the window reloads, and the trace stays.
+- **Ordered by the entries' own time**, not by arrival (the buffer order), since the delta column is the time between the application's steps. Trace rows are sorted after a rebuild and after live lines arrive (only when out of order). Eviction drops them wherever they are. Late lines renumber the saved cursor entry.
+- **Delta column** owned by Huginn, like the pod id (`+0 ms`, `+102 ms`, `+1.2 s`, `+3 m 04 s`). Layouts are unchanged. The status bar shows `TRACE`, the id, the lines, the pods and the duration. It says `may start before the loaded lines` when the trace contains the buffer's first line.
+- **Deviations from the M8 plan**: there is no separate `domain.Trace`, since the M8.1 field filter already selects the lines. `/` in a trace narrows it instead of only highlighting, for one behaviour of `/` everywhere.
+- **Cost**: `v` then `esc` on a full buffer of 50 000 lines take 5.9 ms together, two rebuilds with a field filter (`BenchmarkTraceView`). A live line costs one map lookup, plus a sort of the trace rows only when it arrives out of order. There is no new goroutine and no copy of entries: the view holds sequence numbers.
+- The demo shares a trace id between neighbouring requests of every `order-orchestrator` pod, so `--demo` shows real multi-pod traces.
+Status: accepted.
+
+## D-048 Performance pass after M6–M8
+- **Hidden decisions are cached per JSON decoder.** `path.Match` over the `hidden` globs was about a quarter of every JSON line, for keys that repeat on every line. The cache holds "hidden" and "hidden with everything below" per key, behind a read lock, and is bounded to 4 096 keys. A copy-on-write map was measured and rejected: filling it is quadratic. Decoding went from 3.95 to 2.9 µs per line.
+- **Filter selection hoists the level set into a table.** The `LevelSet` map type and its semantics are unchanged, since an empty set must keep showing nothing. Only the loop over the buffer stops hashing.
+- **The theme is passed by pointer.** Copying it per drawn segment was a tenth of a frame.
+- Also: splitting pairs scans bytes, the lazy hidden loader captures nothing extra, and rebuilds skip the scope test when no pod or container is chosen.
+- The full report, with before/after numbers and the review findings (trace after a reload, regex mode), is `docs/plan/perf-pass-M8.md`.
+Status: accepted.
+
+## D-049 Select and copy log lines (M9.1)
+- **Selection by entries, not screen rows.** A range (`V`) and marks (`m`) hold sequence numbers, so wrapping, panning and folded stack traces do not matter. **Only displayed lines are copied.** Outside a trace, the range is every displayed entry between its two ends, found by binary search since rows are in sequence order, even when a filter hides an end. Inside a trace (time order), both ends must be displayed. Evicted entries leave the selection. `esc` clears a selection before anything else.
+- **Two forms.** `y` copies **as shown**: the pod id and the columns the user did not hide, uncolored, never truncated or wrapped, with whole stack traces, plus the delta in a trace. Columns hidden only because the terminal is narrow (`hide_below`) are copied, since a copy is not bound by the width. `Y` copies **raw**: the line as received, for `jq`. With no selection, both copy the cursor line; in zoom, the zoomed entry.
+- **Control characters are removed** from copies, except tab and new line: log text is untrusted (D-037), and a pasted escape sequence could act on the terminal it is pasted into.
+- **Clipboards (D-012):** the terminal's, through OSC 52 (`tea.SetClipboard`, written by the TUI, which owns the terminal). The system's goes through the new driven port `ports.Clipboard` and the adapter `adapters/driven/clipboard`, which runs the first command found. `ui.yaml clipboard: auto | osc52 | system | off`: `auto` sends OSC 52 and uses the system command only when one is installed, so SSH and containers get no warning on every copy. `copy.max_bytes` (1 MiB) refuses larger copies with a message, since terminals cap OSC 52; M9.2's save will take those.
+- **Cost:** a frame with a range over the screen and 1 000 marks takes 0.61 ms against 0.52 ms (`BenchmarkLogsFrameSelecting`). A 10 000-line copy is built in about 15 ms, only on `y`/`Y` (`BenchmarkCopy10000`).
+- **Deviation from the M9 plan:** selected rows get the gutter only, not a background, which would fight the level colors (D-020's `*` gutter).
+Status: accepted.
+
+## D-050 Save lines, redaction, mouse (M9.2, M9.3)
+- **`ctrl+s` saves the selection**, or every displayed line (not only the screen), in the form of the last copy: as shown, or raw after `Y`. There is no picker: the copy keys already choose the form. The file is `<repo>-<env>-<yyyymmdd-hhmmss>.log`, or `.raw.log` rather than the planned `.ndjson`, since raw lines are JSON only when the logs are.
+- **The lines are copied on the UI goroutine, then written away from it**, streamed. The buffer reuses its slots for new lines, so the writer never reads it: a copy of the entries and of the display settings (`lineWriter`) goes to the command. For 50 000 lines the UI waits about 11 ms for the copy; the write takes about 75 ms in the background (`BenchmarkSave50000`).
+- **The `filesink` adapter** writes in `ui.yaml save.dir`, which must exist and is never created behind the user's back. Files use `O_EXCL` (`-1`, `-2` suffixes, never overwritten) and mode `0600`. A failed or cancelled write leaves no half file. The name is sanitized.
+- **`domain.Redactor`** (ARCHITECTURE rule 10) replaces matches of `ui.yaml redact` with `[redacted]` in copies and saves, never on screen. No pattern is built in; the examples live in `examples/`. It does nothing when no pattern is set.
+- **Mouse:** a click moves the cursor, `shift`+click selects from the cursor, a drag selects. Each frame records the entry drawn on every screen row, so wrapped lines and folded stacks map back to their entry. `ui.yaml mouse: false` stops capturing the mouse (`MouseModeNone`), which gives the terminal's own selection back. Clicks are ignored under a popup.
+Status: accepted.
+
+## D-051 Light and dark themes, chosen from the terminal's background
+- **`light` and `dark` use fixed 256-color shades, not the 16 base ANSI colors.** Screenshots of every screen in real terminal palettes showed the base colors failing. ANSI "white", the old bar background, is `#e5e5e5` in xterm but `#555555` in VS Code's light terminal: dark bars there, with the crumbs and error counts almost invisible. On dark palettes (Darcula), ANSI bright black made dim text unreadable, the black chip vanished into the background, and the light theme's magenta warnings and white bars were wrong. The shades of the 256-color palette are the same in every terminal, and lipgloss maps them down on 16-color terminals. `accessible` keeps the 16 base colors, so a user can still get their own palette; `classic` and `none` are unchanged.
+- **Contrast is measured, not eyeballed.** `TestThemeContrast` computes WCAG ratios: at least 4.5 for every text color on several real backgrounds of its kind (white, One Half Light, Solarized light; black, VS Code dark, Darcula, Solarized dark), 7 for bar, chip, cursor and match text, and 4.5 or 3 for bold words on bars and chips. Light chips on the dark theme carry black text.
+- **`auto` is the default.** Bootstrap guesses from `COLORFGBG` (a background of 7 or 15 means light), else dark. The TUI then asks the terminal for its background color (`tea.RequestBackgroundColor`, OSC 11) and switches when it answers, dropping the painted inks. A theme named explicitly never switches. Checked in tmux 3.4: a white pane gets `light`, a black one `dark`.
+- **`paint_background`** paints the palette's own background (white or near black) for both themes.
+Status: accepted; supersedes the 16-color rule of D-020 for `light`.
+
+## D-052 Real GKE, round 2: M6-M9 coverage and NFRs under real load (M10)
+- Full report: [`deploy/gke-qa/M10-QA-REPORT.md`](../deploy/gke-qa/M10-QA-REPORT.md), design: [`docs/plan/M10-gke-qa.md`](plan/M10-gke-qa.md).
+- **No huginn runtime bugs found.** The two real bugs found and fixed were both in this session's own new QA fixtures: `internal/config`'s `TestUICopy` hardcoded a Unix path separator (`ExpandHome` correctly uses OS-native `filepath.Join`), and `formats/30-noisy.yaml` never matched because a format without `match` (`20-spring-json.yaml`) sorted before it — `docs/CONFIG.md` already documents "tried in file name order, no-match files should sort last," confirmed the hard way.
+- **Reusing M5's project surfaced real prerequisite drift, not assumptions**: the billing budget M5's plan said should already exist did not; the `huginn-reader` IAM principal had been deleted at M5's teardown; creating a service-account key is now blocked by an org policy that did not block it during M5, so the `kms` environment (sops+KMS) is deferred this round — `rec`/`restricted` do not depend on it. Kubernetes access without a static key works via `gcloud container clusters get-credentials --impersonate-service-account`.
+- **Granting the QA identity a project-level `roles/container.viewer` (for `get-credentials`) silently defeated the `qa-restricted` RBAC test** — a live reproduction of the IAM/RBAC union warning already in the README. Fixed by using the minimal `roles/container.clusterViewer` instead.
+- **M6-M9 features, never run against a real cluster before, all confirmed working on real data**: trace view against a real `trace_id` spanning two pods, field filter from zoom, `level_from` on a non-standard field, a custom `pair_pattern`, and select+mark+save with redaction confirmed end to end (a real fake email/token visible on screen, `[redacted]` in the saved file).
+- **NFR**: one real data point, 76 MB RSS / 2.7% CPU under mixed real load (idle trio + a tuned `payment-service-loadgen` + `noisy-fixture`, `--containers all`) — between M5's idle baseline (62-68 MB/2.8-5.9%) and the lab's synthetic-400 l/s number (280 MB/13%), consistent with this session's real aggregate rate sitting between the two. No `pprof` re-profile this round (time-boxed out, not silently skipped).
+- Not covered: mouse selection (hard to script via tmux), independent re-verification of `auto` theme beyond tmux 3.4 (same terminal D-051 itself used).
+Status: accepted.
+
+## D-053 Not logged in: credential plugins kept off the screen
+- **The bug:** with an expired gcloud session, `gke-gcloud-auth-plugin` fails and prints a dozen lines of advice to stderr. client-go runs exec plugins with the process's own stderr (and stdin, in interactive mode), with no option to change it, so that text was painted over the TUI on every retry. The failure itself comes back as `getting credentials: …` inside a `*url.Error`, a `net.Error`, so it read as "unreachable" and the screen never said to log in.
+- **Stderr:** `kubernetes.quietPlugin` points `os.Stderr` at a pipe while the clientsets of an exec kubeconfig are built: client-go captures it then, in the plugin's authenticator, which it caches for the life of the process. The pipe's lines go to the log (`source=auth-plugin`). The swap is short and serialized; anything else written to stderr in that window goes to the log too, which is where it belongs under the TUI. Rejected: running the plugins ourselves (re-implementing the exec credential protocol, caching and certificates), and redirecting stderr for the whole run in bootstrap (it would also hide output meant for after the TUI exits).
+- **Stdin:** the plugin is made non-interactive (`interactiveMode: Never`), whatever the kubeconfig says: under the TUI it cannot prompt, and reading stdin would steal keystrokes.
+- **Kind:** `getting credentials:` maps to `ErrUnauthorized`, shown as "not logged in". A plugin that is not installed (`executable X not found`, or the system's error for a path) maps to `ErrConfig` instead: retrying cannot help, and the message keeps the kubeconfig's `installHint` rather than client-go's generic help. A broken watch now also ends on `ErrConfig`, so a plugin removed mid-session is reported, not retried silently by the informers. The request URL is dropped from the message, and the plugin's path is shortened to its name.
+- **The reason is shown, not only logged.** Diagnostic logging is off by default, so the plugin's stderr would be lost and the screen would only say "exit code 1". The pipe's reader keeps the lines of the latest run (lines more than 500 ms apart start a new run); when a plugin fails, the error gets its reason: the text after the last `ERROR: ` (plugins wrap the error of the CLI they run, `gcloud`), else the first line, at most 300 characters. The plugin has exited when client-go returns, so its output is already in the pipe; `reason` waits until the reader has been idle for 20 ms (150 ms at most), and ignores output older than 2 s.
+- **The log is not flooded.** A failing plugin prints the same advice on every retry, for each namespace. Lines are logged without their klog header, and a line already logged is not logged again for 10 minutes.
+- **Error screens:** one layout, `tui.errorPanel`, for the services and logs error screens: a headline in the error's terms ("Not logged in to rec"), the message, what to do, the keys. Each part is wrapped to at most 76 columns; on a short terminal the message is cut first, so the advice and keys stay visible, and nothing goes past the screen.
+Status: accepted.
+
+## D-054 Narrow terminals: the environment always shows; one size test for every screen
+- **The header never drops the environment.** Below about 50 columns the connection state on the right took the room first, and `fill` cut the left side: at 40 columns `PRD` and the breadcrumb were gone, only the red bar was left. Now, as the width shrinks: the context goes (as before), the connection state loses its source and the word "synced", the brand goes, then the connection state is cut, then dropped. The environment tag and the breadcrumb stay.
+- **Popups wider than the terminal are clipped** (`placeOver`) instead of pushing the lines past the screen: the environment picker was 75 columns wide whatever the terminal.
+- **`TestLayoutFitsEverySize`** renders every screen and popup, and the loading and error states, from 20×5 to 220×60, and checks that each fills the terminal exactly, that no line is wider, and that the header names the environment. It found both bugs above. `TestLayoutScreensOpen` checks that its table still opens what it says.
+- **Waiting on a cluster that does not answer** shows the elapsed time after 2 s (`connecting to dev · 7s`): the dial times out after 10 s, which looked like a hang. The unreachable error screen says to check the network or VPN.
+Status: accepted.
+
+## D-055 Release pipeline, pinned CI tools
+- **goreleaser, as planned in M0 and D-013, was never added.** It is now: `.goreleaser.yaml` builds the same six CGO-free targets as `make cross`, stamps `buildinfo.Version` with the tag (`v` included, like `make build` from a tag), archives each binary with the README, `docs/CONFIG.md` and the examples (zip on Windows), and writes `checksums.txt`. Release notes come from the conventional commits since the previous tag, grouped into features and fixes; `docs`, `test` and `chore` commits are left out.
+- **`release.yml` runs on `v*` tags only**, with `contents: write`, and runs vet and the tests again before goreleaser: a tag must not publish what CI would reject. Every push runs `goreleaser check`, so the config cannot rot between releases. The procedure, the version policy (semver, `v0.1.0` first; a config change that needs users to edit their folder bumps MINOR before 1.0) and the manual checks CI cannot do (a real expired gcloud session, Windows) are in `docs/RELEASING.md`.
+- **CI tools are pinned:** golangci-lint `v2.14.0`, govulncheck `v1.8.0`, goreleaser `v2.18.2`, and exact action versions. `latest` let a new linter release turn `main` red with no change of ours. The actions move to their Node 24 majors (checkout and setup-go v7, golangci-lint-action v9, goreleaser-action v7): GitHub warned on every run that Node 20 is deprecated. Bumping a tool is a deliberate commit.
+Status: accepted.
+
+## D-056 Stale services are marked; the status bar puts failures first
+- **The catalog keeps the services of a namespace that lost its watch**, as last seen, so a session that expires does not empty the screen. They were shown as if live: the header said "error: not logged in", but a row could be 20 minutes old without a sign of it. `CatalogSnapshot.StaleSince` now says since when (the first failure of the oldest failing namespace; retries do not move it, a reconnection clears it). It is computed in the core, which knows when a watch failed; the UI only shows it.
+- **The services screen** starts the status bar with `stale since 18:54 (20m)`, ahead of everything so a narrow terminal keeps it, and dims the rows of the failing namespaces with `stale ·` at the start of the WHY column: dimming alone is invisible with the `none` theme.
+- **The status counts start with the status groups**, from the most urgent: at 80 columns, `14 repos + 1 without repo · 3 failin…` hid the one number that matters; it now reads `3 failing · 2 degraded/pending · …` and the repository count is what gets cut.
+Status: accepted.
+
+## D-057 Kafka topics, read only (M11)
+- **Scope: replace the debug script, nothing more.** Dotenv sources (sops for encrypted ones), SASL plain/scram, PEM or PKCS12 truststore, topics listed or discovered in the sources, tail/windows/follow. Other formats, auth methods, decoders and group lag wait for a real need (docs/plan/M11-kafka.md §10).
 - **No consumer group.** Partitions are assigned by hand (franz-go `ConsumePartitions`), never with a group id: no coordinator traffic, no rebalance of the pods' group, no offset commit. No config key can set a group id.
 - **Request allow-list, enforced before the bytes leave.** Huginn dials the brokers itself and a guard above TLS refuses any request other than ApiVersions, Metadata, ListOffsets, Fetch, SaslHandshake, SaslAuthenticate and OffsetForLeaderEpoch (read only; the client asks it after a leader change). Backed by `forbidigo`/`archtest` rules and a `kfake` contract test asserting the broker never receives anything else.
 - **franz-go** over sarama (heavier, consumer-group oriented) and confluent-kafka-go (cgo, librdkafka): pure Go, custom dialer, in-memory test broker. **go-pkcs12** for truststores, no `openssl`.
@@ -310,5 +502,6 @@ Status: accepted.
 - **Hardening.** Every franz-go poll is bounded (`IdleEnd`), so a read reports brokers lost and back (from the client's connect hook) while following, and a lost broker never ends the end-of-history detection early. The one-line preview reads only the first 16 KiB of a value and compacts JSON without validating it: a large value costs what a small one does; zoom still lays out the whole value. Retention gaps get no notice, since compaction makes the same gaps. After a code review: the history ends early only for partitions that already delivered records and stay silent for two polls (a partition still waiting for its first record waits the connect and request timeouts, so a slow VPN never shortens it); "unreachable" means every real broker failed, not one stale seed; connections of a profile are opened together; a session opened for a screen already closed is closed; records held while paused are bounded by bytes as well as count; newest-first keeps the records being read in place; finished reads leave nothing in the session; zoom lays a value out once.
 - **Resources.** Pause is backpressure: the screen stops taking batches and the blocked channels stop franz-go's polling, so nothing is fetched while paused and nothing piles up in memory (the one batch already on its way is held, bounded by count and bytes). Records copy their key, value and headers, cut to `max_value_bytes`, instead of pointing into franz-go's decompressed batch. A read keeps its own franz-go client rather than reusing one per source: reuse would save a handshake (about a second over a VPN) when changing window, but a purged topic's buffered fetches could leak into the next read, and correctness wins for a debugging tool.
 - **K4: a CLI next to the screens.** `huginn kafka check|read` reuse `app.KafkaService` through the composition root: the services screen needs a Kubernetes cluster, the Kafka settings do not, so a profile can be checked from a shell first. `--raw` writes values as received (line breaks as `\n`, a tombstone as `null`) into a pipe, and escapes control characters only on a terminal, where record data must not drive the screen. An environment named `kafka` would now be read as the subcommand; `-e kafka` still works.
-- **K3 choices.** Copy uses Bubble Tea's OSC 52 command (D-012), with no clipboard adapter: the terminal is the TUI's own. It copies the value only, as received when it is text or JSON (the exact payload, for replaying it elsewhere by hand), as a hex dump otherwise, capped at 64 KiB because terminals cap OSC 52. `n`/`N` are not offered: the Kafka filter hides non-matching records.
-Status: accepted (docs/plan/M5-kafka.md).
+- **K3 choices.** `y` copies the value only, as received when it is text or JSON (the exact payload, for replaying it elsewhere by hand), as a hex dump otherwise. It goes through the same path as log copies (D-049): `ui.yaml clipboard`, `redact` and control-character removal; a value above `copy.max_bytes` is cut there, with a message, rather than refused, since a Kafka screen has no save. `n`/`N` are not offered: the Kafka filter hides non-matching records.
+- **Screens follow the rest of the TUI.** Errors use the shared error panel with Kafka advice (credentials, ACLs, brokers and truststore, the profile); every Kafka screen is in the size test (D-054). The records list has a column header, one pod colour per partition, the date when the oldest record shown is from another day, the live rate in the `LIVE` chip and the count of newer records off screen; the zoom colours JSON member names. All are computed per frame from what is on screen, or once per record, so following costs the same.
+Status: accepted (docs/plan/M11-kafka.md).

@@ -8,7 +8,7 @@ import (
 	"sync/atomic"
 )
 
-// allowedKeys are the only Kafka requests Huginn may send (D-040): reading
+// allowedKeys are the only Kafka requests Huginn may send (D-057): reading
 // metadata and offsets, fetching records, authenticating. OffsetForLeaderEpoch
 // (23) is read only too: the client asks it after a leader change to check
 // its position. Everything that writes (Produce, OffsetCommit, group

@@ -1,13 +1,13 @@
- huginn  REC  gke_acme_europe-west1_main / app-rec   services                     demo · error: unauthorized · retrying 
+ huginn  REC  gke_acme_europe-west1_main / app-rec   services                    demo · error: not logged in · retrying 
                                                                                                                         
                                                                                                                         
                                                                                                                         
                                                                                                                         
-                                             Cannot reach rec: unauthorized                                             
+                                                 Not logged in to rec                                                   
                                                                                                                         
-                                                      unauthorized                                                      
+                                     Log in again: on GKE, run gcloud auth login.                                       
                                                                                                                         
-                log in again (on GKE: gcloud auth login) · retrying automatically · press r to retry now                
+                                     retrying automatically · press r to retry now                                      
                                                                                                                         
                                                                                                                         
                                                                                                                         
