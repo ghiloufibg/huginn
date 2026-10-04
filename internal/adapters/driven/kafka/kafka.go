@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"runtime/debug"
 	"slices"
 	"sync"
 	"time"
@@ -273,20 +274,36 @@ func (s *source) offsets(ctx context.Context, q ports.TopicRead) (map[int32]part
 		}
 		return out, nil
 	}
-	ends, err := list(-1) // latest
-	if err != nil {
-		return nil, err
+	// The three lookups are independent requests to the same brokers;
+	// running them concurrently instead of one after another saves two
+	// round trips' worth of latency every time a topic is opened.
+	type listResult struct {
+		offsets map[int32]int64
+		err     error
 	}
-	earliest, err := list(-2)
-	if err != nil {
-		return nil, err
-	}
-	var since map[int32]int64
+	var wg sync.WaitGroup
+	var endsRes, earliestRes, sinceRes listResult
+	wg.Add(2)
+	go func() { defer wg.Done(); endsRes.offsets, endsRes.err = list(-1) }()         // latest
+	go func() { defer wg.Done(); earliestRes.offsets, earliestRes.err = list(-2) }() // earliest
 	if q.Since > 0 {
-		if since, err = list(time.Now().Add(-q.Since).UnixMilli()); err != nil {
-			return nil, err
-		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sinceRes.offsets, sinceRes.err = list(time.Now().Add(-q.Since).UnixMilli())
+		}()
 	}
+	wg.Wait()
+	if endsRes.err != nil {
+		return nil, endsRes.err
+	}
+	if earliestRes.err != nil {
+		return nil, earliestRes.err
+	}
+	if q.Since > 0 && sinceRes.err != nil {
+		return nil, sinceRes.err
+	}
+	ends, earliest, since := endsRes.offsets, earliestRes.offsets, sinceRes.offsets
 	out := map[int32]partitionRange{}
 	for _, p := range parts {
 		end := ends[p]
@@ -361,6 +378,24 @@ func (s *source) Read(ctx context.Context, q ports.TopicRead) (<-chan ports.Reco
 func (s *source) poll(ctx context.Context, cl *kgo.Client, h *health, q ports.TopicRead, pending map[int32]int64, out chan<- ports.RecordBatch) {
 	defer close(out)
 	defer cl.Close()
+	// A panic here (e.g. an edge case in franz-go's decoding of a
+	// malformed or adversarial broker response) would otherwise end the
+	// whole process, not just this Kafka screen: recover, log it like any
+	// other background goroutine, and report it through the normal
+	// channel instead. Deferred after close(out)/cl.Close() so it runs
+	// before them on unwind (LIFO) and can still send on out.
+	defer func() {
+		if r := recover(); r != nil {
+			if s.opts.Log != nil {
+				s.opts.Log.Error("internal error recovered", "in", "kafka poll", "panic", fmt.Sprint(r), "stack", string(debug.Stack()))
+			}
+			err := fmt.Errorf("kafka poll: internal error (see the diagnostic log): %v", r)
+			select {
+			case out <- ports.RecordBatch{Err: err}:
+			case <-ctx.Done():
+			}
+		}
+	}()
 	historyDone := len(pending) == 0
 	send := func(b ports.RecordBatch) bool {
 		select {

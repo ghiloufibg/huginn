@@ -258,6 +258,43 @@ func TestCrashLoopWaitsForRestart(t *testing.T) {
 	r.until(10*time.Millisecond, func() bool { return f.logs.Following("ns", "api-1", "api") == 1 && podErr() == nil })
 }
 
+// TestSameNamedPodAcrossNamespaces: a repository's workloads can span
+// several namespaces of one environment, and pods of the same name can
+// exist in different namespaces (e.g. a StatefulSet's deterministic
+// "api-1"). The session must track them as distinct pods, not collide on
+// name alone and silently drop one's stream.
+func TestSameNamedPodAcrossNamespaces(t *testing.T) {
+	clock := portstest.NewFakeClock(t0)
+	fc := portstest.NewFakeCluster()
+	fc.AddWorkload(deployment("ns-a", "api", "shop", 1, 1))
+	fc.AddWorkload(deployment("ns-b", "api", "shop", 1, 1))
+	fc.PutPod(appPod("ns-a", "api-1", "api", true))
+	fc.PutPod(appPod("ns-b", "api-1", "api", true))
+	logs := portstest.NewFakeLogSource(clock)
+	logs.SetLines("ns-a", "api-1", "api", []domain.RawLine{line("api-1", t0.Add(-time.Minute), "from-a")}, nil)
+	logs.SetLines("ns-b", "api-1", "api", []domain.RawLine{line("api-1", t0.Add(-time.Minute), "from-b")}, nil)
+	s := &LogSessions{
+		Cluster: fc, Logs: logs, Clock: clock, Decoders: ports.OneDecoder{LogDecoder: passthrough{}},
+		Resolver: LabelResolver{Keys: []string{"app.kubernetes.io/part-of"}},
+		Scopes:   scopes("ns-a", "ns-b"),
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ch, err := s.Open(ctx, ports.LogQuery{Env: domain.Env("rec"), Repo: "shop", Window: domain.TimeWindow{Since: 15 * time.Minute}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := &reader{t: t, ch: ch, clock: clock}
+	r.until(10*time.Millisecond, func() bool { return r.history })
+	if len(r.pods) != 2 {
+		t.Fatalf("want 2 distinct pods (same name, different namespaces), got %d: %+v", len(r.pods), r.pods)
+	}
+	got := strings.Join(r.entries, ",")
+	if !strings.Contains(got, "from-a") || !strings.Contains(got, "from-b") {
+		t.Fatalf("want lines from both namespaces' pods, got %q", got)
+	}
+}
+
 // TestPodsOfOtherOwnersIgnored: selectors can overlap; a pod that names
 // another owner is not the repository's, even when its labels match.
 func TestPodsOfOtherOwnersIgnored(t *testing.T) {

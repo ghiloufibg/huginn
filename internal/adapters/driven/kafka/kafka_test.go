@@ -477,6 +477,45 @@ func TestSlowLinkDoesNotEndTheHistoryEarly(t *testing.T) {
 	}
 }
 
+// TestPollRecoversFromAPanic: poll runs in its own goroutine with no
+// caller to catch a panic; unlike it, an unrecovered panic there would end
+// the whole process (a malformed or adversarial broker response hitting
+// an edge case in franz-go's decoding, say), not just this Kafka screen.
+// h.take() on a nil *health forces exactly that kind of panic here.
+func TestPollRecoversFromAPanic(t *testing.T) {
+	c, produceN := newCluster(t)
+	produceN(3)
+	opened, err := (&Factory{Options: fastOptions(nil)}).Open(context.Background(), conn(c))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer opened.Close()
+	s := opened.(*source)
+	cl, err := kgo.NewClient(append(s.base, kgo.ConsumeTopics(topic))...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := make(chan ports.RecordBatch, 1)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		s.poll(context.Background(), cl, nil, ports.TopicRead{Topic: topic}, map[int32]int64{0: 1}, out)
+	}()
+	select {
+	case b := <-out:
+		if b.Err == nil || !strings.Contains(b.Err.Error(), "internal error") {
+			t.Fatalf("want a recovered-panic error batch, got %+v", b)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("poll did not report the panic through the channel")
+	}
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("poll's goroutine did not return after the panic")
+	}
+}
+
 func TestRecordsOwnTheirBytes(t *testing.T) {
 	batch := []byte("key-0123456789value-0123456789")
 	r := &kgo.Record{Key: batch[:14], Value: batch[14:], Headers: []kgo.RecordHeader{{Key: "h", Value: batch[:3]}}}
