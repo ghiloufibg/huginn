@@ -90,9 +90,18 @@ targeted manual-equivalent scripted checks) against the real cluster:
   Prerequisites above. `sops` was also not installed in the fresh native
   WSL environment used this round (a separate, unrelated gap from the
   credentials one).
-- **Mouse selection** (click/shift-click/drag, D-050): not exercised —
-  tmux `send-keys` cannot easily simulate mouse events; needs a manual
-  pass in a real terminal.
+- **Mouse selection** (click/shift-click/drag, D-050): not exercised this
+  round. **Closed later** (2026-10-04, no cluster needed): tmux
+  `send-keys -H` can inject raw SGR mouse escape sequences as literal
+  bytes, which bubbletea/ultraviolet decode exactly like a real mouse —
+  see [`deploy/gke-qa/mouse-test.sh`](mouse-test.sh). Click, shift+click,
+  drag and wheel all confirmed working against `--demo`. `ui.yaml
+  mouse: false` needed a different, more careful test: it works by never
+  sending the terminal the `CSI ?1002h`/`?1006h` mouse-report-enable
+  sequences in the first place (confirmed by inspecting Huginn's raw
+  output via `tmux pipe-pane`), not by filtering incoming mouse bytes
+  defensively — injecting raw bytes directly bypasses that gate and
+  cannot validly test it, a methodological trap worth remembering.
 - **`auto` theme** (D-051, OSC 11 background query): the app ran correctly
   under it with no crash, but contrast/switching wasn't independently
   re-verified beyond what `TestThemeContrast` already covers — D-051 itself
