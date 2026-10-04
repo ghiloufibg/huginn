@@ -113,13 +113,37 @@ was active:
 
 ### Not covered this session
 
-- `--committed`/`--raw` CLI flags specifically (isolation and raw-copy
-  were exercised via the TUI's `i`/`Y`-equivalent instead; the CLI flags
-  themselves weren't separately invoked) — low risk, same code path.
-  [`e2e-m12.sh`](e2e-m12.sh) (added after this session) doesn't invoke
-  them directly either, for the same reason.
 - OAUTHBEARER/mTLS/JKS and other M11 §10 "not in this version" items are
   correctly out of scope — nothing to test.
+
+## Follow-up: infrastructure-dependent gaps closed (2026-10-04, D-060)
+
+Once the user ran `gcloud auth login` and `gcloud auth application-default
+login`, re-provisioned infrastructure made the remaining gaps testable:
+
+- **`--committed`/`--raw` CLI flags**: tested explicitly.
+  `--committed` showed all 7 real records unaffected (correct — none are
+  transactional, so isolation doesn't hide anything). `--raw` showed the
+  exact received bytes: plain text/JSON for text records, literal `null`
+  for the tombstone, and the real raw bytes (schema framing, binary) —
+  matching README's documented raw-copy semantics exactly.
+- **`e2e-m12.sh`, run live for the first time**: found and fixed three
+  real bugs **in the script itself**, not huginn — exactly what a first
+  live run is for:
+  1. `start()` didn't forward `CLOUDSDK_CONFIG`, so the real
+     `gke-gcloud-auth-plugin` (used by the "rec" context) couldn't find
+     the logged-in account and every TUI check failed with
+     "not logged in" — unrelated to the fix this round made to the `kms`
+     environment's *credentials*; this was the K8s API auth path.
+  2. The Kafka-screen navigation sent an extra `Enter` after confirming
+     the `/` filter, which actually opens the highlighted repo's regular
+     logs screen (per README: "enter open the repository") — every
+     downstream check then ran against the wrong screen.
+  3. The copy-confirmation check raced the flash message's own 2s TTL
+     (`model.go`'s `flashDuration`): the generic `keys()` helper's
+     built-in 1.3s delay left almost no window for `expect()` to catch it.
+  All three fixed; the script now passes end to end against a real
+  cluster. No huginn code bug found — see D-060.
 
 ## NFR
 

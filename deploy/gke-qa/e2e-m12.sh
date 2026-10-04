@@ -8,6 +8,11 @@
 # Prerequisites (one-time, see deploy/gke-qa/wsl-setup.sh):
 #   - run from WSL, not Git Bash (tmux and the Linux huginn binary need it)
 #   - sops and age on PATH, SOPS_AGE_KEY_FILE set to the session's age.key
+#   - CLOUDSDK_CONFIG exported to the shared Windows gcloud config (so the
+#     real gke-gcloud-auth-plugin, used by the "rec" context, finds the
+#     logged-in account -- WSL's own gcloud config has none by default).
+#     The "rec" K marker/TUI checks fail with "not logged in" otherwise,
+#     a real bug caught running this script live for the first time.
 #   - kubectl port-forward -n qa-rec svc/kafka-qa 9092:9092 9094:9094 running
 #   - deploy/gke-qa/kafka-workloads.yaml, kafka-orders-fixture.yaml,
 #     kafka-catalog-fixture.yaml applied; topics and the ACL on
@@ -27,7 +32,7 @@ screen() { tmux capture-pane -p -t e2e-m12; }
 start() { # start <env>
   tmux kill-session -t e2e-m12 2>/dev/null || true
   tmux new-session -d -s e2e-m12 -x 220 -y 50 \
-    "KUBECONFIG=$KUBECONFIG SOPS_AGE_KEY_FILE=$SOPS_AGE_KEY_FILE $BIN --config $CFG $1; sleep 600"
+    "KUBECONFIG=$KUBECONFIG CLOUDSDK_CONFIG=${CLOUDSDK_CONFIG:-} SOPS_AGE_KEY_FILE=$SOPS_AGE_KEY_FILE $BIN --config $CFG $1; sleep 600"
 }
 expect() {
   i=0
@@ -63,8 +68,8 @@ expect "catalog repo shows K marker" "catalog K" 5
 
 echo "# M8-style Kafka screen: CONSUMES/PRODUCES/TOPICS grouping"
 keys /
-keys o r d e r s Enter Enter
-keys M
+keys o r d e r s Enter   # confirms the filter only (README: "enter keeps");
+keys M                   # a second Enter here would open orders' own logs screen instead -- a real bug this script had on its first live run
 expect "orders Kafka screen opens" "CONSUMES" 15
 expect "topic-restricted shows its forbidden reason inline" "not authorized" 10
 
@@ -78,8 +83,8 @@ keys o
 expect "order toggle (newest first)" "bin-key-2" 10
 keys i
 expect "isolation toggle" "committed" 10
-keys y
-expect "copy confirms in the status bar" "copied" 10
+tmux send-keys -t e2e-m12 y   # not keys(): its own 1.3s delay would eat most
+expect "copy confirms in the status bar" "copied" 2   # of the 2s flash window (model.go flashDuration)
 
 keys Escape Escape Escape
 tmux kill-session -t e2e-m12 2>/dev/null || true

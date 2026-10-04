@@ -89,7 +89,15 @@ targeted manual-equivalent scripted checks) against the real cluster:
 - **`kms` environment** (`namespace_from` via sops+GCP KMS): deferred, see
   Prerequisites above. `sops` was also not installed in the fresh native
   WSL environment used this round (a separate, unrelated gap from the
-  credentials one).
+  credentials one). **Closed later** (2026-10-04, D-060): once the user
+  ran `gcloud auth application-default login` once, the SA-key-creation
+  org policy no longer blocked this — Application Default Credentials
+  work for GCP KMS without any static key. Tested properly as the
+  `huginn-reader` identity specifically (not just the admin account) by
+  constructing an `impersonated_service_account` ADC file from the admin's
+  own `authorized_user` ADC as `source_credentials` — fully non-interactive,
+  no second browser login. The `kms` environment synced correctly through
+  the real TUI, resolving `qa-rec` via sops+KMS end to end.
 - **Mouse selection** (click/shift-click/drag, D-050): not exercised this
   round. **Closed later** (2026-10-04, no cluster needed): tmux
   `send-keys -H` can inject raw SGR mouse escape sequences as literal
