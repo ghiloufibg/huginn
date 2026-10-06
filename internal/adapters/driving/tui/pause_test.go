@@ -54,15 +54,21 @@ func TestLateEntriesArePlacedByTime(t *testing.T) {
 		{Pod: "payment-service-1", Received: at, Message: "a first"},
 		{Pod: "payment-service-1", Received: at.Add(3 * time.Second), Message: "d last"},
 	}})
+	before := l.buf.Len()
 	feed(m, l, ports.LogBatch{Late: []domain.LogEntry{
 		{Pod: "payment-service-2", Received: at.Add(2 * time.Second), Message: "c recovered"},
 		{Pod: "payment-service-2", Received: at.Add(time.Second), Message: "b recovered"},
 	}})
+	if l.buf.Len() != before || len(l.lateWaiting) != 2 || !l.lateTick {
+		t.Fatalf("late entries are merged on the next late tick, not per batch (buffer %d)", l.buf.Len())
+	}
+	feed(m, l, ports.LogBatch{Late: []domain.LogEntry{{Pod: "payment-service-3", Received: at.Add(1500 * time.Millisecond), Message: "b2 recovered"}}})
+	m.Update(lateTickMsg{screen: l, gen: l.gen})
 	var got []string
-	for i := l.buf.Len() - 4; i < l.buf.Len(); i++ {
+	for i := l.buf.Len() - 5; i < l.buf.Len(); i++ {
 		got = append(got, l.buf.At(i).Message)
 	}
-	if strings.Join(got, ",") != "a first,b recovered,c recovered,d last" {
+	if strings.Join(got, ",") != "a first,b recovered,b2 recovered,c recovered,d last" || l.lateTick || l.lateWaiting != nil {
 		t.Fatalf("order %v", got)
 	}
 	if n := len(l.rows); n != l.buf.Len() {

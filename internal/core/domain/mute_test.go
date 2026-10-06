@@ -1,6 +1,9 @@
 package domain
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
 
 func TestLoggerMute(t *testing.T) {
 	m, err := NewLoggerMute([]string{"com.example.pool.Pool", "com.example.metrics.*", "Snap*"}, []Level{LevelError})
@@ -72,20 +75,36 @@ func TestCheckMutePattern(t *testing.T) {
 	}
 }
 
-func BenchmarkLoggerMute(b *testing.B) {
-	patterns := []string{"com.example.pool.Pool", "com.example.metrics.Snapshot"}
-	for i := range 18 {
-		patterns = append(patterns, "org.lib"+string(rune('a'+i))+".*")
-	}
-	m, err := NewLoggerMute(patterns, []Level{LevelError})
+func TestLoggerMuteLongerPrefixWins(t *testing.T) {
+	m, err := NewLoggerMute([]string{"com.*", "com.example.*"}, nil)
 	if err != nil {
-		b.Fatal(err)
+		t.Fatal(err)
 	}
-	e := LogEntry{Logger: "com.example.orders.OrderService", Level: LevelInfo}
-	muted := LogEntry{Logger: "org.libr.Pool", Level: LevelInfo}
-	b.ReportAllocs()
-	for b.Loop() {
-		m.Mutes(&e)
-		m.Match(&muted)
+	if got, _ := m.Match(&LogEntry{Logger: "com.example.Pool"}); got != "com.example.*" {
+		t.Fatalf("Match = %q, want the longer prefix", got)
+	}
+}
+
+// BenchmarkLoggerMute checks one shown and one muted entry; the cost must
+// not depend on the number of patterns.
+func BenchmarkLoggerMute(b *testing.B) {
+	for _, n := range []int{1, 20, 200} {
+		b.Run(fmt.Sprint(n, "patterns"), func(b *testing.B) {
+			patterns := []string{"com.example.pool.Pool"}
+			for i := range n {
+				patterns = append(patterns, fmt.Sprintf("org.lib%03d.*", i))
+			}
+			m, err := NewLoggerMute(patterns, []Level{LevelError})
+			if err != nil {
+				b.Fatal(err)
+			}
+			e := LogEntry{Logger: "com.example.orders.OrderService", Level: LevelInfo}
+			muted := LogEntry{Logger: fmt.Sprintf("org.lib%03d.Pool", n-1), Level: LevelInfo}
+			b.ReportAllocs()
+			for b.Loop() {
+				m.Mutes(&e)
+				m.Match(&muted)
+			}
+		})
 	}
 }

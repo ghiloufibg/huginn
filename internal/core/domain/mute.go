@@ -3,6 +3,7 @@ package domain
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -15,8 +16,13 @@ import (
 // It is immutable and safe for concurrent use; a nil *LoggerMute mutes
 // nothing.
 type LoggerMute struct {
-	exact    map[string]struct{}
-	prefixes []string // the patterns ending in "*"
+	exact map[string]struct{}
+	// prefixes maps each prefix (a pattern without its "*") to its
+	// pattern; lengths lists their distinct lengths, longest first. A
+	// logger is checked with one lookup per length, however many
+	// patterns there are.
+	prefixes map[string]string
+	lengths  []int
 	keep     LevelSet // levels shown even from a muted logger
 }
 
@@ -26,19 +32,23 @@ func NewLoggerMute(patterns []string, keep []Level) (*LoggerMute, error) {
 	if len(patterns) == 0 {
 		return nil, nil
 	}
-	m := &LoggerMute{exact: map[string]struct{}{}, keep: LevelSet{}}
+	m := &LoggerMute{exact: map[string]struct{}{}, prefixes: map[string]string{}, keep: LevelSet{}}
 	var errs []error
 	for _, p := range patterns {
 		if err := CheckMutePattern(p); err != nil {
 			errs = append(errs, err)
 			continue
 		}
-		if strings.HasSuffix(p, "*") {
-			m.prefixes = append(m.prefixes, p)
+		if prefix, ok := strings.CutSuffix(p, "*"); ok {
+			if !slices.Contains(m.lengths, len(prefix)) {
+				m.lengths = append(m.lengths, len(prefix))
+			}
+			m.prefixes[prefix] = p
 		} else {
 			m.exact[p] = struct{}{}
 		}
 	}
+	slices.SortFunc(m.lengths, func(a, b int) int { return b - a })
 	for _, l := range keep {
 		m.keep[l] = true
 	}
@@ -68,7 +78,8 @@ func (m *LoggerMute) Mutes(e *LogEntry) bool {
 }
 
 // Match is Mutes, also returning the pattern that hides the entry, as
-// configured. An exact name wins over a prefix.
+// configured. An exact name wins over a prefix, and a longer prefix over
+// a shorter one.
 func (m *LoggerMute) Match(e *LogEntry) (pattern string, ok bool) {
 	if m == nil || e.Logger == "" || m.keep[e.Level] {
 		return "", false
@@ -76,8 +87,11 @@ func (m *LoggerMute) Match(e *LogEntry) (pattern string, ok bool) {
 	if _, ok := m.exact[e.Logger]; ok {
 		return e.Logger, true
 	}
-	for _, p := range m.prefixes {
-		if strings.HasPrefix(e.Logger, p[:len(p)-1]) {
+	for _, n := range m.lengths {
+		if n > len(e.Logger) {
+			continue
+		}
+		if p, ok := m.prefixes[e.Logger[:n]]; ok {
 			return p, true
 		}
 	}

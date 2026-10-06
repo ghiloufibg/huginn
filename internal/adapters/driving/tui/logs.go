@@ -33,7 +33,17 @@ type (
 		ch     <-chan ports.LogBatch
 		closed bool
 	}
+	// lateTickMsg merges the late entries received since the last merge.
+	lateTickMsg struct {
+		screen *logsScreen
+		gen    int
+	}
 )
+
+// lateEvery is the most often late entries are merged: a merge re-sorts
+// the buffer and rebuilds the view, and a stream recovering from an outage
+// delivers what it missed over many batches.
+const lateEvery = 250 * time.Millisecond
 
 // podIDMode is how pods are identified at the start of each line.
 type podIDMode int
@@ -86,21 +96,25 @@ type logsScreen struct {
 	formats        map[string]bool // formats of the entries received (their layouts' columns are offered)
 
 	// viewport
-	cursor     int  // position in display order
-	offset     int  // first displayed position
-	tail       bool // cursor sticks to the newest line
-	paused     bool
-	frozen     int               // len(view) when paused
-	held       []domain.LogEntry // arrived while paused, not yet in the buffer
-	heldLate   []domain.LogEntry // same, for late entries
-	heldLost   int               // held entries dropped (more than the buffer holds)
-	newestTop  bool
-	wrap       bool
-	pan        int
-	timestamps ports.TimestampMode
-	podID      podIDMode
-	fullscreen bool
-	height     int
+	cursor   int  // position in display order
+	offset   int  // first displayed position
+	tail     bool // cursor sticks to the newest line
+	paused   bool
+	frozen   int               // len(view) when paused
+	held     []domain.LogEntry // arrived while paused, not yet in the buffer
+	heldLate []domain.LogEntry // same, for late entries
+	heldLost int               // held entries dropped (more than the buffer holds)
+	// lateWaiting are late entries not merged yet (lateEvery); a merge
+	// is scheduled when lateTick is set.
+	lateWaiting []domain.LogEntry
+	lateTick    bool
+	newestTop   bool
+	wrap        bool
+	pan         int
+	timestamps  ports.TimestampMode
+	podID       podIDMode
+	fullscreen  bool
+	height      int
 
 	// columns (columns.go)
 	hide          ports.ColumnSet // names of columns hidden by the user
@@ -161,6 +175,7 @@ func (l *logsScreen) open(m *Model) tea.Cmd {
 	l.buf.Reset()
 	l.rows, l.cursor, l.tail, l.paused, l.err, l.loading, l.notice = nil, 0, true, false, nil, true, ""
 	l.held, l.heldLate, l.heldLost = nil, nil, 0
+	l.lateWaiting, l.lateTick = nil, false
 	l.formats = map[string]bool{}
 	l.levels, l.live, l.rate, l.muted, l.mutedBy, l.skipped = [domain.LevelError + 1]int{}, false, rateMeter{}, 0, nil, 0
 	if m.opts.Sessions == nil {
@@ -209,7 +224,20 @@ func (l *logsScreen) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 			return false, nil
 		}
 		l.apply(msg.batch, m.opts.Now())
-		return true, l.wait(msg.gen, msg.ch)
+		cmd := l.wait(msg.gen, msg.ch)
+		if len(l.lateWaiting) > 0 && !l.lateTick {
+			l.lateTick = true
+			gen := l.gen
+			cmd = tea.Batch(cmd, tea.Tick(lateEvery, func(time.Time) tea.Msg { return lateTickMsg{screen: l, gen: gen} }))
+		}
+		return true, cmd
+	case lateTickMsg:
+		if msg.screen != l || msg.gen != l.gen {
+			return false, nil
+		}
+		l.lateTick = false
+		l.mergeWaiting()
+		return true, nil
 	case filterTickMsg:
 		if msg.screen != l {
 			return false, nil
@@ -251,7 +279,7 @@ func (l *logsScreen) apply(b ports.LogBatch, now time.Time) {
 		l.hold(b.Entries, b.Late)
 	} else {
 		l.ingest(b.Entries)
-		l.mergeLate(b.Late)
+		l.waitLate(b.Late)
 	}
 	if b.Pods != nil {
 		l.pods = b.Pods
@@ -319,6 +347,31 @@ func (l *logsScreen) noteFormat(f string) {
 		}
 		l.formats[f] = true
 	}
+}
+
+// waitLate keeps late entries until the next merge (lateEvery), at most a
+// buffer's worth: older ones would be evicted by the merge.
+func (l *logsScreen) waitLate(late []domain.LogEntry) {
+	l.lateWaiting = append(l.lateWaiting, late...)
+	if over := len(l.lateWaiting) - l.buf.Cap(); over > 0 {
+		slices.SortStableFunc(l.lateWaiting, func(a, b domain.LogEntry) int { return a.OrderTime().Compare(b.OrderTime()) })
+		clear(l.lateWaiting[:over])
+		l.lateWaiting = l.lateWaiting[over:]
+		l.skipped += uint64(over)
+	}
+}
+
+// mergeWaiting merges the late entries waiting, in one pass over the
+// buffer.
+func (l *logsScreen) mergeWaiting() {
+	late := l.lateWaiting
+	l.lateWaiting = nil
+	if l.paused { // the pause holds them until it ends
+		l.hold(nil, late)
+		return
+	}
+	l.mergeLate(late)
+	l.evict()
 }
 
 // mergeLate places entries older than some shown ones at their place.

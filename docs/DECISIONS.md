@@ -300,7 +300,7 @@ Status: accepted.
 Some loggers are noise (connection pool state, resource snapshots). `mute.loggers` in a format hides their lines.
 - **Dropped before the buffer, not filtered in the view.** Lines are matched right after decoding, in the tailers (live) and the parallel decoding jobs (history). A muted line never takes a channel slot, a reorder slot, a buffer slot or a filter pass, so a chatty logger cannot evict the application's lines (the reasoning that keeps sidecars out, D-038), and the UI goroutine never sees it. The cost: showing them again reloads the session (`M`, `LogQuery.NoMute`), like `A`. A view-side "noise" filter (instant toggle) was rejected for that reason.
 - **In the format file.** The format is where "logger" is defined (`fields.logger`, a regex group), so validation can refuse a mute that cannot work (`plain`, no logger field), and `match` already scopes it per repository or container. A separate `mute.yaml` with its own match rules was rejected: a second matching mechanism.
-- **Exact names and prefixes only.** One map lookup and a few prefix checks per line (~80 ns, no allocation, with 20 patterns); general globs or regexes would cost more on every line for little gain. Case-sensitive, as the line writes the name.
+- **Exact names and prefixes only.** One map lookup for exact names, and one per distinct prefix length for prefixes (longest first, so the most specific prefix names the count): about 25 ns per line, no allocation, the same with 1 or 200 patterns. General globs or regexes would cost more on every line for little gain. Case-sensitive, as the line writes the name.
 - **Errors are muted too**, unless listed in `mute.keep`: the user asked for the logger to disappear; `keep: [error]` is the opt-in safety valve.
 - **Resume and backoff count read lines.** A muted line still moves the resume point (`sinceTime`, the lines seen at the last second) and counts as stream activity, so a stream of muted lines neither replays them after a reconnect nor looks dead. Muted lines do not use up the history's room: a container whose format mutes reads up to twice the limit (D-042).
 - **Counted, never silent.** Tailers count muted lines per pattern (`LoggerMute.Match` names the pattern without allocating) and send the counts with their batches of live lines (D-041); the session loop alone sums them, without locks. Once per flush tick at most, a batch carries the lines muted since the previous one (`LogBatch.Muted`) and a copy of the counts per pattern (`MutedBy`). The status bar shows the total, help (`?`) the counts per pattern, and an empty view says when every line was muted.
@@ -322,5 +322,9 @@ Measured before: each container's history (up to the buffer size, 50 000 lines) 
 - **Heads are decoded as read**, since a head counts the lines it shows (at most `windows.head_lines` per container), and offered decoded.
 - **Pods that appear after the history was cut** keep and decode their own history (bounded by the buffer), placed by the reorder window as before.
 - **Lines without a source time** can no longer escape the cut: they are bounded too, kept in read order.
+Status: accepted.
+
+## D-043 Late entries merged at most every 250 ms
+Entries older than what the view shows (a stream recovering from an outage delivers what it missed) are placed by time, which re-sorts the buffer and rebuilds the view: O(buffer). A recovery delivers them over many batches, so merging per batch cost O(buffer) up to 30 times a second. The view now keeps them (at most a buffer's worth) and merges them once per 250 ms tick, scheduled only while some wait.
 Status: accepted.
 
