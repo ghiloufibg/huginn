@@ -161,6 +161,7 @@ To check a profile without the TUI or a Kubernetes cluster, use `huginn kafka ch
 | `f` | follow live records on/off |
 | `space` | pause / resume: while paused, the brokers are not read at all |
 | `i` | isolation: every record, or committed records only |
+| `D` | records written by Schema Registry serializers: decoded (Avro, JSON Schema) or as their bytes, when the profile has `schema_registry` |
 | `/` | filter: `key=…`, `partition=N`, `header.<name>=…`, or text in the key, value or headers |
 | `enter` | the topic's records / the record in full (`J`/`K` next/previous record) |
 | `o` | newest or oldest first |

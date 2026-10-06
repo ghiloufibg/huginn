@@ -1,0 +1,12 @@
+ huginn  REC  gke_acme_europe-west1_main / app-rec   services / payment-service / kafka / payments.requested                  demo · watching · synced 19:14:02 
+ TIME         P   OFFSET    KEY                      VALUE                                                                                                      
+ 19:14:02.000 p0  #1000     PAY-00000                avro 7 · {"orderId":"ord-1","quantity":3,"note":{"string":"gift"}}                                         
+ 19:14:03.000 p1  #1001     PAY-00001                schema 404, 6 B · registry answered 404 Schema not found: not found\x1b[2J                                 
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+ STOPPED   last 100 per partition  ·  2 records  ·  uncommitted                                                                                                 
+ enter zoom  / filter  1-7 window  0 tail  f follow  space pause  i isolation  D bytes  y copy  esc back                                                        

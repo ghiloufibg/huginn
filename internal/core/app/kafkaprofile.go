@@ -57,6 +57,25 @@ type KafkaRegistrySpec struct {
 	Timeout            string
 }
 
+// over returns r with the fields set in o replacing its own.
+func (r KafkaRegistrySpec) over(o KafkaRegistrySpec) KafkaRegistrySpec {
+	pick := func(a, b string) string {
+		if b != "" {
+			return b
+		}
+		return a
+	}
+	out := KafkaRegistrySpec{
+		URL: pick(r.URL, o.URL), Username: pick(r.Username, o.Username), Password: pick(r.Password, o.Password),
+		Token: pick(r.Token, o.Token), CA: pick(r.CA, o.CA), CAPassword: pick(r.CAPassword, o.CAPassword),
+		Decode: r.Decode, Timeout: pick(r.Timeout, o.Timeout),
+	}
+	if len(o.Decode) > 0 {
+		out.Decode = o.Decode
+	}
+	return out
+}
+
 // KafkaTopicSpec is a topic as written.
 type KafkaTopicSpec struct {
 	Name string

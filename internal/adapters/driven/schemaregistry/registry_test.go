@@ -296,3 +296,34 @@ func TestWaitersFollowTheirContext(t *testing.T) {
 		t.Fatalf("waited %v: %v", time.Since(start), err)
 	}
 }
+
+// BenchmarkDecodeCached decodes framed records whose schemas are cached
+// (every record after the first of its schema), from 20 schemas.
+func BenchmarkDecodeCached(b *testing.B) {
+	r := newRegistry()
+	recs := make([][]byte, 20)
+	for i := range recs {
+		id := uint32(1000 + i)
+		r.ids[id] = r.ids[7]
+		recs[i] = portstest.Framed(id, []byte{10, 'o', 'r', 'd', '-', '1', 6, 2, 8, 'g', 'i', 'f', 't'})
+	}
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+	d, err := (&Factory{}).Open(context.Background(), domain.SchemaRegistryConn{URL: srv.URL})
+	if err != nil {
+		b.Fatal(err)
+	}
+	for _, rec := range recs {
+		if _, _, err := d.Decode(context.Background(), rec); err != nil {
+			b.Fatal(err)
+		}
+	}
+	b.ReportAllocs()
+	i := 0
+	for b.Loop() {
+		if _, _, err := d.Decode(context.Background(), recs[i%len(recs)]); err != nil {
+			b.Fatal(err)
+		}
+		i++
+	}
+}

@@ -1,4 +1,4 @@
-# M13 — Schema Registry records decoded (Avro, JSON Schema)  (status: S0 to S2 done)
+# M13 — Schema Registry records decoded (Avro, JSON Schema)  (status: S0 to S3 done)
 
 ## 0. In one paragraph
 Records written by Confluent serializers start with `0x00` and a 4-byte schema id. Today the Kafka screens recognise this framing and show `schema <id>, N B` with a hex dump (M11 §5). This milestone **decodes them**, as Confluent's Java `KafkaAvroDeserializer` and `KafkaJsonSchemaDeserializer` do: the writer schema is read from the Schema Registry by id, and the record is shown as JSON. Huginn stays read only: there is no serializer, the registry is only ever read (GET), and nothing about it exists unless a Kafka profile names a registry.
@@ -83,7 +83,7 @@ archtest       rules for the two packages
 1. **S0 — config and ports** (done): `schema_registry` in profiles, validation, schema, CONFIG.md; domain types, ports, fakes, contract suite.
 2. **S1 — avrojson** (done: `schemaregistry/avrojson`, a sub-package of the registry adapter since adapters do not import each other; hamba/avro confined to it by archtest; a record using every type decodes in about 4.5 µs, 12 allocations; 2.8 million fuzzed inputs without a failure): transcoder, golden fixtures (every type, unions, logical types, nesting, arrays, maps, references), fuzzing, benchmark.
 3. **S2 — schemaregistry** (done; it passes the S0 contract suite over HTTP): HTTP client against `httptest.Server`: cache, one fetch per id, negative cache, GET guard, basic/bearer auth, TLS, references; JSON Schema.
-4. **S3 — app and screens**: decode before truncation, failures as `SchemaRef.Err`, notices, list/zoom/help, the undecoded key, golden files.
+4. **S3 — app and screens** (done; the undecoded key is `D`; help lists the key, the registry state is in the status bar notices): decode before truncation, failures as `SchemaRef.Err`, notices, list/zoom/help, the undecoded key, golden files.
 5. **S4 — CLI and demo**: `kafka read`/`check`; the demo's framed records become real Avro and JSON Schema with a fake registry, so `--demo` shows the feature; README; D-067.
 
 ## 9. Not in this version (added only on a real need)

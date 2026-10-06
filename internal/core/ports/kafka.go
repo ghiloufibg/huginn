@@ -90,6 +90,9 @@ type KafkaQuery struct {
 	Window        domain.TimeWindow
 	Follow        bool
 	ReadCommitted bool
+	// Raw leaves records written by Schema Registry serializers
+	// undecoded, even when the profile names a registry.
+	Raw bool
 }
 
 // KafkaBatch is what a topic read delivers to the screen. Records are in
@@ -108,6 +111,9 @@ type KafkaBatch struct {
 type KafkaSession interface {
 	// Profile names the profile that applied (its file name).
 	Profile() string
+	// Decodes reports whether records written by Schema Registry
+	// serializers are decoded (the profile names a registry).
+	Decodes() bool
 	Topics() []KafkaTopicState
 	// Read streams the records of one topic; the channel closes when ctx
 	// is cancelled or the read ends.

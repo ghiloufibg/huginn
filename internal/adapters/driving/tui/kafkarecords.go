@@ -39,6 +39,9 @@ type kafkaRecordsScreen struct {
 	window        domain.TimeWindow
 	follow        bool
 	readCommitted bool
+	// raw shows framed records as their bytes instead of decoding them
+	// with the profile's Schema Registry (D switches, reading again).
+	raw bool
 
 	gen     int
 	cancel  context.CancelFunc
@@ -103,7 +106,7 @@ func (r *kafkaRecordsScreen) open(m *Model) tea.Cmd {
 	ctx, cancel := context.WithCancel(m.opts.Context)
 	r.cancel = cancel
 	gen := r.gen
-	q := ports.KafkaQuery{Topic: r.topic.Name, Window: r.window, Follow: r.follow, ReadCommitted: r.readCommitted}
+	q := ports.KafkaQuery{Topic: r.topic.Name, Window: r.window, Follow: r.follow, ReadCommitted: r.readCommitted, Raw: r.raw}
 	return func() tea.Msg {
 		ch, err := sess.Read(ctx, q)
 		return kafkaStartedMsg{screen: r, gen: gen, ch: ch, err: err}
@@ -356,6 +359,14 @@ func (r *kafkaRecordsScreen) key(m *Model, msg tea.KeyPressMsg) (bool, tea.Cmd) 
 		r.readCommitted = !r.readCommitted
 		m.flash("isolation " + r.isolation())
 		return true, r.open(m)
+	case keys.Is(key, ActRawRecords):
+		if !r.decodes() {
+			m.flash("no schema_registry in this Kafka profile: records are shown as they are")
+			return true, nil
+		}
+		r.raw = !r.raw
+		m.flash(map[bool]string{true: "records as bytes, not decoded", false: "records decoded with the Schema Registry"}[r.raw])
+		return true, r.open(m)
 	case keys.Is(key, ActRefresh):
 		return true, r.open(m)
 	case keys.Is(key, ActFilter):
@@ -494,6 +505,24 @@ func (l recordLayout) header() string {
 	return fmt.Sprintf(" %-*s %-*s %-*s %-*s %s", l.timeWidth, "TIME", recordPartWidth, "P", recordOffsetWidth, "OFFSET", recordKeyWidth, "KEY", "VALUE")
 }
 
+// decodes reports whether the profile decodes framed records.
+func (r *kafkaRecordsScreen) decodes() bool {
+	return r.topics.session != nil && r.topics.session.Decodes()
+}
+
+// payloadPreview is a key or value on one line: decoded ones are
+// introduced by their format and schema id, and the bytes of one that
+// could not be decoded are followed by the reason.
+func payloadPreview(b []byte, size int, ref domain.SchemaRef, maxRunes int) string {
+	switch {
+	case ref.Decoded():
+		return fmt.Sprintf("%s %d · ", ref.Format, ref.ID) + domain.PayloadPreview(b, size, maxRunes)
+	case ref.Err != "":
+		return domain.PayloadPreview(b, size, maxRunes) + " · " + domain.EscapeControls(ref.Err)
+	}
+	return domain.PayloadPreview(b, size, maxRunes)
+}
+
 func (r *kafkaRecordsScreen) emptyHint(m *Model) string {
 	return fmt.Sprintf("%s longer window  ·  %s follow  ·  %s back", m.label(ActWindow5), m.label(ActFollow), m.label(ActBack))
 }
@@ -505,7 +534,7 @@ func (r *kafkaRecordsScreen) line(m *Model, l recordLayout, rec *domain.KafkaRec
 	if !rec.Time.IsZero() {
 		ts = rec.Time.In(time.Local).Format(l.timeFormat)
 	}
-	key := domain.PayloadPreview(rec.Key, rec.KeySize, recordKeyWidth)
+	key := payloadPreview(rec.Key, rec.KeySize, rec.KeySchema, recordKeyWidth)
 	dim := m.dim()
 	part := fmt.Sprintf("p%-*d", recordPartWidth-1, rec.Partition)
 	head := dim.paint(fmt.Sprintf("%-*s ", l.timeWidth, ts)) + m.podInk(int(rec.Partition)).paint(part) +
@@ -515,7 +544,7 @@ func (r *kafkaRecordsScreen) line(m *Model, l recordLayout, rec *domain.KafkaRec
 	if !ok {
 		// Computed once per record (the whole value is classified), cut
 		// to the widest terminal it may be drawn on.
-		preview = domain.PayloadPreview(rec.Value, rec.ValueSize, 400)
+		preview = payloadPreview(rec.Value, rec.ValueSize, rec.ValueSchema, 400)
 		if rec.Value == nil {
 			preview = "tombstone"
 		}
@@ -575,6 +604,9 @@ func (r *kafkaRecordsScreen) statusLeft(m *Model) string {
 		}
 	}
 	parts := []string{r.windowLabel(), fmt.Sprintf("%d records", len(r.rows)), r.isolation()}
+	if r.decodes() && r.raw {
+		parts = append(parts, "not decoded")
+	}
 	if r.newestTop {
 		parts = append(parts, "newest first")
 	}
@@ -606,12 +638,16 @@ func (r *kafkaRecordsScreen) hints(m *Model) []hint {
 	if r.editing {
 		return []hint{{"enter", "keep"}, {"esc", "clear"}, {"ctrl+u", "erase"}}
 	}
-	return []hint{
+	hs := []hint{
 		m.h(ActOpen, "zoom"), m.h(ActFilter, "filter"),
 		{"1-7", "window"},
 		m.h(ActWindowTail, "tail"),
-		m.h(ActFollow, "follow"), m.h(ActPause, "pause"), m.h(ActIsolation, "isolation"), m.h(ActCopy, "copy"), m.h(ActBack, "back"),
+		m.h(ActFollow, "follow"), m.h(ActPause, "pause"), m.h(ActIsolation, "isolation"),
 	}
+	if r.decodes() {
+		hs = append(hs, m.h(ActRawRecords, map[bool]string{true: "decode", false: "bytes"}[r.raw]))
+	}
+	return append(hs, m.h(ActCopy, "copy"), m.h(ActBack, "back"))
 }
 
 // copyRecord copies a record's value like any copy (D-049, ui.yaml

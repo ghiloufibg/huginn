@@ -50,9 +50,11 @@ type fakeKafkaSession struct {
 	topics  []ports.KafkaTopicState
 	queries []ports.KafkaQuery
 	closed  bool
+	decodes bool
 }
 
 func (s *fakeKafkaSession) Profile() string                 { return "demo" }
+func (s *fakeKafkaSession) Decodes() bool                   { return s.decodes }
 func (s *fakeKafkaSession) Topics() []ports.KafkaTopicState { return s.topics }
 func (s *fakeKafkaSession) Close() {
 	s.mu.Lock()

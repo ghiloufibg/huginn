@@ -627,7 +627,7 @@ The values that are known when the folder is loaded (`security`, `mechanism`, pl
 
 ### Schema Registry
 
-> **Status: being built** ([`docs/plan/M13-schema-registry.md`](plan/M13-schema-registry.md)). The section is checked when the folder loads; records are decoded once the milestone is done.
+> **Status: being built** ([`docs/plan/M13-schema-registry.md`](plan/M13-schema-registry.md)): records are decoded on the Kafka screens; `huginn kafka read` and `--demo` follow.
 
 Records written by Confluent's serializers (Avro, JSON Schema) start with a `0` byte and a 4-byte schema id. Without `schema_registry`, the Kafka screens show them as `schema <id>, N B` with a hex dump. With it, Huginn reads each writer schema from the registry by id, as the Java `KafkaAvroDeserializer` does, and shows the record as JSON. It only reads the registry: no schema is ever registered.
 
@@ -652,6 +652,15 @@ schema_registry:
 | `tls.ca`, `tls.ca_password` | path, string | | Certificates trusted for the registry, as `connection.tls`. Without them, the system's certificates. |
 | `decode` | list | | `key`, `value` or both (the default). |
 | `timeout` | duration | | Time allowed for one request to the registry. Default `10s`. |
+
+On the Kafka screens:
+- a decoded value reads `avro 7 · {"orderId":"ord-1",…}` (JSON Schema: `json 9 · …`); zoom names the schema (`avro, schema 7 (com.example.OrderCreated)`) above the indented JSON;
+- Avro is shown in Avro's JSON encoding, as `kafka-avro-console-consumer` prints it (fields in schema order, a union value wrapped in its branch: `{"string": "gift"}`), with readable logical types: decimals as exact strings (`"12.50"`), timestamps, dates and times in ISO 8601, other bytes as `0x…` hex;
+- a record that cannot be decoded keeps its bytes and says why (`schema 404, 6 B · registry answered 404 Schema not found`); each distinct registry problem is also said once in the status bar, never once per record;
+- `D` shows the records as their bytes, reading the topic again, and back;
+- a value larger than `kafka.max_value_bytes` is cut before it could be decoded, and says so.
+
+Schemas are read once per id and kept; a failed read is retried after 30 seconds at most. Protobuf schemas are not decoded yet: their records are shown as bytes.
 
 Values take placeholders, `${KEY}` references and `env:VAR`, as `connection` does. The Java settings that only matter when producing (`auto.register.schemas`, `use.latest.version`, subject name strategies) have no equivalent: Huginn never produces.
 

@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/ghiloufibg/huginn/internal/core/domain"
 	"github.com/ghiloufibg/huginn/internal/core/ports"
@@ -25,6 +26,9 @@ type KafkaService struct {
 	Profiles []KafkaProfile
 	Files    ports.LocalFiles
 	Sources  ports.TopicSourceFactory
+	// Registries reads the Schema Registry a profile names; nil leaves
+	// framed records undecoded.
+	Registries ports.SchemaDecoderFactory
 	// ConfigDir resolves relative paths; ReposRoot gives {repo_dir}; Home
 	// expands ~/.
 	ConfigDir, ReposRoot, Home string
@@ -241,6 +245,7 @@ func (s *KafkaService) Open(ctx context.Context, env domain.Env, repo string) (p
 		return nil, fmt.Errorf("%s (kafka/%s): %w", repo, a.p.Name, err)
 	}
 	sess := &kafkaSession{s: s, profile: a.p.Name, sources: map[string]ports.TopicSource{}, conns: map[string]string{}}
+	sess.schemas, sess.registryErr = s.registry(ctx, a, keys)
 	plans := s.topicPlans(a, keys)
 	groups := map[string][]int{}
 	conns := map[string]domain.KafkaConnection{}
@@ -444,6 +449,79 @@ func (s *KafkaService) connection(ctx context.Context, a applied, vars map[strin
 	return c, key.String(), nil
 }
 
+// registry resolves the profile's Schema Registry and opens a decoder for
+// it (no request is made until a record needs a schema). It returns a zero
+// schemaDecoding without a registry; an error means the profile names one
+// that cannot be used: records are then shown undecoded, with the reason.
+func (s *KafkaService) registry(ctx context.Context, a applied, keys map[string]domain.Secret) (schemaDecoding, error) {
+	spec := a.p.Registry.over(a.repo.Registry)
+	if spec.URL == "" || s.Registries == nil {
+		return schemaDecoding{}, nil
+	}
+	vars := a.vars(nil)
+	get := func(field, raw string) (string, error) {
+		if raw == "" {
+			return "", nil
+		}
+		v, err := s.value(raw, vars, keys)
+		if err != nil {
+			return "", fmt.Errorf("schema_registry.%s: %w", field, err)
+		}
+		return v.Reveal(), nil
+	}
+	var conn domain.SchemaRegistryConn
+	var err error
+	if conn.URL, err = get("url", spec.URL); err != nil {
+		return schemaDecoding{}, err
+	}
+	for _, f := range []struct {
+		name, raw string
+		to        *domain.Secret
+	}{{"basic_auth.username", spec.Username, &conn.Username}, {"basic_auth.password", spec.Password, &conn.Password}, {"bearer_token", spec.Token, &conn.Token}} {
+		v, err := get(f.name, f.raw)
+		if err != nil {
+			return schemaDecoding{}, err
+		}
+		*f.to = domain.NewSecret(v)
+	}
+	if spec.CA != "" {
+		pattern, err := s.path(spec.CA, vars, keys)
+		if err != nil {
+			return schemaDecoding{}, fmt.Errorf("schema_registry.tls.ca: %w", err)
+		}
+		file, err := s.one(ctx, pattern)
+		if err != nil {
+			return schemaDecoding{}, fmt.Errorf("schema_registry.tls.ca: %w", err)
+		}
+		pw, err := get("tls.ca_password", spec.CAPassword)
+		if err != nil {
+			return schemaDecoding{}, err
+		}
+		if conn.CACerts, err = s.Files.ReadTrustStore(ctx, file, domain.NewSecret(pw)); err != nil {
+			return schemaDecoding{}, fmt.Errorf("schema_registry.tls.ca: %w", err)
+		}
+	}
+	if spec.Timeout != "" {
+		t, err := get("timeout", spec.Timeout)
+		if err != nil {
+			return schemaDecoding{}, err
+		}
+		if conn.Timeout, err = time.ParseDuration(t); err != nil || conn.Timeout <= 0 {
+			return schemaDecoding{}, fmt.Errorf("schema_registry.timeout %s is not a positive duration: %w", shown(spec.Timeout, t), domain.ErrConfig)
+		}
+	}
+	dec, err := s.Registries.Open(ctx, conn)
+	if err != nil {
+		return schemaDecoding{}, err
+	}
+	d := schemaDecoding{dec: dec, key: len(spec.Decode) == 0, value: len(spec.Decode) == 0}
+	for _, what := range spec.Decode {
+		d.key = d.key || what == "key"
+		d.value = d.value || what == "value"
+	}
+	return d, nil
+}
+
 // shown quotes a resolved value in a message only when the profile wrote
 // it literally: a value read from a source or the environment may come
 // from an encrypted file, so the message names where it came from.
@@ -500,6 +578,11 @@ type kafkaSession struct {
 	sources map[string]ports.TopicSource // by connection key
 	conns   map[string]string            // topic → connection key
 
+	// schemas decodes framed records; registryErr says why the profile's
+	// registry cannot be used.
+	schemas     schemaDecoding
+	registryErr error
+
 	mu      sync.Mutex
 	cancels map[int]context.CancelFunc // reads in progress
 	nextID  int
@@ -507,6 +590,7 @@ type kafkaSession struct {
 }
 
 func (k *kafkaSession) Profile() string                 { return k.profile }
+func (k *kafkaSession) Decodes() bool                   { return k.schemas.dec != nil }
 func (k *kafkaSession) Topics() []ports.KafkaTopicState { return slices.Clone(k.topics) }
 
 // Close implements ports.KafkaSession.
@@ -573,7 +657,7 @@ func (k *kafkaSession) Read(ctx context.Context, q ports.KafkaQuery) (<-chan por
 		return nil, err
 	}
 	out := make(chan ports.KafkaBatch, 16)
-	go k.forward(ctx, cancel, in, out)
+	go k.forward(ctx, cancel, in, out, q.Raw)
 	return out, nil
 }
 
@@ -582,7 +666,7 @@ const historyChunk = 2000
 
 // forward truncates records, sorts the history by timestamp once it is
 // complete (bounded like the view), then passes live batches on sorted.
-func (k *kafkaSession) forward(ctx context.Context, cancel context.CancelFunc, in <-chan ports.RecordBatch, out chan<- ports.KafkaBatch) {
+func (k *kafkaSession) forward(ctx context.Context, cancel context.CancelFunc, in <-chan ports.RecordBatch, out chan<- ports.KafkaBatch, raw bool) {
 	defer close(out)
 	defer cancel()
 	defer func() {
@@ -593,6 +677,14 @@ func (k *kafkaSession) forward(ctx context.Context, cancel context.CancelFunc, i
 	}()
 	var history []domain.KafkaRecord
 	live := false
+	decoding := k.schemas
+	if raw {
+		decoding = schemaDecoding{}
+	}
+	notices := &decodeNotices{}
+	if k.registryErr != nil && !raw {
+		notices.add("schema registry not used: " + k.registryErr.Error())
+	}
 	for b := range in {
 		for i := range b.Records {
 			domain.TruncateRecord(&b.Records[i], k.s.MaxValueBytes)
@@ -610,6 +702,10 @@ func (k *kafkaSession) forward(ctx context.Context, cancel context.CancelFunc, i
 			}
 			live = true
 			history = k.trim(history)
+			decoding.decodeAll(ctx, history, k.s.MaxValueBytes, notices)
+			if n := notices.take(); len(n) > 0 && !send(ctx, out, ports.KafkaBatch{Notices: n}) {
+				return
+			}
 			for len(history) > historyChunk {
 				if !send(ctx, out, ports.KafkaBatch{Records: history[:historyChunk:historyChunk]}) {
 					return
@@ -624,7 +720,8 @@ func (k *kafkaSession) forward(ctx context.Context, cancel context.CancelFunc, i
 		}
 		b = coalesce(b, in, k.s.MaxValueBytes)
 		sortRecords(b.Records)
-		if !send(ctx, out, ports.KafkaBatch{Records: b.Records, Notices: b.Notices, Err: b.Err}) {
+		decoding.decodeAll(ctx, b.Records, k.s.MaxValueBytes, notices)
+		if !send(ctx, out, ports.KafkaBatch{Records: b.Records, Notices: append(b.Notices, notices.take()...), Err: b.Err}) {
 			return
 		}
 	}

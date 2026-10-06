@@ -110,7 +110,7 @@ func (z *kafkaZoomScreen) lines(t *Theme) []string {
 		field("topic", rec.Topic),
 		field("partition", fmt.Sprint(rec.Partition)) + t.Dim.Render("   offset ") + fmt.Sprint(rec.Offset),
 		field("time", ts),
-		field("key", domain.PayloadPreview(rec.Key, rec.KeySize, 200)),
+		field("key", payloadPreview(rec.Key, rec.KeySize, rec.KeySchema, 200)),
 		field("value", size),
 	}
 	if len(rec.Headers) > 0 {
@@ -124,7 +124,16 @@ func (z *kafkaZoomScreen) lines(t *Theme) []string {
 		return append(out, "  tombstone (null value: the key was deleted)")
 	}
 	kind, id := domain.ClassifyPayload(rec.Value)
-	if kind == domain.PayloadFramed {
+	switch ref := rec.ValueSchema; {
+	case ref.Decoded():
+		head := fmt.Sprintf("  %s, schema %d", ref.Format, ref.ID)
+		if ref.Name != "" {
+			head += " (" + ref.Name + ")"
+		}
+		out = append(out, t.Dim.Render(safeText(head)))
+	case ref.Err != "":
+		out = append(out, t.Warn.Render(safeText(fmt.Sprintf("  schema %d: %s", ref.ID, ref.Err))))
+	case kind == domain.PayloadFramed:
 		out = append(out, t.Dim.Render(fmt.Sprintf("  schema registry framing, schema id %d: not decoded", id)))
 	}
 	for _, l := range domain.PayloadLines(rec.Value) {

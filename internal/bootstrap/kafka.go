@@ -6,6 +6,7 @@ import (
 	"github.com/ghiloufibg/huginn/internal/adapters/driven/demo"
 	"github.com/ghiloufibg/huginn/internal/adapters/driven/kafka"
 	"github.com/ghiloufibg/huginn/internal/adapters/driven/localfiles"
+	"github.com/ghiloufibg/huginn/internal/adapters/driven/schemaregistry"
 	"github.com/ghiloufibg/huginn/internal/adapters/driven/sops"
 	"github.com/ghiloufibg/huginn/internal/config"
 	"github.com/ghiloufibg/huginn/internal/core/app"
@@ -33,6 +34,14 @@ func kafkaRegistry(log *slog.Logger) *ports.Registry[func(c *config.Config, cloc
 
 func clampInt32(n int64) int32 { return int32(min(n, 1<<31-1)) }
 
+// schemaRegistries lists the Schema Registry readers, selected like the
+// topic sources. A run without one leaves framed records undecoded.
+func schemaRegistries() *ports.Registry[func() ports.SchemaDecoderFactory] {
+	r := ports.NewRegistry[func() ports.SchemaDecoderFactory]("schema registry")
+	r.Register("kubernetes", func() ports.SchemaDecoderFactory { return &schemaregistry.Factory{} })
+	return r
+}
+
 // newKafka builds the Kafka use case, or nil when the folder has no
 // kafka/ profile or no topic source exists for this run: the feature is
 // then absent from the UI, with nothing initialised.
@@ -46,11 +55,16 @@ func newKafka(c *config.Config, source string, clock ports.Clock, home string, g
 		return nil
 	}
 	l := c.Huginn.Kafka.Limits()
+	var registries ports.SchemaDecoderFactory
+	if newRegistry, err := schemaRegistries().Lookup(source); err == nil {
+		registries = newRegistry()
+	}
 	return &app.KafkaService{
-		Profiles:  kafkaProfiles(c),
-		Files:     &localfiles.Files{Secrets: &sops.Provider{Dir: c.Dir}},
-		Sources:   factory(c, clock),
-		ConfigDir: c.Dir, ReposRoot: c.Huginn.ReposRoot, Home: home, Getenv: getenv,
+		Registries: registries,
+		Profiles:   kafkaProfiles(c),
+		Files:      &localfiles.Files{Secrets: &sops.Provider{Dir: c.Dir}},
+		Sources:    factory(c, clock),
+		ConfigDir:  c.Dir, ReposRoot: c.Huginn.ReposRoot, Home: home, Getenv: getenv,
 		MaxRecords: l.MaxRecords, MaxBufferBytes: int(l.MaxBufferBytes), MaxValueBytes: int(l.MaxValueBytes),
 		Log: log,
 	}
