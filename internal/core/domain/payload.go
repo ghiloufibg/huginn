@@ -34,8 +34,9 @@ func ClassifyPayload(b []byte) (PayloadKind, uint32) {
 		return PayloadNull, 0
 	case len(b) == 0:
 		return PayloadEmpty, 0
-	case b[0] == 0 && len(b) >= 5:
-		return PayloadFramed, binary.BigEndian.Uint32(b[1:5])
+	}
+	if id, ok := FramedSchemaID(b); ok {
+		return PayloadFramed, id
 	}
 	if t := bytes.TrimLeft(b, " \t\r\n"); len(t) > 0 && (t[0] == '{' || t[0] == '[') && json.Valid(b) {
 		return PayloadJSON, 0

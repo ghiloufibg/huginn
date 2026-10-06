@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"path"
 	"reflect"
 	"slices"
@@ -70,6 +71,7 @@ func (v *validator) kafka(p KafkaProfile) {
 	v.kafkaStrings(file, reflect.ValueOf(p), "", known)
 	v.kafkaRepoDir(p)
 	v.kafkaConnection(file, "connection", p.Connection, true)
+	v.kafkaRegistry(file, "schema_registry", p.SchemaRegistry, p.SchemaRegistry, p.SchemaRegistry, false)
 	v.kafkaTopics(file, "topics", p.Topics)
 	anyTopics := p.Topics.Any()
 	for _, name := range sortedKeys(p.Repos) {
@@ -78,6 +80,7 @@ func (v *validator) kafka(p KafkaProfile) {
 			v.add(file, rp, "repository name must not be blank")
 		}
 		v.kafkaConnection(file, rp+".connection", r.Connection, false)
+		v.kafkaRegistry(file, rp+".schema_registry", r.SchemaRegistry, p.SchemaRegistry.over(r.SchemaRegistry), p.SchemaRegistry, true)
 		v.kafkaTopics(file, rp+".topics", r.Topics)
 		anyTopics = anyTopics || r.Topics.Any()
 	}
@@ -177,7 +180,7 @@ func (v *validator) kafkaRepoDir(p KafkaProfile) {
 		walkStrings(reflect.ValueOf(x), func(s string) { found = found || slices.Contains(domain.VarNames(s), "repo_dir") })
 		return found
 	}
-	shared := KafkaProfile{Match: p.Match, Sources: p.Sources, Connection: p.Connection, Topics: p.Topics}
+	shared := KafkaProfile{Match: p.Match, Sources: p.Sources, Connection: p.Connection, Topics: p.Topics, SchemaRegistry: p.SchemaRegistry}
 	if uses(shared) {
 		v.add(p.File, "", "{repo_dir} needs repos_root in %s", FileHuginn)
 		return
@@ -247,6 +250,64 @@ func (v *validator) kafkaConnection(file, p string, c KafkaConnection, profile b
 	if c.TLS.CAPassword != "" && c.TLS.CA == "" && profile {
 		v.add(file, p+".tls.ca_password", "set tls.ca: the password is for a PKCS12 truststore")
 	}
+}
+
+// kafkaRegistry checks a schema_registry section r at p. eff is the
+// section in effect there: the profile's own, or the profile's merged with
+// a repository's override, base the profile's own section. A repository is
+// told only the problems its override adds. Values known at load time are
+// checked here; references when the Kafka screen opens.
+func (v *validator) kafkaRegistry(file, p string, r, eff, base KafkaSchemaRegistry, repo bool) {
+	if r.IsZero() {
+		return
+	}
+	inherited := map[registryProblem]bool{}
+	if repo && !base.IsZero() {
+		for _, pr := range registryProblems(base, base) {
+			inherited[pr] = true
+		}
+	}
+	for _, pr := range registryProblems(r, eff) {
+		at := p
+		if pr.key != "" {
+			at = join(p, pr.key)
+		}
+		if !inherited[pr] {
+			v.add(file, at, "%s", pr.msg)
+		}
+	}
+}
+
+type registryProblem struct{ key, msg string }
+
+// registryProblems lists the problems of section r in effect as eff.
+func registryProblems(r, eff KafkaSchemaRegistry) []registryProblem {
+	var out []registryProblem
+	add := func(key, format string, args ...any) {
+		out = append(out, registryProblem{key, fmt.Sprintf(format, args...)})
+	}
+	if strings.TrimSpace(eff.URL) == "" {
+		add("", "missing required key %q", "url")
+	} else if r.URL != "" && literal(r.URL) {
+		if u, err := url.Parse(r.URL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			add("url", "%q is not an http or https URL such as https://schema-registry.example:8081", r.URL)
+		}
+	}
+	if (eff.BasicAuth.Username == "") != (eff.BasicAuth.Password == "") {
+		add("basic_auth", "set both username and password")
+	}
+	if eff.BasicAuth != (KafkaBasicAuth{}) && eff.BearerToken != "" {
+		add("", "set basic_auth or bearer_token, not both")
+	}
+	if eff.TLS.CAPassword != "" && eff.TLS.CA == "" {
+		add("tls.ca_password", "set tls.ca: the password is for a PKCS12 truststore")
+	}
+	if r.Timeout != "" && literal(r.Timeout) {
+		if d, err := time.ParseDuration(r.Timeout); err != nil || d <= 0 {
+			add("timeout", "%q is not a positive duration such as 10s", r.Timeout)
+		}
+	}
+	return out
 }
 
 func (v *validator) enumProblem(file, p, s string, allowed []string) {

@@ -133,6 +133,66 @@
             "description": "The repository folder when it is not repos_root/\u003crepo\u003e; {repo_dir} is this path.",
             "type": "string"
           },
+          "schema_registry": {
+            "additionalProperties": false,
+            "description": "Schema Registry keys merged over the profile's, key by key.",
+            "properties": {
+              "basic_auth": {
+                "additionalProperties": false,
+                "description": "Basic authentication (Java: basic.auth.user.info).",
+                "properties": {
+                  "password": {
+                    "description": "Password.",
+                    "type": "string"
+                  },
+                  "username": {
+                    "description": "User name.",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "bearer_token": {
+                "description": "Bearer token (Java: bearer.auth.token), instead of basic_auth.",
+                "type": "string"
+              },
+              "decode": {
+                "description": "What to decode: key, value or both. Default both.",
+                "items": {
+                  "enum": [
+                    "key",
+                    "value"
+                  ],
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "timeout": {
+                "description": "Time allowed for one request to the registry, e.g. 10s. Default 10s.",
+                "type": "string"
+              },
+              "tls": {
+                "additionalProperties": false,
+                "description": "Certificates trusted for the registry (https).",
+                "properties": {
+                  "ca": {
+                    "description": "Truststore: a PEM file (.pem, .crt, .cer) or a PKCS12 file (.p12, .pfx). A glob must match exactly one file. Without it, the system roots.",
+                    "type": "string"
+                  },
+                  "ca_password": {
+                    "description": "Password of a PKCS12 truststore.",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "url": {
+                "description": "Base URL of the registry, http or https, e.g. https://schema-registry.example:8081.",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
           "sources": {
             "description": "Sources read after the profile's.",
             "items": {
@@ -279,6 +339,66 @@
         "type": "object"
       },
       "description": "Per repository additions and overrides, by repository name. Listed repositories are matched even if match.repos does not name them.",
+      "type": "object"
+    },
+    "schema_registry": {
+      "additionalProperties": false,
+      "description": "Schema Registry used to decode records written by its serializers (Avro, JSON Schema), read only. Without it, such records are shown undecoded.",
+      "properties": {
+        "basic_auth": {
+          "additionalProperties": false,
+          "description": "Basic authentication (Java: basic.auth.user.info).",
+          "properties": {
+            "password": {
+              "description": "Password.",
+              "type": "string"
+            },
+            "username": {
+              "description": "User name.",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "bearer_token": {
+          "description": "Bearer token (Java: bearer.auth.token), instead of basic_auth.",
+          "type": "string"
+        },
+        "decode": {
+          "description": "What to decode: key, value or both. Default both.",
+          "items": {
+            "enum": [
+              "key",
+              "value"
+            ],
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "timeout": {
+          "description": "Time allowed for one request to the registry, e.g. 10s. Default 10s.",
+          "type": "string"
+        },
+        "tls": {
+          "additionalProperties": false,
+          "description": "Certificates trusted for the registry (https).",
+          "properties": {
+            "ca": {
+              "description": "Truststore: a PEM file (.pem, .crt, .cer) or a PKCS12 file (.p12, .pfx). A glob must match exactly one file. Without it, the system roots.",
+              "type": "string"
+            },
+            "ca_password": {
+              "description": "Password of a PKCS12 truststore.",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "url": {
+          "description": "Base URL of the registry, http or https, e.g. https://schema-registry.example:8081.",
+          "type": "string"
+        }
+      },
       "type": "object"
     },
     "sources": {

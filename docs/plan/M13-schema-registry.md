@@ -1,4 +1,4 @@
-# M13 — Schema Registry records decoded (Avro, JSON Schema)  (status: planned)
+# M13 — Schema Registry records decoded (Avro, JSON Schema)  (status: S0 done)
 
 ## 0. In one paragraph
 Records written by Confluent serializers start with `0x00` and a 4-byte schema id. Today the Kafka screens recognise this framing and show `schema <id>, N B` with a hex dump (M11 §5). This milestone **decodes them**, as Confluent's Java `KafkaAvroDeserializer` and `KafkaJsonSchemaDeserializer` do: the writer schema is read from the Schema Registry by id, and the record is shown as JSON. Huginn stays read only: there is no serializer, the registry is only ever read (GET), and nothing about it exists unless a Kafka profile names a registry.
@@ -47,7 +47,8 @@ schema_registry:
 ```
 core/domain    SchemaRef{ID, Format ("avro"|"json"), Name, Err} on KafkaRecord, for key and value
                SchemaRegistryConn (url, auth, CA certs, timeout), resolved from the profile
-core/ports     SchemaDecoder: Decode(ctx, topic string, isKey bool, framed []byte) ([]byte, domain.SchemaRef, error)
+core/ports     SchemaDecoder: Decode(ctx, framed []byte) ([]byte, domain.SchemaRef, error)
+               (the topic and key/value flag only choose subjects, a serializer's concern)
                SchemaDecoderFactory: Open(ctx, domain.SchemaRegistryConn) (SchemaDecoder, error)
                portstest: fake registry decoder + contract suite
 core/app       kafkaSession: decode framed keys/values, then truncate (max_value_bytes)
@@ -79,7 +80,7 @@ archtest       rules for the two packages
 - New benchmark `BenchmarkKafkaDecodeAvro` (100 000 framed records, 20 schemas): target < 5 µs and a fixed number of allocations per record.
 
 ## 8. Steps (each green: `go test -race ./...`, `golangci-lint run`)
-1. **S0 — config and ports**: `schema_registry` in profiles, validation, schema, CONFIG.md; domain types, ports, fakes, contract suite.
+1. **S0 — config and ports** (done): `schema_registry` in profiles, validation, schema, CONFIG.md; domain types, ports, fakes, contract suite.
 2. **S1 — avrojson**: transcoder, golden fixtures (every type, unions, logical types, nesting, arrays, maps, references), fuzzing, benchmark.
 3. **S2 — schemaregistry**: HTTP client against `httptest.Server`: cache, one fetch per id, negative cache, GET guard, basic/bearer auth, TLS, references; JSON Schema.
 4. **S3 — app and screens**: decode before truncation, failures as `SchemaRef.Err`, notices, list/zoom/help, the undecoded key, golden files.

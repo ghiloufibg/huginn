@@ -616,12 +616,44 @@ So `${{account}_PASSWORD}` reads `ORDERS_PASSWORD` when `account` is `ORDERS`. `
 | `repos.<repo>.vars`, `connection` | | | Merged over the profile's, key by key: changing `tls.ca` keeps the profile's `sasl`. |
 | `repos.<repo>.sources` | list | | Read after the profile's sources. |
 | `repos.<repo>.topics` | | | Added to the profile's topics. |
+| `schema_registry` | | | Schema Registry used to decode records written by its serializers. See [Schema Registry](#schema-registry). |
+| `repos.<repo>.schema_registry` | | | Merged over the profile's, key by key. |
 
 A topic is a name, or an object `{name, vars}` whose `vars` apply to that topic only, for example another SASL account. Topics can be given a direction or not: a script that does not know whether a service consumes or produces a topic can rely on `discover` alone.
 
 The values that are known when the folder is loaded (`security`, `mechanism`, placeholders, reference syntax) are checked then. The others (files, keys, certificates) are checked when the Kafka screen opens, and a problem is shown on the topic it concerns.
 
 **PKCS12 files**: Java truststores (`keytool`) and keystores are read. A certificate-only PKCS12 file made by `openssl` without Java's trust attribute is not: convert it once with `openssl pkcs12 -in truststore.p12 -nokeys -out ca.pem` and point `tls.ca` to the PEM file.
+
+### Schema Registry
+
+> **Status: being built** ([`docs/plan/M13-schema-registry.md`](plan/M13-schema-registry.md)). The section is checked when the folder loads; records are decoded once the milestone is done.
+
+Records written by Confluent's serializers (Avro, JSON Schema) start with a `0` byte and a 4-byte schema id. Without `schema_registry`, the Kafka screens show them as `schema <id>, N B` with a hex dump. With it, Huginn reads each writer schema from the registry by id, as the Java `KafkaAvroDeserializer` does, and shows the record as JSON. It only reads the registry: no schema is ever registered.
+
+```yaml
+schema_registry:
+  url: ${SCHEMA_REGISTRY_URL}
+  basic_auth:                          # or bearer_token, not both
+    username: ${SR_USERNAME}
+    password: ${SR_PASSWORD}
+  tls:
+    ca: "{repo_dir}/src/main/resources/truststore.p12"
+    ca_password: ${SR_TRUSTSTORE_PASSWORD}
+  decode: [key, value]
+  timeout: 10s
+```
+
+| Key | Type | Req. | Meaning |
+|---|---|---|---|
+| `url` | string | yes | Base URL of the registry, `http://` or `https://` (Java: `schema.registry.url`). |
+| `basic_auth.username`, `password` | string | | Basic authentication (Java: `basic.auth.user.info`). Both or neither. |
+| `bearer_token` | string | | Bearer token (Java: `bearer.auth.token`), instead of `basic_auth`. |
+| `tls.ca`, `tls.ca_password` | path, string | | Certificates trusted for the registry, as `connection.tls`. Without them, the system's certificates. |
+| `decode` | list | | `key`, `value` or both (the default). |
+| `timeout` | duration | | Time allowed for one request to the registry. Default `10s`. |
+
+Values take placeholders, `${KEY}` references and `env:VAR`, as `connection` does. The Java settings that only matter when producing (`auto.register.schemas`, `use.latest.version`, subject name strategies) have no equivalent: Huginn never produces.
 
 ### Limits: `huginn.yaml` `kafka:`
 
@@ -679,6 +711,9 @@ huginn: the config folder ~/work/acme-huginn has 5 errors (see docs/CONFIG.md):
 | `malformed reference` | Write `${KEY}` or `${KEY:-default}`; quote the value inside `[ ]` or `{ }`. |
 | `{repo_dir} needs repos_root` | Set `repos_root` in `huginn.yaml`, or a `path` for the repository. |
 | `sasl_ssl needs sasl.username` (and similar) | A SASL protocol needs the mechanism, user name and password. |
+| `schema_registry: missing required key "url"` | A `schema_registry` section, in a profile or a repository, needs the registry's `url`. |
+| `is not an http or https URL` | Write the registry's base URL, such as `https://schema-registry.example:8081`. |
+| `set basic_auth or bearer_token, not both` / `set both username and password` | Choose one way to authenticate to the registry, complete. |
 | `logger pattern "x" matches every logger` / `* is only allowed at the end` / `contains a space` | A `mute.loggers` pattern is a logger name or a prefix ending in `*`, such as `com.example.metrics.*`. |
 | `"x" is already mute.loggers[n]` | Remove the duplicate pattern. |
 | `muting loggers needs fields.logger` / `needs a group (?P<logger>…)` | Tell the format where the logger is, or remove `mute`. |

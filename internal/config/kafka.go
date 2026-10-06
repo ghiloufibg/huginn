@@ -78,14 +78,17 @@ func ParseByteSize(s string) (int64, error) {
 // wins.
 type KafkaProfile struct {
 	// Name is the file name without extension; File the path in the folder.
-	Name, File string               `yaml:"-"`
-	Version    int                  `yaml:"version" doc:"Structure version of this file; must be 1." required:"true"`
-	Match      KafkaMatch           `yaml:"match" doc:"Repositories this profile applies to. No match section: every repository."`
-	Sources    []KafkaSource        `yaml:"sources" doc:"Dotenv files read in order and merged (a later key replaces an earlier one); their keys are written ${KEY} in the values below."`
-	Vars       map[string]string    `yaml:"vars" doc:"Free variables written {name} in any string of the profile, overridden per repository and per topic, e.g. {account: ORDERS} makes ${{account}_PASSWORD} read ORDERS_PASSWORD."`
-	Connection KafkaConnection      `yaml:"connection" doc:"How to reach the brokers. bootstrap and security are required." required:"true"`
-	Topics     KafkaTopics          `yaml:"topics" doc:"Topics shown for every repository of this profile."`
-	Repos      map[string]KafkaRepo `yaml:"repos" doc:"Per repository additions and overrides, by repository name. Listed repositories are matched even if match.repos does not name them."`
+	Name, File string            `yaml:"-"`
+	Version    int               `yaml:"version" doc:"Structure version of this file; must be 1." required:"true"`
+	Match      KafkaMatch        `yaml:"match" doc:"Repositories this profile applies to. No match section: every repository."`
+	Sources    []KafkaSource     `yaml:"sources" doc:"Dotenv files read in order and merged (a later key replaces an earlier one); their keys are written ${KEY} in the values below."`
+	Vars       map[string]string `yaml:"vars" doc:"Free variables written {name} in any string of the profile, overridden per repository and per topic, e.g. {account: ORDERS} makes ${{account}_PASSWORD} read ORDERS_PASSWORD."`
+	Connection KafkaConnection   `yaml:"connection" doc:"How to reach the brokers. bootstrap and security are required." required:"true"`
+	Topics     KafkaTopics       `yaml:"topics" doc:"Topics shown for every repository of this profile."`
+	// SchemaRegistry decodes records written by Schema Registry
+	// serializers (docs/CONFIG.md).
+	SchemaRegistry KafkaSchemaRegistry  `yaml:"schema_registry" doc:"Schema Registry used to decode records written by its serializers (Avro, JSON Schema), read only. Without it, such records are shown undecoded."`
+	Repos          map[string]KafkaRepo `yaml:"repos" doc:"Per repository additions and overrides, by repository name. Listed repositories are matched even if match.repos does not name them."`
 }
 
 // KafkaMatch selects the repositories of a profile.
@@ -108,6 +111,50 @@ type KafkaConnection struct {
 	Security  string    `yaml:"security" doc:"plaintext, ssl, sasl_plaintext or sasl_ssl (case ignored)."`
 	SASL      KafkaSASL `yaml:"sasl" doc:"SASL authentication; required with sasl_plaintext and sasl_ssl."`
 	TLS       KafkaTLS  `yaml:"tls" doc:"Certificates trusted for the brokers (ssl and sasl_ssl)."`
+}
+
+// KafkaSchemaRegistry is the Schema Registry of a profile. Every value may
+// use placeholders, ${KEY} references and env:VAR.
+type KafkaSchemaRegistry struct {
+	URL         string         `yaml:"url" doc:"Base URL of the registry, http or https, e.g. https://schema-registry.example:8081."`
+	BasicAuth   KafkaBasicAuth `yaml:"basic_auth" doc:"Basic authentication (Java: basic.auth.user.info)."`
+	BearerToken string         `yaml:"bearer_token" doc:"Bearer token (Java: bearer.auth.token), instead of basic_auth."`
+	TLS         KafkaTLS       `yaml:"tls" doc:"Certificates trusted for the registry (https)."`
+	Decode      []string       `yaml:"decode" doc:"What to decode: key, value or both. Default both." enum:"key,value"`
+	Timeout     string         `yaml:"timeout" doc:"Time allowed for one request to the registry, e.g. 10s. Default 10s."`
+}
+
+// over returns r with the keys set in o replacing its own, key by key.
+func (r KafkaSchemaRegistry) over(o KafkaSchemaRegistry) KafkaSchemaRegistry {
+	pick := func(a, b string) string {
+		if b != "" {
+			return b
+		}
+		return a
+	}
+	out := KafkaSchemaRegistry{
+		URL:         pick(r.URL, o.URL),
+		BasicAuth:   KafkaBasicAuth{Username: pick(r.BasicAuth.Username, o.BasicAuth.Username), Password: pick(r.BasicAuth.Password, o.BasicAuth.Password)},
+		BearerToken: pick(r.BearerToken, o.BearerToken),
+		TLS:         KafkaTLS{CA: pick(r.TLS.CA, o.TLS.CA), CAPassword: pick(r.TLS.CAPassword, o.TLS.CAPassword)},
+		Decode:      r.Decode,
+		Timeout:     pick(r.Timeout, o.Timeout),
+	}
+	if len(o.Decode) > 0 {
+		out.Decode = o.Decode
+	}
+	return out
+}
+
+// IsZero reports whether the section is absent.
+func (r KafkaSchemaRegistry) IsZero() bool {
+	return r.URL == "" && r.BasicAuth == (KafkaBasicAuth{}) && r.BearerToken == "" && r.TLS == (KafkaTLS{}) && len(r.Decode) == 0 && r.Timeout == ""
+}
+
+// KafkaBasicAuth is basic authentication.
+type KafkaBasicAuth struct {
+	Username string `yaml:"username" doc:"User name."`
+	Password string `yaml:"password" doc:"Password."`
 }
 
 // KafkaSASL is SASL authentication.
@@ -166,6 +213,8 @@ type KafkaRepo struct {
 	Connection KafkaConnection   `yaml:"connection" doc:"Connection keys merged over the profile's, key by key."`
 	Sources    []KafkaSource     `yaml:"sources" doc:"Sources read after the profile's."`
 	Topics     KafkaTopics       `yaml:"topics" doc:"Topics added to the profile's."`
+	// SchemaRegistry overrides the profile's registry, key by key.
+	SchemaRegistry KafkaSchemaRegistry `yaml:"schema_registry" doc:"Schema Registry keys merged over the profile's, key by key."`
 }
 
 // IsEnabled reports whether the repository has a Kafka screen (default

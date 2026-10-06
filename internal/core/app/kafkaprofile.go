@@ -13,6 +13,7 @@ type KafkaProfile struct {
 	Vars       map[string]string
 	Conn       KafkaConnSpec
 	Topics     KafkaTopicsSpec
+	Registry   KafkaRegistrySpec
 	Repos      map[string]KafkaRepoSpec
 }
 
@@ -45,6 +46,17 @@ func (c KafkaConnSpec) over(o KafkaConnSpec) KafkaConnSpec {
 	}
 }
 
+// KafkaRegistrySpec is a Schema Registry as written; empty fields are not
+// set, and a zero spec means no registry.
+type KafkaRegistrySpec struct {
+	URL                string
+	Username, Password string
+	Token              string
+	CA, CAPassword     string
+	Decode             []string // key, value; empty means both
+	Timeout            string
+}
+
 // KafkaTopicSpec is a topic as written.
 type KafkaTopicSpec struct {
 	Name string
@@ -59,10 +71,11 @@ type KafkaTopicsSpec struct {
 
 // KafkaRepoSpec adds to or overrides a profile for one repository.
 type KafkaRepoSpec struct {
-	Path    string
-	Enabled bool
-	Vars    map[string]string
-	Conn    KafkaConnSpec
-	Sources []KafkaSourceSpec
-	Topics  KafkaTopicsSpec
+	Path     string
+	Enabled  bool
+	Vars     map[string]string
+	Conn     KafkaConnSpec
+	Sources  []KafkaSourceSpec
+	Topics   KafkaTopicsSpec
+	Registry KafkaRegistrySpec
 }

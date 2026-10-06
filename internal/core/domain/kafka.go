@@ -73,6 +73,9 @@ type KafkaRecord struct {
 	KeySize       int
 	ValueSize     int
 	Headers       []KafkaHeader
+	// KeySchema and ValueSchema say how a framed key or value was
+	// decoded (Key and Value then hold JSON), or why it was not.
+	KeySchema, ValueSchema SchemaRef
 }
 
 // Truncated reports whether the key or the value was cut.

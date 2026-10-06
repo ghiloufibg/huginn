@@ -197,3 +197,67 @@ func TestParseByteSize(t *testing.T) {
 		}
 	}
 }
+
+const registryProfile = `version: 1
+connection: {bootstrap: 'localhost:9092', security: plaintext}
+topics: {list: [orders]}
+schema_registry:
+  url: ${SCHEMA_REGISTRY_URL}
+  basic_auth: {username: "${SR_USER}", password: "${SR_PASSWORD}"}
+  tls: {ca: /etc/sr/ca.pem}
+  decode: [value]
+  timeout: 5s
+repos:
+  billing:
+    schema_registry:
+      url: https://billing-registry.example:8081
+`
+
+func TestKafkaSchemaRegistryLoads(t *testing.T) {
+	c, msg := load(t, withKafka(map[string]string{"kafka/dev.yaml": registryProfile}))
+	if msg != "" {
+		t.Fatal(msg)
+	}
+	r := c.Kafka[0].SchemaRegistry
+	if r.URL != "${SCHEMA_REGISTRY_URL}" || r.BasicAuth.Password != "${SR_PASSWORD}" || r.TLS.CA != "/etc/sr/ca.pem" || r.Decode[0] != "value" || r.Timeout != "5s" {
+		t.Fatalf("schema_registry: %+v", r)
+	}
+	if got := r.over(c.Kafka[0].Repos["billing"].SchemaRegistry); got.URL != "https://billing-registry.example:8081" || got.BasicAuth.Username != "${SR_USER}" || got.Timeout != "5s" {
+		t.Fatalf("repository override, key by key: %+v", got)
+	}
+}
+
+func TestKafkaSchemaRegistryProblems(t *testing.T) {
+	_, msg := load(t, withKafka(map[string]string{"kafka/dev.yaml": `version: 1
+connection: {bootstrap: 'localhost:9092', security: plaintext}
+topics: {list: [orders]}
+schema_registry:
+  url: schema-registry:8081
+  basic_auth: {username: me}
+  bearer_token: env:SR_TOKEN
+  tls: {ca_password: secret}
+  decode: [values]
+  timeout: soon
+repos:
+  billing:
+    schema_registry: {timeout: 3s}
+`, "kafka/zz.yaml": `version: 1
+connection: {bootstrap: 'localhost:9092', security: plaintext}
+topics: {list: [orders]}
+repos:
+  orders:
+    schema_registry: {decode: [key]}
+`}))
+	wantErrors(t, msg,
+		`kafka/dev.yaml:5:3  schema_registry.url: "schema-registry:8081" is not an http or https URL`,
+		"schema_registry.basic_auth: set both username and password",
+		"schema_registry: set basic_auth or bearer_token, not both",
+		"schema_registry.tls.ca_password: set tls.ca",
+		`schema_registry.decode[0]: "values" is not one of: key, value (did you mean "value"?)`,
+		`schema_registry.timeout: "soon" is not a positive duration`,
+		`kafka/zz.yaml:6:5  repos.orders.schema_registry: missing required key "url"`,
+	)
+	if strings.Contains(msg, "repos.billing.schema_registry") {
+		t.Errorf("a repository overriding one key of a valid section is fine, except for the section's own problems:\n%s", msg)
+	}
+}

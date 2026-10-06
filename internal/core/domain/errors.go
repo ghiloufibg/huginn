@@ -20,6 +20,9 @@ var (
 	// ErrConfig: the local setup is wrong (an unknown kube context, an
 	// unreadable kubeconfig). Retrying cannot help; the user must fix it.
 	ErrConfig = errors.New("configuration")
+	// ErrInvalidPayload: bytes that do not match their declared format
+	// (a record whose Avro binary does not follow its schema).
+	ErrInvalidPayload = errors.New("invalid payload")
 )
 
 // ErrNoPrevious marks a container that never restarted: it has no previous

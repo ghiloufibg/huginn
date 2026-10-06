@@ -64,6 +64,12 @@ func kafkaProfiles(c *config.Config) []app.KafkaProfile {
 			Username: k.SASL.Username, Password: k.SASL.Password, CA: k.TLS.CA, CAPassword: k.TLS.CAPassword,
 		}
 	}
+	registry := func(r config.KafkaSchemaRegistry) app.KafkaRegistrySpec {
+		return app.KafkaRegistrySpec{
+			URL: r.URL, Username: r.BasicAuth.Username, Password: r.BasicAuth.Password, Token: r.BearerToken,
+			CA: r.TLS.CA, CAPassword: r.TLS.CAPassword, Decode: r.Decode, Timeout: r.Timeout,
+		}
+	}
 	sources := func(ss []config.KafkaSource) []app.KafkaSourceSpec {
 		out := make([]app.KafkaSourceSpec, len(ss))
 		for i, s := range ss {
@@ -85,12 +91,13 @@ func kafkaProfiles(c *config.Config) []app.KafkaProfile {
 	for _, p := range c.Kafka {
 		ap := app.KafkaProfile{
 			Name: p.Name, MatchRepos: p.Match.Repos, MatchFiles: p.Match.Files, Sources: sources(p.Sources),
-			Vars: p.Vars, Conn: conn(p.Connection), Topics: topics(p.Topics), Repos: map[string]app.KafkaRepoSpec{},
+			Vars: p.Vars, Conn: conn(p.Connection), Topics: topics(p.Topics), Registry: registry(p.SchemaRegistry),
+			Repos: map[string]app.KafkaRepoSpec{},
 		}
 		for name, r := range p.Repos {
 			ap.Repos[name] = app.KafkaRepoSpec{
 				Path: r.Path, Enabled: r.IsEnabled(), Vars: r.Vars, Conn: conn(r.Connection),
-				Sources: sources(r.Sources), Topics: topics(r.Topics),
+				Sources: sources(r.Sources), Topics: topics(r.Topics), Registry: registry(r.SchemaRegistry),
 			}
 		}
 		out = append(out, ap)
