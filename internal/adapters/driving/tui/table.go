@@ -98,7 +98,7 @@ func (t *table) scroll(n, h int) {
 // render draws n rows in a w×h viewport. Only the visible rows are asked
 // for (get), so large tables stay cheap; flex is the widest text of the
 // flex column over all rows.
-func (t *table) render(n int, get func(i int) []cell, flex, w, h int, th Theme) string {
+func (t *table) render(n int, get func(i int) []cell, flex, w, h int, th *Theme) string {
 	widths := t.layout(w, flex)
 	lines := make([]string, 0, h)
 	head := make([]cell, len(t.cols))

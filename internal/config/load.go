@@ -28,6 +28,7 @@ const (
 	FileUI           = "ui.yaml"
 	DirFormats       = "formats"
 	DirLayouts       = "layouts"
+	DirKafka         = "kafka"
 )
 
 // Structure is the expected folder tree, printed when no folder is found.
@@ -37,7 +38,8 @@ const Structure = `  huginn.yaml         required  default environment, time win
   containers.yaml     optional  sidecars to hide
   ui.yaml             optional  theme, keymap, key bar
   formats/*.yaml      at least one: how to read log lines
-  layouts/*.yaml      at least one: how to draw log lines`
+  layouts/*.yaml      at least one: how to draw log lines
+  kafka/*.yaml        optional  Kafka topics of your services, read only`
 
 // Locate returns the config folder: explicit (--config), then
 // HUGINN_CONFIG, then <user config dir>/huginn.
@@ -94,7 +96,7 @@ func LoadFS(fsys fs.FS, name string) (*Config, error) {
 	if l.read(FileUI, &c.UI, false) {
 		l.version(FileUI, c.UI.Version)
 	}
-	for _, f := range l.dir(DirFormats) {
+	for _, f := range l.dir(DirFormats, true) {
 		var fm Format
 		if l.read(f.file, &fm, true) {
 			l.version(f.file, fm.Version)
@@ -102,12 +104,20 @@ func LoadFS(fsys fs.FS, name string) (*Config, error) {
 			c.Formats = append(c.Formats, fm)
 		}
 	}
-	for _, f := range l.dir(DirLayouts) {
+	for _, f := range l.dir(DirLayouts, true) {
 		var lo Layout
 		if l.read(f.file, &lo, true) {
 			l.version(f.file, lo.Version)
 			lo.Name, lo.File = f.name, f.file
 			c.Layouts[f.name] = lo
+		}
+	}
+	for _, f := range l.dir(DirKafka, false) {
+		var kp KafkaProfile
+		if l.read(f.file, &kp, true) {
+			l.version(f.file, kp.Version)
+			kp.Name, kp.File = f.name, f.file
+			c.Kafka = append(c.Kafka, kp)
 		}
 	}
 	c.pos = l.pos
@@ -129,7 +139,7 @@ func (l *loader) add(file string, line, col int, format string, args ...any) {
 	l.probs = append(l.probs, Problem{File: file, Line: line, Col: col, Msg: fmt.Sprintf(format, args...)})
 }
 
-var rootNames = []string{FileHuginn, FileEnvironments, FileServices, FileContainers, FileUI, DirFormats, DirLayouts}
+var rootNames = []string{FileHuginn, FileEnvironments, FileServices, FileContainers, FileUI, DirFormats, DirLayouts, DirKafka}
 
 // ignored reports names that may sit in the folder without being read:
 // hidden files (.git) and documentation (*.md).
@@ -162,12 +172,14 @@ type dirFile struct{ file, name string }
 
 var fileNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
 
-// dir lists the YAML files of formats/ or layouts/, sorted by name; at
-// least one is required.
-func (l *loader) dir(d string) []dirFile {
+// dir lists the YAML files of formats/, layouts/ or kafka/, sorted by
+// name; when required, the folder must hold at least one.
+func (l *loader) dir(d string, required bool) []dirFile {
 	entries, err := fs.ReadDir(l.fsys, d)
 	if errors.Is(err, fs.ErrNotExist) {
-		l.add(d+"/", 0, 0, "missing folder: at least one file is required")
+		if required {
+			l.add(d+"/", 0, 0, "missing folder: at least one file is required")
+		}
 		return nil
 	}
 	if err != nil {
@@ -192,7 +204,7 @@ func (l *loader) dir(d string) []dirFile {
 			out = append(out, dirFile{file, stem})
 		}
 	}
-	if len(out) == 0 {
+	if len(out) == 0 && required {
 		l.add(d+"/", 0, 0, "no .yaml file: at least one is required")
 	}
 	return out

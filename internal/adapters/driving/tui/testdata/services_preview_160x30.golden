@@ -26,5 +26,5 @@
                                                                                                                                                                 
                                                                                                                                                                 
                                                                                                                                                                 
- SERVICES   14 repos + 1 without repo · 3 failing · 2 degraded/pending · 2 rolling · 8 healthy  ·  sort status                                                  
+ SERVICES   3 failing · 2 degraded/pending · 2 rolling · 8 healthy · 14 repos + 1 without repo  ·  sort status                                                  
  enter logs  / filter  s sort  p preview  r resync  ctrl+e env  f2 keys  q quit  ? help                                                                         

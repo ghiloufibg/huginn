@@ -1,0 +1,21 @@
+# yaml-language-server: $schema=../../../docs/schema/format.schema.json
+# pino writes one JSON object per line:
+# {"level":30,"time":1790431703123,"pid":1,"hostname":"orders-6f7c9","name":"orders",
+#  "req":{"id":"req-42","method":"POST","url":"/orders"},"msg":"order created"}
+version: 1
+decoder: json
+fields:
+  time:     time                 # epoch milliseconds are understood
+  level:    level
+  logger:   name
+  message:  msg
+  stack:    err.stack
+  trace_id: [traceId, req.id]
+  pid:      pid
+levels:                          # pino writes levels as numbers
+  debug: ["10", "20"]
+  info:  ["30"]
+  warn:  ["40"]
+  error: ["50", "60"]
+hidden: [hostname, "kubernetes.*"]
+layout: node

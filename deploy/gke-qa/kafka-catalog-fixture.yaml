@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: catalog
+  namespace: qa-rec
+  labels:
+    app.kubernetes.io/part-of: catalog
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: catalog }
+  template:
+    metadata:
+      labels: { app: catalog, app.kubernetes.io/part-of: catalog }
+    spec:
+      containers:
+        - name: catalog
+          image: busybox:1.36
+          command: ["sh", "-c", "while true; do echo '{\"level\":\"info\",\"message\":\"catalog service heartbeat\"}'; sleep 10; done"]
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }

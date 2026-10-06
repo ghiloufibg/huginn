@@ -29,6 +29,9 @@ type Config struct {
 	Formats []Format
 	// Layouts by name (file name without extension).
 	Layouts map[string]Layout
+	// Kafka are the profiles of kafka/, in file name order: the first
+	// matching one wins. Empty when the folder has no kafka/.
+	Kafka []KafkaProfile
 
 	pos map[string]positions // key positions by file
 }
@@ -45,10 +48,11 @@ func (c *Config) Problem(file, path, format string, args ...any) Problem {
 type Huginn struct {
 	Version    int     `yaml:"version" doc:"Structure version of this file; must be 1." required:"true"`
 	DefaultEnv string  `yaml:"default_env" doc:"Environment opened when none is given on the command line; a key of environments.yaml." required:"true"`
-	ReposRoot  string  `yaml:"repos_root" doc:"Folder containing your repositories, used by the manifests rule of services.yaml. ~ is expanded."`
+	ReposRoot  string  `yaml:"repos_root" doc:"Folder containing your repositories, used by the manifests rule of services.yaml and by {repo_dir} in kafka/. ~ is expanded."`
 	Windows    Windows `yaml:"windows" doc:"Time-window presets of the logs screen."`
 	Logs       Logs    `yaml:"logs" doc:"Log loading limits."`
 	Demo       Demo    `yaml:"demo" doc:"Synthetic cluster used by --demo."`
+	Kafka      Kafka   `yaml:"kafka" doc:"Limits of the Kafka screen (used only when the folder has kafka/ profiles)."`
 }
 
 // Windows configures the time-window presets.
@@ -136,28 +140,44 @@ type Containers struct {
 // UI is ui.yaml: personal display choices.
 type UI struct {
 	Version         int                 `yaml:"version" doc:"Structure version of this file; must be 1." required:"true"`
-	Theme           string              `yaml:"theme" doc:"Color theme. Default light." enum:"light,accessible,classic,none"`
+	Theme           string              `yaml:"theme" doc:"Color theme. auto picks light or dark from the terminal's background (asked to the terminal, else COLORFGBG, else dark). Default auto." enum:"auto,light,dark,accessible,classic,none"`
 	PaintBackground bool                `yaml:"paint_background" doc:"Paint the theme background instead of using the terminal's."`
 	KeyBar          string              `yaml:"key_bar" doc:"Key bar at the bottom. Default compact." enum:"compact,full,hidden"`
 	Keymap          map[string][]string `yaml:"keymap" doc:"Action name to keys, replacing the default keys of that action, e.g. {follow: [f, ctrl+l]}."`
 	LogColumns      []string            `yaml:"log_columns" doc:"Columns shown when a logs screen opens: pod and names of layout columns. Empty: every visible column, narrowed automatically."`
+	Clipboard       string              `yaml:"clipboard" doc:"Where y copies: auto (the terminal, via OSC 52, and the system clipboard command when there is one), osc52 (the terminal only), system (pbcopy, wl-copy, xclip, xsel or clip.exe only), off. Default auto." enum:"auto,osc52,system,off"`
+	Copy            Copy                `yaml:"copy" doc:"Copying log lines (y, Y)."`
+	Save            Save                `yaml:"save" doc:"Saving log lines to a file (ctrl+s)."`
+	Redact          []string            `yaml:"redact" doc:"Go regular expressions whose matches become [redacted] in everything copied or saved (not on screen), e.g. ['(?i)bearer [a-z0-9._-]+']. None by default."`
+	Mouse           *bool               `yaml:"mouse" doc:"Huginn reads the mouse: wheel scrolling, click to move the cursor, shift+click and drag to select lines. false leaves the mouse to the terminal, whose own selection then works directly. Default true."`
+}
+
+// Save says where ctrl+s writes files.
+type Save struct {
+	Dir string `yaml:"dir" doc:"Directory of saved files; it must exist. ~ is the home directory. Default: the current directory."`
+}
+
+// Copy bounds what y and Y copy.
+type Copy struct {
+	MaxBytes int `yaml:"max_bytes" doc:"Largest copy, in bytes: terminals cap what OSC 52 carries. Past it nothing is copied and the flash says so. At least 1. Default 1048576."`
 }
 
 // Format is one file of formats/: how to read a log line.
 type Format struct {
 	// Name is the file name without extension; File the path in the folder.
-	Name, File string           `yaml:"-"`
-	Version    int              `yaml:"version" doc:"Structure version of this file; must be 1." required:"true"`
-	Decoder    string           `yaml:"decoder" doc:"json: one JSON object per line; regex: text lines read with pattern; plain: no structure." enum:"json,regex,plain" required:"true"`
-	Match      Match            `yaml:"match" doc:"Containers read with this format. Formats are tried in file name order; the first match wins. No match section: every container."`
-	Fields     FieldMap         `yaml:"fields" doc:"json decoder: where each standard field is, as candidate JSON paths (first present wins; dots walk into objects)."`
-	Levels     map[string]Paths `yaml:"levels" doc:"Extra spellings of each level in these logs (case ignored), e.g. {error: [\"50\", FATAL]}. Common spellings are known already." keys:"error,warn,info,debug"`
-	Hidden     []string         `yaml:"hidden" doc:"json decoder: fields (globs on dotted paths) never shown on the stream, only in zoom metadata, e.g. [\"kubernetes.*\"]."`
-	Pattern    string           `yaml:"pattern" doc:"regex decoder: Go regular expression with named groups; time, level, logger, thread, message, trace_id, app and pid are standard fields, other groups become extra fields. message is required."`
-	TimeFormat string           `yaml:"time_format" doc:"regex decoder: Go reference layout of the time group, e.g. 02/Jan/2006:15:04:05 -0700. Default RFC 3339."`
-	LevelFrom  LevelFrom        `yaml:"level_from" doc:"regex decoder: derive the level from another group, e.g. the HTTP status."`
-	Mute       Mute             `yaml:"mute" doc:"Loggers whose lines are hidden (connection pool state, resource snapshots…): they never reach the logs screen, where M shows them again."`
-	Layout     string           `yaml:"layout" doc:"Layout used to draw these lines: a file name of layouts/ without extension." required:"true"`
+	Name, File string               `yaml:"-"`
+	Version    int                  `yaml:"version" doc:"Structure version of this file; must be 1." required:"true"`
+	Decoder    string               `yaml:"decoder" doc:"json: one JSON object per line; regex: text lines read with pattern; plain: no structure." enum:"json,regex,plain" required:"true"`
+	Match      Match                `yaml:"match" doc:"Containers read with this format. Formats are tried in file name order; the first match wins. No match section: every container."`
+	Fields     FieldMap             `yaml:"fields" doc:"json decoder: where each standard field is, as candidate JSON paths (first present wins; dots walk into objects)."`
+	Levels     map[string]Paths     `yaml:"levels" doc:"Extra spellings of each level in these logs (case ignored), e.g. {error: [\"50\", FATAL]}. Common spellings are known already." keys:"error,warn,info,debug"`
+	Hidden     []string             `yaml:"hidden" doc:"json decoder: fields (globs on dotted paths) never shown on the stream nor searched, only in the hidden fields of zoom, e.g. [\"kubernetes.*\"]."`
+	Transform  map[string]Transform `yaml:"transform" doc:"json decoder: keep part of a standard field's value and extract fields from it, by field, e.g. {message: {pattern: '- (?P<message>.*?) -'}}." keys:"message,logger,thread,trace_id,app,pid"`
+	Pattern    string               `yaml:"pattern" doc:"regex decoder: Go regular expression with named groups; time, level, logger, thread, message, trace_id, app and pid are standard fields, other groups become extra fields. message is required."`
+	TimeFormat string               `yaml:"time_format" doc:"regex decoder: Go reference layout of the time group, e.g. 02/Jan/2006:15:04:05 -0700. Default RFC 3339."`
+	LevelFrom  LevelFrom            `yaml:"level_from" doc:"json and regex decoders: raise the level from another field, e.g. the HTTP status. It never lowers the level."`
+	Mute       Mute                 `yaml:"mute" doc:"Loggers whose lines are hidden (connection pool state, resource snapshots…): they never reach the logs screen, where M shows them again."`
+	Layout     string               `yaml:"layout" doc:"Layout used to draw these lines: a file name of layouts/ without extension." required:"true"`
 }
 
 // Mute hides the lines of chosen loggers.
@@ -185,10 +205,50 @@ type FieldMap struct {
 	PID     Paths `yaml:"pid" doc:"Process id."`
 }
 
-// LevelFrom derives the level of a regex format from a group.
+// Transform reads the value of a standard field of a json format with a
+// regular expression: it keeps part of the value and extracts fields.
+type Transform struct {
+	Pattern string   `yaml:"pattern" doc:"Go regular expression with a group named after the field, e.g. (?P<message>…): when it matches, the group becomes the field's value; otherwise nothing changes. Other named groups become fields of the line (standard ones fill their field when the JSON left it empty); time and stack groups are not allowed." required:"true"`
+	Pairs   []string `yaml:"pairs" doc:"Groups of pattern holding key=value text, e.g. [before, after]: each pair becomes a field; empty values are left out."`
+	// PairPattern reads the pairs groups; empty means key=value separated by
+	// white space.
+	PairPattern string `yaml:"pair_pattern" doc:"Go regular expression reading one pair of a pairs group, with the groups key and value, e.g. '(?P<key>[\\w.-]+): (?P<value>[^;]*);?'. The matches must cover the group except white space, otherwise the group is kept whole. Default: key=value separated by white space."`
+	// MaxBytes and MaxFields bound the cost of one line; zero means the
+	// default.
+	MaxBytes  int `yaml:"max_bytes" doc:"Values longer than this many bytes are left as they are (the regular expression costs about 50 µs per KiB). At least 1. Default 16384."`
+	MaxFields int `yaml:"max_fields" doc:"At most this many fields extracted per line; the rest stays in the raw view. At least 1. Default 64."`
+}
+
+// byName returns the paths of a standard field by its YAML name, and
+// whether the name is one of the fields.
+func (m FieldMap) byName(name string) (Paths, bool) {
+	switch name {
+	case "time":
+		return m.Time, true
+	case "level":
+		return m.Level, true
+	case "logger":
+		return m.Logger, true
+	case "thread":
+		return m.Thread, true
+	case "message":
+		return m.Message, true
+	case "stack":
+		return m.Stack, true
+	case "trace_id":
+		return m.TraceID, true
+	case "app":
+		return m.App, true
+	case "pid":
+		return m.PID, true
+	}
+	return nil, false
+}
+
+// LevelFrom raises the level of a line from the value of another field.
 type LevelFrom struct {
-	Field string            `yaml:"field" doc:"Group whose value decides the level, e.g. status."`
-	Map   map[string]string `yaml:"map" doc:"Glob on the value to level (error, warn, info, debug), tried longest glob first, e.g. {\"5*\": error, \"4*\": warn, \"*\": info}."`
+	Field string            `yaml:"field" doc:"Field whose value decides the level, e.g. status: a group of pattern (regex), or a JSON path or a field extracted by a transform (json)."`
+	Map   map[string]string `yaml:"map" doc:"Glob on the value to level (error, warn, info, debug), tried longest glob first, e.g. {\"5*\": error, \"4*\": warn}. The line takes the more severe of its level and the matched one; no match keeps its level."`
 }
 
 // Layout is one file of layouts/: how to draw a log line.

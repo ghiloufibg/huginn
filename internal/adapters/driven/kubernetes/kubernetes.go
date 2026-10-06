@@ -73,9 +73,12 @@ type Client struct {
 
 // New returns a client; nothing is contacted until a method is called.
 func New(o Options) *Client {
+	if o.Log == nil {
+		o.Log = slog.New(slog.NewTextHandler(io.Discard, nil))
+	}
 	routeKlog(o.Log)
 	if o.NewClientset == nil {
-		o.NewClientset = func(ctx string) (API, error) { return fromKubeconfig(ctx, o.UserAgent) }
+		o.NewClientset = func(ctx string) (API, error) { return fromKubeconfig(ctx, o.UserAgent, o.Log) }
 	}
 	return &Client{opts: o, clientsets: map[string]API{}}
 }
@@ -98,7 +101,7 @@ func (c *Client) clientset(context string) (API, error) {
 
 // fromKubeconfig loads the kubeconfig with the standard rules (KUBECONFIG,
 // then ~/.kube/config) for one context.
-func fromKubeconfig(context, userAgent string) (API, error) {
+func fromKubeconfig(context, userAgent string, log *slog.Logger) (API, error) {
 	rules := clientcmd.NewDefaultClientConfigLoadingRules()
 	name := context
 	if name == "" {
@@ -118,11 +121,14 @@ func fromKubeconfig(context, userAgent string) (API, error) {
 	// the system's TCP timeout, about 30 s); streams are not limited.
 	cfg.Dial = (&net.Dialer{Timeout: dialTimeout, KeepAlive: 30 * time.Second}).DialContext
 	var cs clients
-	if cs.core, err = corev1client.NewForConfig(cfg); err == nil {
-		if cs.apps, err = appsv1client.NewForConfig(cfg); err == nil {
-			cs.batch, err = batchv1client.NewForConfig(cfg)
+	err = quietPlugin(cfg, log, func() (err error) {
+		if cs.core, err = corev1client.NewForConfig(cfg); err == nil {
+			if cs.apps, err = appsv1client.NewForConfig(cfg); err == nil {
+				cs.batch, err = batchv1client.NewForConfig(cfg)
+			}
 		}
-	}
+		return err
+	})
 	if err != nil {
 		return nil, domain.KindError(domain.ErrConfig, fmt.Sprintf("kube context %s: %v", name, err))
 	}
@@ -142,13 +148,10 @@ func anyExists(paths []string) bool {
 
 var klogOnce sync.Once
 
-// routeKlog sends client-go's logs (klog, a process-wide logger) to log,
-// or discards them: nothing may write to the terminal under the TUI.
+// routeKlog sends client-go's logs (klog, a process-wide logger) to log:
+// nothing may write to the terminal under the TUI.
 func routeKlog(log *slog.Logger) {
 	klogOnce.Do(func() {
-		if log == nil {
-			log = slog.New(slog.NewTextHandler(io.Discard, nil))
-		}
 		klog.SetSlogLogger(log.With("source", "client-go"))
 		utilruntime.ErrorHandlers = []utilruntime.ErrorHandler{
 			func(_ context.Context, err error, msg string, kv ...any) {

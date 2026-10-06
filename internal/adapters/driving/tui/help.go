@@ -32,17 +32,27 @@ type helpLine struct {
 func helpActions(s screen) (string, []Action) {
 	switch s.(type) {
 	case *servicesScreen:
-		return "Services", []Action{ActUp, ActDown, ActPageUp, ActPageDown, ActTop, ActBottom, ActOpen, ActFilter, ActSort, ActPreview, ActRefresh}
+		return "Services", []Action{ActUp, ActDown, ActPageUp, ActPageDown, ActTop, ActBottom, ActOpen, ActKafka, ActFilter, ActSort, ActPreview, ActRefresh}
+	case *kafkaTopicsScreen:
+		return "Kafka topics", []Action{ActUp, ActDown, ActPageUp, ActPageDown, ActTop, ActBottom, ActOpen, ActRefresh}
+	case *kafkaRecordsScreen:
+		return "Kafka records", []Action{
+			ActUp, ActDown, ActPageUp, ActPageDown, ActTop, ActBottom, ActOpen, ActFilter,
+			ActWindow1, ActWindow2, ActWindow3, ActWindow4, ActWindow5, ActWindow6, ActWindow7, ActWindowTail,
+			ActFollow, ActPause, ActIsolation, ActRefresh, ActOrder, ActCopy,
+		}
+	case *kafkaZoomScreen:
+		return "Kafka record", []Action{ActUp, ActDown, ActPageUp, ActPageDown, ActTop, ActNextEntry, ActPrevEntry, ActCopy}
 	case *logsScreen:
 		return "Logs", []Action{
 			ActUp, ActDown, ActPageUp, ActPageDown, ActTop, ActBottom, ActNextError, ActPrevError,
 			ActFollow, ActPause, ActPreviousLogs, ActWindowNext, ActWindowPick, ActWindow1, ActWindow2, ActWindow3, ActWindow4, ActWindow5, ActWindow6, ActWindow7, ActWindowTail, ActWindowHead,
 			ActFilter, ActFilterMode, ActRegex, ActAddFilter, ActContext, ActNextMatch, ActPrevMatch, ActLevels, ActErrorsOnly, ActWarnAndError, ActAllLevels,
-			ActOpen, ActPodScope, ActPodSelector, ActAllContainers, ActShowMuted,
+			ActOpen, ActViewTrace, ActSelect, ActMark, ActCopy, ActCopyRaw, ActSave, ActPodScope, ActPodSelector, ActAllContainers, ActShowMuted,
 			ActOrder, ActCycleColumns, ActTimestamps, ActPodID, ActColumns, ActFocus, ActResetDisplay, ActWrap, ActPanLeft, ActPanRight, ActPanLeftHalf, ActPanRightHalf, ActFullscreen,
 		}
 	case *zoomScreen:
-		return "Zoom", []Action{ActUp, ActDown, ActPageUp, ActPageDown, ActTop, ActNextEntry, ActPrevEntry, ActJSONView, ActOpen}
+		return "Zoom", []Action{ActUp, ActDown, ActPageUp, ActPageDown, ActTop, ActNextEntry, ActPrevEntry, ActJSONView, ActOpen, ActViewTrace, ActCopy, ActCopyRaw, ActFieldNext, ActFieldPrev, ActFieldKeep, ActFieldExclude}
 	case *podSelector:
 		return "Pod selector", []Action{ActUp, ActDown, ActAllLevels, ActFilter, ActOpen}
 	}
@@ -53,12 +63,22 @@ var globalActions = []Action{ActHelp, ActKeyBar, ActBack, ActSwitchEnv, ActQuit}
 
 func newHelpScreen(m *Model, from screen) *helpScreen {
 	title, own := helpActions(from)
+	if m.opts.Kafka == nil { // the feature is absent: so is its key
+		own = slices.DeleteFunc(slices.Clone(own), func(a Action) bool { return a == ActKafka })
+	}
 	h := &helpScreen{from: from}
 	h.lines = append(h.lines, helpLine{section: strings.ToUpper(title)})
 	h.lines = append(h.lines, h.grouped(m, own)...)
 	h.lines = append(h.lines, helpLine{}, helpLine{section: "GLOBAL"})
 	for _, a := range globalActions {
 		h.lines = append(h.lines, h.line(m, a))
+	}
+	if _, ok := from.(*kafkaRecordsScreen); ok {
+		h.lines = append(h.lines, helpLine{}, helpLine{section: "IN THE FILTER PROMPT"},
+			helpLine{keys: "key=<text>", desc: "the key contains text"},
+			helpLine{keys: "partition=<n>", desc: "records of partition n"},
+			helpLine{keys: "header.<name>=<text>", desc: "a header contains text"},
+			helpLine{keys: "<text>", desc: "key, value or a header contains text (upper case: exact case)"})
 	}
 	if l, ok := from.(*logsScreen); ok {
 		h.lines = append(h.lines, l.mutedHelp(m)...)
@@ -174,7 +194,7 @@ func (h *helpScreen) visible() []helpLine {
 
 func (h *helpScreen) view(m *Model, w, height int) string {
 	h.height = height
-	t := m.opts.Theme
+	t := &m.opts.Theme
 	lines := h.visible()
 	width := 0
 	for _, l := range lines {
@@ -214,6 +234,6 @@ func (h *helpScreen) prompt(m *Model) string {
 	if !h.editing && h.search.String() == "" {
 		return ""
 	}
-	t := m.opts.Theme
+	t := &m.opts.Theme
 	return t.Prompt.Render("search help") + t.Bold.Inherit(t.Status).Render(" "+h.search.String()+"_")
 }

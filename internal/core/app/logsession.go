@@ -8,6 +8,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ghiloufibg/huginn/internal/core/domain"
@@ -70,34 +71,57 @@ func (s *LogSessions) Open(ctx context.Context, q ports.LogQuery) (<-chan ports.
 	run := &session{
 		s: s, q: q, scope: scope, workloads: workloads, opened: s.Clock.Now(),
 		hist: newHistoryCollector(s.limit(), q.Window.IsHead() && !q.Previous),
-		pods: map[string]*podState{}, msgs: make(chan tailMsg, tailQueue), out: make(chan ports.LogBatch, 1),
+		pods: map[podKey]*podState{}, msgs: make(chan tailMsg, tailQueue), out: make(chan ports.LogBatch, 1),
 	}
 	go run.loop(ctx, pods)
 	return run.out, nil
 }
 
 func (s *LogSessions) workloadsOf(ctx context.Context, scope ports.Scope, q ports.LogQuery) ([]domain.Workload, error) {
-	// Namespace by namespace: one namespace the user cannot read must not
-	// hide the repository's workloads in the others.
+	// Namespace by namespace, concurrently: one namespace the user cannot
+	// read must not hide the repository's workloads in the others, and
+	// none of these calls needs to wait for another to start. Each
+	// namespace writes only its own slot, then they are joined in the
+	// original namespace order -- same result as doing them one after
+	// another, just not waiting for each round trip in turn.
+	type nsResult struct {
+		workloads []domain.Workload
+		err       error
+	}
+	results := make([]nsResult, len(scope.Namespaces))
+	var wg sync.WaitGroup
+	for i, ns := range scope.Namespaces {
+		wg.Add(1)
+		go func(i int, ns string) {
+			defer wg.Done()
+			sc := scope
+			sc.Namespaces = []string{ns}
+			ws, err := s.Cluster.ListWorkloads(ctx, sc)
+			if err != nil {
+				results[i].err = err
+				return
+			}
+			out := ws
+			if s.Standalone {
+				pods, err := s.Cluster.ListPods(ctx, sc, nil)
+				if err != nil {
+					results[i].err = err
+					return
+				}
+				out = append(out, domain.StandaloneWorkloads(ws, pods)...)
+			}
+			results[i].workloads = out
+		}(i, ns)
+	}
+	wg.Wait()
 	var all []domain.Workload
 	var nsErr error
-	for _, ns := range scope.Namespaces {
-		sc := scope
-		sc.Namespaces = []string{ns}
-		ws, err := s.Cluster.ListWorkloads(ctx, sc)
-		if err != nil {
-			nsErr = errors.Join(nsErr, err)
+	for _, r := range results {
+		if r.err != nil {
+			nsErr = errors.Join(nsErr, r.err)
 			continue
 		}
-		all = append(all, ws...)
-		if s.Standalone {
-			pods, err := s.Cluster.ListPods(ctx, sc, nil)
-			if err != nil {
-				nsErr = errors.Join(nsErr, err)
-				continue
-			}
-			all = append(all, domain.StandaloneWorkloads(ws, pods)...)
-		}
+		all = append(all, r.workloads...)
 	}
 	if all == nil && nsErr != nil {
 		return nil, nsErr
@@ -133,19 +157,43 @@ func (s *LogSessions) workloadsOf(ctx context.Context, scope ports.Scope, q port
 }
 
 func (s *LogSessions) podsOf(ctx context.Context, scope ports.Scope, ws []domain.Workload) ([]domain.Pod, error) {
+	// One ListPods per workload, concurrently: each already has its own
+	// namespace and selector, so none needs to wait for another. The
+	// cross-workload ownership filter and dedup below still run in one
+	// goroutine, over the fetched results, exactly as if each list had
+	// arrived one after another -- only the waiting for the network
+	// happens at the same time instead of in turn.
+	type wResult struct {
+		pods []domain.Pod
+		err  error
+	}
+	results := make([]wResult, len(ws))
+	var wg sync.WaitGroup
+	for i, w := range ws {
+		wg.Add(1)
+		go func(i int, w domain.Workload) {
+			defer wg.Done()
+			sc := scope
+			sc.Namespaces = []string{w.Ref.Namespace}
+			sel := ports.Selector(w.Selector)
+			if w.Standalone {
+				sel = nil // found by owner or name
+			}
+			pods, err := s.Cluster.ListPods(ctx, sc, sel)
+			if err != nil {
+				results[i].err = err
+				return
+			}
+			results[i].pods = pods
+		}(i, w)
+	}
+	wg.Wait()
 	var out []domain.Pod
-	for _, w := range ws {
-		sc := scope
-		sc.Namespaces = []string{w.Ref.Namespace}
-		sel := ports.Selector(w.Selector)
-		if w.Standalone {
-			sel = nil // found by owner or name
+	for _, r := range results {
+		if r.err != nil {
+			return nil, r.err
 		}
-		pods, err := s.Cluster.ListPods(ctx, sc, sel)
-		if err != nil {
-			return nil, err
-		}
-		for _, p := range pods {
+		for _, p := range r.pods {
 			if ownedBy(p, ws) && !slices.ContainsFunc(out, func(o domain.Pod) bool { return o.Name == p.Name && o.Namespace == p.Namespace }) {
 				out = append(out, p)
 			}
@@ -189,17 +237,17 @@ func (s *LogSessions) logger() *slog.Logger {
 
 // tailMsg is what a tailer or pod watch reports to the session loop.
 type tailMsg struct {
-	pod, container string
-	history        historyResult // with historyDone
-	historyDone    bool
-	historyErr     error
-	capped         bool              // the history reached the line limit
-	live           []domain.LogEntry // decoded live entries, in order
-	muted          map[string]int    // live lines left out, per mute pattern
-	notice         string
-	podEvent       *domain.PodEvent
-	streamErr      error // current error of the container, nil when streaming
-	clearErr       bool
+	pod, namespace, container string
+	history                   historyResult // with historyDone
+	historyDone               bool
+	historyErr                error
+	capped                    bool              // the history reached the line limit
+	live                      []domain.LogEntry // decoded live entries, in order
+	muted                     map[string]int    // live lines left out, per mute pattern
+	notice                    string
+	podEvent                  *domain.PodEvent
+	streamErr                 error // current error of the container, nil when streaming
+	clearErr                  bool
 }
 
 type podState struct {
@@ -208,13 +256,19 @@ type podState struct {
 	tailers []*tailer
 }
 
+// podKey identifies a pod by name and namespace: a repository's workloads
+// can span several namespaces of one environment, and pods of the same
+// name can exist in different namespaces (e.g. a StatefulSet's
+// deterministic "app-0"). Name alone would collide.
+type podKey struct{ namespace, name string }
+
 type session struct {
 	s         *LogSessions
 	q         ports.LogQuery
 	scope     ports.Scope
 	workloads []domain.Workload
 	opened    time.Time
-	pods      map[string]*podState
+	pods      map[podKey]*podState
 	msgs      chan tailMsg
 	out       chan ports.LogBatch
 
@@ -383,7 +437,7 @@ func (r *session) addPod(ctx context.Context, p domain.Pod, isNew bool) {
 	if r.q.Previous && len(st.Containers) == 0 {
 		st.Err = fmt.Errorf("%s: %w", p.Name, domain.ErrNoPrevious)
 	}
-	r.pods[p.Name] = st
+	r.pods[podKey{p.Namespace, p.Name}] = st
 	r.podsChanged = true
 }
 
@@ -420,12 +474,12 @@ func (r *session) handle(ctx context.Context, m tailMsg) {
 		r.handleHistory(m)
 	case m.live != nil || m.muted != nil:
 		r.countMuted(m.muted)
-		r.reorder.add(m.pod, m.container, m.live)
+		r.reorder.add(m.namespace, m.pod, m.container, m.live)
 		r.boundReorder()
 	case m.notice != "":
 		r.pending.Notices = append(r.pending.Notices, ports.LogNotice{Pod: m.pod, Text: m.notice})
 	case m.streamErr != nil || m.clearErr:
-		p := r.pods[m.pod]
+		p := r.pods[podKey{m.namespace, m.pod}]
 		if p == nil || errors.Is(p.Err, m.streamErr) {
 			return
 		}
@@ -444,12 +498,12 @@ func (r *session) handlePod(ctx context.Context, ev domain.PodEvent) {
 	if !r.owned(ev.Pod) {
 		return
 	}
-	p, known := r.pods[ev.Pod.Name]
+	p, known := r.pods[podKey{ev.Pod.Namespace, ev.Pod.Name}]
 	switch {
 	case ev.Type == domain.PodDeleted && known:
 		p.Terminated, p.Pod = true, ev.Pod
 		p.cancel()
-		r.reorder.forget(ev.Pod.Name)
+		r.reorder.forget(ev.Pod.Namespace, ev.Pod.Name)
 		r.podsChanged = true
 	case !known && ev.Type != domain.PodDeleted:
 		r.addPod(ctx, ev.Pod, true)
@@ -464,7 +518,7 @@ func (r *session) handlePod(ctx context.Context, ev domain.PodEvent) {
 
 func (r *session) handleHistory(m tailMsg) {
 	if m.historyErr != nil {
-		if p := r.pods[m.pod]; p != nil {
+		if p := r.pods[podKey{m.namespace, m.pod}]; p != nil {
 			p.Err = m.historyErr
 			r.podsChanged = true
 		}
@@ -474,7 +528,7 @@ func (r *session) handleHistory(m tailMsg) {
 	if r.historySent {
 		// History of a pod that appeared later: it is recent, treat it as
 		// live so the reorder window places it.
-		r.reorder.add(m.pod, m.container, h.own)
+		r.reorder.add(m.namespace, m.pod, m.container, h.own)
 		r.boundReorder()
 		return
 	}
@@ -506,7 +560,7 @@ func (r *session) retentionNotice(m tailMsg) string {
 		return ""
 	}
 	start := r.opened.Add(-r.q.Window.Since)
-	p := r.pods[m.pod]
+	p := r.pods[podKey{m.namespace, m.pod}]
 	if p == nil || p.Pod.Started.IsZero() || !p.Pod.Started.Before(start) {
 		return ""
 	}
@@ -524,7 +578,7 @@ func (r *session) retentionNotice(m tailMsg) string {
 // more than a minute after its instance started: the node rotated the
 // start of its logs away, and the API serves the current file only.
 func (r *session) rotationNotice(m tailMsg) string {
-	p := r.pods[m.pod]
+	p := r.pods[podKey{m.namespace, m.pod}]
 	if p == nil || m.history.read == 0 || m.history.first.IsZero() {
 		return ""
 	}

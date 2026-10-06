@@ -9,7 +9,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/x/ansi"
 
 	"github.com/ghiloufibg/huginn/internal/core/domain"
 	"github.com/ghiloufibg/huginn/internal/core/ports"
@@ -202,6 +201,10 @@ func (s *servicesScreen) key(m *Model, k tea.KeyPressMsg, rows []domain.ServiceS
 		if len(rows) > 0 {
 			return true, m.push(newLogsScreen(m, rows[s.tbl.cursor].Repo))
 		}
+	case keys.Is(key, ActKafka):
+		if len(rows) > 0 && m.kafkaRepos[rows[s.tbl.cursor].Repo] {
+			return true, m.push(newKafkaTopicsScreen(rows[s.tbl.cursor].Repo))
+		}
 	case keys.Is(key, ActFilter):
 		s.editing = true
 	case keys.Is(key, ActSort):
@@ -219,17 +222,22 @@ func (s *servicesScreen) key(m *Model, k tea.KeyPressMsg, rows []domain.ServiceS
 
 func (s *servicesScreen) view(m *Model, w, h int) string {
 	s.height = h
-	t := m.opts.Theme
+	t := &m.opts.Theme
 	switch {
 	case m.watchErr != nil:
-		return centered(t.Bad.Render("Cannot watch "+m.env.Name+": "+errKind(m.watchErr))+"\n\n"+
-			t.Dim.Render(wrapErr(m.watchErr, w))+"\n\n"+t.Dim.Render("press ")+t.Key.Render(m.label(ActRefresh))+t.Dim.Render(" to retry"), w, h)
+		// The watch did not start: nothing retries it.
+		return errorPanel(t, errTitle("Cannot watch", m.env.Name, m.watchErr), m.watchErr, errFix(t, m.watchErr),
+			t.Dim.Render("press ")+t.Key.Render(m.label(ActRefresh))+t.Dim.Render(" to retry"), w, h)
 	case m.snap == nil:
-		return centered(t.Key.Render(m.spinner())+t.Dim.Render(" connecting to "+m.env.Name), w, h)
+		msg := " connecting to " + m.env.Name
+		// A cluster that does not answer takes a while to time out: the
+		// elapsed time shows that something is going on.
+		if d := m.opts.Now().Sub(m.watchStart); d >= 2*time.Second {
+			msg += fmt.Sprintf(" · %ds", int(d.Seconds()))
+		}
+		return centered(t.Key.Render(m.spinner())+t.Dim.Render(msg), w, h)
 	case m.snap.Err != nil && len(m.snap.Services) == 0:
-		return centered(t.Bad.Render("Cannot reach "+m.env.Name+": "+errKind(m.snap.Err))+"\n\n"+
-			t.Dim.Render(wrapErr(m.snap.Err, w))+"\n\n"+t.Dim.Render(errAdvice(m.snap.Err)+" · press ")+
-			t.Key.Render(m.label(ActRefresh))+t.Dim.Render(" to retry now"), w, h)
+		return errorPanel(t, errTitle("Cannot reach", m.env.Name, m.snap.Err), m.snap.Err, errFix(t, m.snap.Err), m.retryKeys(m.snap.Err), w, h)
 	}
 	rows := s.rows(m)
 	if len(rows) == 0 {
@@ -241,12 +249,21 @@ func (s *servicesScreen) view(m *Model, w, h int) string {
 	}
 	s.sync(rows)
 	now := m.opts.Now()
-	get := func(i int) []cell { return s.cells(rows[i], now, t, m.opts.Filter) }
+	get := func(i int) []cell {
+		c := s.cells(rows[i], now, t, m.opts.Filter, m.kafkaRepos[rows[i].Repo])
+		if stale(m.snap, rows[i]) {
+			markStale(c, t)
+		}
+		return c
+	}
 	flex := 0
 	for _, r := range rows {
 		n := len(r.Repo)
 		if r.Unassigned {
 			n += len(" (no repo)")
+		}
+		if m.kafkaRepos[r.Repo] {
+			n += len(kafkaMark)
 		}
 		flex = max(flex, n)
 	}
@@ -300,8 +317,14 @@ func (s *servicesScreen) groupTitles(rows []domain.ServiceSummary) map[int]strin
 	return titles
 }
 
-func (s *servicesScreen) cells(r domain.ServiceSummary, now time.Time, t Theme, filter domain.ContainerFilter) []cell {
+// kafkaMark follows the name of a repository with a Kafka screen.
+const kafkaMark = " K"
+
+func (s *servicesScreen) cells(r domain.ServiceSummary, now time.Time, t *Theme, filter domain.ContainerFilter, kafka bool) []cell {
 	name := cell{text: r.Repo, style: t.Bold}
+	if kafka {
+		name.text += kafkaMark
+	}
 	if r.Unassigned {
 		name = cell{text: r.Repo + " (no repo)", style: t.Dim}
 		if len(r.WorkloadStates) > 0 && r.WorkloadStates[0].Standalone {
@@ -342,8 +365,29 @@ func (s *servicesScreen) cells(r domain.ServiceSummary, now time.Time, t Theme, 
 	}
 }
 
+// stale tells a row whose namespace lost its watch: it shows the service
+// as last seen, which may be out of date.
+func stale(snap *ports.CatalogSnapshot, r domain.ServiceSummary) bool {
+	for _, ref := range r.Refs {
+		if _, ok := snap.NamespaceErrs[ref.Namespace]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+// markStale dims a stale row and says so in words, which also reads
+// without colors.
+func markStale(cells []cell, t *Theme) {
+	for i := range cells {
+		cells[i].style = t.Dim
+	}
+	last := &cells[len(cells)-1]
+	last.text = strings.TrimSuffix("stale · "+last.text, " · ")
+}
+
 func (s *servicesScreen) statusLeft(m *Model) string {
-	t := m.opts.Theme
+	t := &m.opts.Theme
 	bar := t.Status
 	if m.env.Production {
 		bar = t.StatusProd
@@ -354,6 +398,13 @@ func (s *servicesScreen) statusLeft(m *Model) string {
 	}
 	if m.snap == nil {
 		return chip + bar.Render("loading")
+	}
+	// First, so that a narrow terminal never cuts it: the rows below may
+	// be out of date.
+	stalePart := ""
+	if since := m.snap.StaleSince; !since.IsZero() && len(m.snap.Services) > 0 {
+		stalePart = t.Warn.Inherit(bar).Render(fmt.Sprintf("stale since %s (%s)",
+			since.In(time.Local).Format("15:04"), shortAge(m.opts.Now().Sub(since)))) + bar.Render("  ·  ")
 	}
 	var parts []string
 	if s.missing != "" {
@@ -372,45 +423,53 @@ func (s *servicesScreen) statusLeft(m *Model) string {
 		parts = append(parts, "namespace "+strings.Join(nss, ", "))
 	}
 	parts = append(parts, m.snap.Warnings...)
-	return chip + bar.Render(strings.Join(parts, "  ·  "))
+	return chip + stalePart + bar.Render(strings.Join(parts, "  ·  "))
 }
 
 func (s *servicesScreen) hints(m *Model) []hint {
 	if s.editing {
 		return []hint{{"enter", "keep"}, {"esc", "clear"}, {"ctrl+u", "erase"}}
 	}
-	return []hint{
-		m.h(ActOpen, "logs"), m.h(ActFilter, "filter"), m.h(ActSort, "sort"), m.h(ActPreview, "preview"), m.h(ActRefresh, "resync"),
-		m.h(ActSwitchEnv, "env"), m.h(ActKeyBar, "keys"), m.h(ActQuit, "quit"), m.h(ActHelp, "help"),
+	hs := []hint{m.h(ActOpen, "logs")}
+	if s.kafka(m) {
+		hs = append(hs, m.h(ActKafka, "kafka"))
 	}
+	return append(hs,
+		m.h(ActFilter, "filter"), m.h(ActSort, "sort"), m.h(ActPreview, "preview"), m.h(ActRefresh, "resync"),
+		m.h(ActSwitchEnv, "env"), m.h(ActKeyBar, "keys"), m.h(ActQuit, "quit"), m.h(ActHelp, "help"),
+	)
+}
+
+// kafka reports whether the selected repository has a Kafka screen.
+func (s *servicesScreen) kafka(m *Model) bool {
+	r := s.current(m)
+	return r != nil && m.kafkaRepos[r.Repo]
 }
 
 func (s *servicesScreen) fullHints(m *Model) []hint {
 	if s.editing {
 		return s.hints(m)
 	}
-	return []hint{
+	hs := []hint{
 		m.pair(ActDown, ActUp, "move"), m.pair(ActTop, ActBottom, "top/bottom"), m.pair(ActPageDown, ActPageUp, "page"),
 		m.h(ActOpen, "logs"), m.h(ActFilter, "filter by name"), m.h(ActSort, "sort: status, name, restarts, age"),
 		m.h(ActPreview, "preview on/off"), m.h(ActRefresh, "resync"), m.h(ActSwitchEnv, "switch env"), m.h(ActBack, "clear filter"),
 		m.h(ActKeyBar, "keys"), m.h(ActQuit, "quit"), m.h(ActHelp, "help"),
 	}
+	if s.kafka(m) {
+		hs = append([]hint{m.h(ActKafka, "kafka topics, read only")}, hs...)
+	}
+	return hs
 }
 
 func (s *servicesScreen) prompt(m *Model) string {
 	if !s.editing && s.filter.String() == "" {
 		return ""
 	}
-	t := m.opts.Theme
+	t := &m.opts.Theme
 	text := " " + s.filter.String()
 	if s.editing {
 		text += "_"
 	}
 	return t.Prompt.Render("/") + t.Bold.Inherit(t.Status).Render(text)
-}
-
-// wrapErr wraps an error message to the screen, for the centered error
-// views: the message names what to fix and must be read whole.
-func wrapErr(err error, w int) string {
-	return ansi.Wrap(err.Error(), max(w-8, 20), " ")
 }

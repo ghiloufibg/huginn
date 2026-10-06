@@ -1,0 +1,17 @@
+# yaml-language-server: $schema=../../../docs/schema/environments.schema.json
+# The real GKE cluster (huginn-qa, us-central1). "restricted" uses the
+# huginn-reader IAM identity (RBAC scoped to qa-rec only, see rbac.yaml) to
+# test a forbidden namespace against a real cluster. "kms" reuses the same
+# identity but reads its namespace from the sops+GCP-KMS-encrypted dotenv
+# instead of a literal list, exercising namespace_from end to end.
+version: 1
+environments:
+  rec:
+    context: gke_huginn-kube-tui_us-central1_huginn-qa
+    namespaces: [qa-rec]
+  restricted:
+    context: huginn-reader
+    namespaces: [qa-rec, qa-restricted]
+  kms:
+    context: huginn-reader
+    namespace_from: sops:../namespace.env.enc#K8S_NAMESPACE

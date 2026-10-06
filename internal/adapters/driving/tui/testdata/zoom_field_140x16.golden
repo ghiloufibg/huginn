@@ -1,0 +1,16 @@
+ huginn  REC  gke_acme_europe-west1_main / app-rec   services / payment-service / logs / entry 4          demo · watching · synced 19:14:02 
+ entry 4 of 9   pod payment-service-7b9c8d4f6c-m8q7v   container payment-service                                                            
+                                                                                                                                            
+ 19:13:12.000 ERROR [exec-1] i.g.p.PaymentService : Payment authorization failed orderId=ord_8f91a2 traceId=7fd28c90                        
+                                                                                                                                            
+ FIELDS   tab field · = keep · ! exclude                                                                                                    
+   trace_id        7fd28c90                                                                                                                 
+ > extra.orderId   ord_8f91a2                                                                                                               
+   spanId          91ac07                                                                                                                   
+                                                                                                                                            
+ STACK TRACE   own frames in bold, framework frames dimmed                                                                                  
+   io.gimle.payment.PaymentGatewayException: upstream request timed out                                                                     
+       at io.gimle.payment.gateway.GatewayClient.charge(GatewayClient.java:184)                                                             
+       at org.springframework.web.servlet.FrameworkServlet.service(FrameworkServlet.java:885)                                               
+ sort name   ZOOM   structured view  ·  wrap on                                                                                             
+ J/K next/prev entry  j/k scroll  p raw json  = keep  ! exclude  v trace  enter hidden fields  esc back  ? help                             

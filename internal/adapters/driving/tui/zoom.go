@@ -19,10 +19,30 @@ import (
 type zoomScreen struct {
 	logs     *logsScreen
 	seq      uint64
-	raw      bool // pretty JSON instead of the structured view
-	metadata bool // Kubernetes metadata expanded
+	raw      bool   // pretty JSON instead of the structured view
+	metadata bool   // hidden fields expanded
+	field    string // key of the selected field, "" for none
+	reveal   bool   // scroll the selected field into view at the next draw
+	fieldRow int    // line of the selected field in the last structured view, -1 for none
 	offset   int
 	height   int
+}
+
+// zoomField is one row of the FIELDS section: a field a filter can use.
+type zoomField struct{ key, value string }
+
+// zoomFields lists the fields of e shown in FIELDS, in their order: the
+// trace id, then the visible fields by key. Hidden fields are not listed
+// there and cannot be filtered on (D-046).
+func zoomFields(e *domain.LogEntry) []zoomField {
+	var out []zoomField
+	if e.TraceID != "" {
+		out = append(out, zoomField{"trace_id", e.TraceID})
+	}
+	for _, k := range sortedKeys(e.Fields) {
+		out = append(out, zoomField{k, e.Fields[k]})
+	}
+	return out
 }
 
 func newZoomScreen(l *logsScreen, seq uint64) *zoomScreen { return &zoomScreen{logs: l, seq: seq} }
@@ -64,10 +84,69 @@ func (z *zoomScreen) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 		z.step(-1)
 	case keys.Is(key, ActOpen), key == "space":
 		z.metadata = !z.metadata
+	case keys.Is(key, ActFieldNext):
+		z.moveField(1)
+	case keys.Is(key, ActFieldPrev):
+		z.moveField(-1)
+	case keys.Is(key, ActFieldKeep), keys.Is(key, ActFieldExclude):
+		z.filterOnField(m, keys.Is(key, ActFieldExclude))
+	case keys.Is(key, ActCopy), keys.Is(key, ActCopyRaw):
+		e, ok := z.entry()
+		if !ok {
+			return true, nil
+		}
+		form := copyShown
+		if keys.Is(key, ActCopyRaw) {
+			form = copyRaw
+		}
+		return true, z.logs.copyLines(m, []*domain.LogEntry{e}, form)
+	case keys.Is(key, ActViewTrace):
+		l, seq := z.logs, z.seq
+		m.pop()
+		l.enterTrace(m, seq)
 	default:
 		return false, nil
 	}
 	return true, nil
+}
+
+// moveField moves the field cursor, wrapping; the first move selects the
+// first (or last) field.
+func (z *zoomScreen) moveField(dir int) {
+	e, ok := z.entry()
+	if !ok || z.raw {
+		return
+	}
+	fs := zoomFields(e)
+	if len(fs) == 0 {
+		return
+	}
+	i := slices.IndexFunc(fs, func(f zoomField) bool { return f.key == z.field })
+	switch {
+	case i < 0 && dir > 0:
+		i = 0
+	case i < 0:
+		i = len(fs) - 1
+	default:
+		i = (i + dir + len(fs)) % len(fs)
+	}
+	z.field, z.reveal = fs[i].key, true
+}
+
+// filterOnField adds a filter on the selected field's value to the logs
+// and goes back to them, on this entry when it still shows.
+func (z *zoomScreen) filterOnField(m *Model, exclude bool) {
+	e, ok := z.entry()
+	if !ok || z.field == "" {
+		return
+	}
+	v, ok := domain.FieldValue(e, z.field)
+	if !ok {
+		return
+	}
+	l, seq := z.logs, z.seq
+	m.pop()
+	l.addFilter(m, domain.FieldFilter(z.field, v, exclude), seq)
 }
 
 // step moves to the next or previous entry of the logs view.
@@ -82,6 +161,12 @@ func (z *zoomScreen) step(dir int) {
 	}
 	if j := i + dir; j >= 0 && j < len(v) {
 		z.seq, z.offset = v[j], 0
+		if e, ok := z.entry(); ok && z.field != "" {
+			if _, has := domain.FieldValue(e, z.field); !has {
+				z.field = "" // the next entry has no such field
+			}
+		}
+		z.reveal = z.field != ""
 	}
 }
 
@@ -100,19 +185,24 @@ func byteSize(n int) string {
 
 func (z *zoomScreen) view(m *Model, w, h int) string {
 	z.height = h
-	t := m.opts.Theme
+	t := &m.opts.Theme
 	e, ok := z.entry()
 	if !ok {
 		return centered(t.Dim.Render("this entry left the buffer"), w, h)
 	}
 	var lines []string
+	z.fieldRow = -1
 	if z.raw {
 		lines = z.rawLines(e)
 	} else {
 		lines = z.structured(m, e)
 	}
 	var out []string
-	for _, l := range lines {
+	fieldOut := -1
+	for i, l := range lines {
+		if i == z.fieldRow {
+			fieldOut = len(out)
+		}
 		l = safeText(l)
 		more := 0
 		if len(l) > zoomMaxBytes {
@@ -129,6 +219,15 @@ func (z *zoomScreen) view(m *Model, w, h int) string {
 			out = append(out, t.Dim.Render(fmt.Sprintf("… %s more not shown", byteSize(more))))
 		}
 	}
+	if z.reveal && fieldOut >= 0 {
+		switch {
+		case fieldOut < z.offset:
+			z.offset = fieldOut
+		case fieldOut >= z.offset+h:
+			z.offset = fieldOut - h + 1
+		}
+	}
+	z.reveal = false
 	z.offset = min(z.offset, max(len(out)-h, 0))
 	return strings.Join(out[z.offset:], "\n")
 }
@@ -142,7 +241,7 @@ func (z *zoomScreen) rawLines(e *domain.LogEntry) []string {
 }
 
 func (z *zoomScreen) structured(m *Model, e *domain.LogEntry) []string {
-	t := m.opts.Theme
+	t := &m.opts.Theme
 	l := z.logs
 	sec := func(title, note string) string { return " " + t.Bold.Render(title) + t.Dim.Render(note) }
 	pos := slices.Index(l.seqList(), e.Seq) + 1
@@ -154,13 +253,20 @@ func (z *zoomScreen) structured(m *Model, e *domain.LogEntry) []string {
 		line.WriteString(l.segmentStyle(t, e, s.Role).Render(s.Text))
 	}
 	out := []string{head, "", line.String(), ""}
-	if len(e.Fields) > 0 || e.TraceID != "" {
-		out = append(out, sec("FIELDS", ""))
-		if e.TraceID != "" {
-			out = append(out, "   "+t.Dim.Render(fmt.Sprintf("%-16s", "traceId"))+t.Key.Render(e.TraceID))
-		}
-		for _, k := range sortedKeys(e.Fields) {
-			out = append(out, "   "+t.Dim.Render(fmt.Sprintf("%-16s", k))+e.Fields[k])
+	if fs := zoomFields(e); len(fs) > 0 {
+		keys := m.opts.Keys
+		out = append(out, sec("FIELDS", fmt.Sprintf("   %s field · %s keep · %s exclude",
+			keys.First(ActFieldNext), keys.First(ActFieldKeep), keys.First(ActFieldExclude))))
+		for _, f := range fs {
+			mark, key, value := "   ", t.Dim.Render(fmt.Sprintf("%-16s", f.key)), f.value
+			if f.key == "trace_id" {
+				value = t.Key.Render(value)
+			}
+			if f.key == z.field {
+				z.fieldRow = len(out)
+				mark, key = " "+t.Key.Render(">")+" ", t.Bold.Render(fmt.Sprintf("%-16s", f.key))
+			}
+			out = append(out, mark+key+value)
 		}
 		out = append(out, "")
 	}
@@ -174,18 +280,18 @@ func (z *zoomScreen) structured(m *Model, e *domain.LogEntry) []string {
 	out = append(out, "")
 	if hidden := e.HiddenFields(); len(hidden) > 0 {
 		if z.metadata {
-			out = append(out, sec("KUBERNETES METADATA", fmt.Sprintf("   %d fields · enter to collapse", len(hidden))))
+			out = append(out, sec("HIDDEN FIELDS", fmt.Sprintf("   %d fields · enter to collapse", len(hidden))))
 			for _, k := range sortedKeys(hidden) {
 				out = append(out, "   "+t.Dim.Render(fmt.Sprintf("%-32s", k))+hidden[k])
 			}
 		} else {
-			out = append(out, t.Dim.Render(fmt.Sprintf(" [+] kubernetes metadata   %d fields · enter to expand", len(hidden))))
+			out = append(out, t.Dim.Render(fmt.Sprintf(" [+] hidden fields   %d fields · enter to expand", len(hidden))))
 		}
 	}
 	return out
 }
 
-func (z *zoomScreen) stack(t Theme, layout ports.LogLayout, stack string) []string {
+func (z *zoomScreen) stack(t *Theme, layout ports.LogLayout, stack string) []string {
 	var out []string
 	for _, line := range strings.Split(strings.TrimRight(stack, "\n"), "\n") {
 		trimmed := strings.TrimSpace(line)
@@ -206,7 +312,7 @@ func (z *zoomScreen) stack(t Theme, layout ports.LogLayout, stack string) []stri
 
 // context renders the entries of the same pod around e.
 func (z *zoomScreen) context(m *Model, e *domain.LogEntry) []string {
-	t := m.opts.Theme
+	t := &m.opts.Theme
 	buf := z.logs.buf
 	idx, _ := buf.Index(e.Seq)
 	var before, after []*domain.LogEntry
@@ -260,10 +366,16 @@ func (z *zoomScreen) statusLeft(m *Model) string {
 }
 
 func (z *zoomScreen) hints(m *Model) []hint {
-	return []hint{
-		m.pair(ActNextEntry, ActPrevEntry, "next/prev entry"), m.pair(ActDown, ActUp, "scroll"), m.h(ActJSONView, "raw json"),
-		m.h(ActOpen, "metadata"), m.h(ActBack, "back"), m.h(ActHelp, "help"),
+	hs := []hint{m.pair(ActNextEntry, ActPrevEntry, "next/prev entry"), m.pair(ActDown, ActUp, "scroll"), m.h(ActJSONView, "raw json")}
+	if z.field != "" {
+		hs = append(hs, m.h(ActFieldKeep, "keep"), m.h(ActFieldExclude, "exclude"))
+	} else if e, ok := z.entry(); ok && !z.raw && len(zoomFields(e)) > 0 {
+		hs = append(hs, m.h(ActFieldNext, "field"))
 	}
+	if e, ok := z.entry(); ok && e.TraceID != "" {
+		hs = append(hs, m.h(ActViewTrace, "trace"))
+	}
+	return append(hs, m.h(ActOpen, "hidden fields"), m.h(ActBack, "back"), m.h(ActHelp, "help"))
 }
 
 func (z *zoomScreen) prompt(*Model) string { return "" }

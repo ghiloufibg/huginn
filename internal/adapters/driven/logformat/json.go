@@ -1,7 +1,6 @@
 package logformat
 
 import (
-	"path"
 	"slices"
 	"strings"
 	"time"
@@ -23,10 +22,14 @@ import (
 type JSONDecoder struct {
 	p     Profile
 	plain *PlainDecoder
+	hc    *hiddenCache
 }
 
 // NewJSON returns a decoder for profile p.
-func NewJSON(p Profile) *JSONDecoder { return &JSONDecoder{p: p, plain: NewPlain(p.Name)} }
+func NewJSON(p Profile) *JSONDecoder {
+	p.LevelRules = sortRules(p.LevelRules)
+	return &JSONDecoder{p: p, plain: NewPlain(p.Name), hc: newHiddenCache(p.Hidden)}
+}
 
 // parsers are reused across lines and goroutines.
 var parsers fastjson.ParserPool
@@ -45,7 +48,57 @@ func (d *JSONDecoder) Decode(raw domain.RawLine) domain.LogEntry {
 	}
 	e := domain.LogEntry{Pod: raw.Pod, Container: raw.Container, Raw: raw.Text, Structured: true, Time: raw.Time, Format: d.p.Name}
 	var usedBuf [16]string
-	used := usedBuf[:0]
+	used := d.standard(&e, root, usedBuf[:0])
+	extracted := transform(&e, d.p.Transforms, d.p.LevelAliases)
+	var hasHidden, hiddenExtracted bool
+	e.Fields, hasHidden = d.rest(root, used)
+	for _, f := range extracted {
+		switch {
+		case lookup(root, f.key) != nil: // a JSON key wins over extracted text
+		case d.hidden(f.key):
+			hasHidden, hiddenExtracted = true, true
+		default:
+			if e.Fields == nil {
+				e.Fields = map[string]string{}
+			}
+			e.Fields[f.key] = f.value
+		}
+	}
+	if d.p.LevelField != "" {
+		if v, ok := levelValue(root, d.p.LevelField, extracted); ok {
+			e.Level = raise(e.Level, d.p.LevelRules, v)
+		}
+	}
+	if hasHidden {
+		raw := text
+		// Two closures rather than one capturing the flag: this one is
+		// kept for every buffered line, so each byte counts.
+		if hiddenExtracted {
+			e.LoadHidden = func() map[string]string { return d.hiddenOf(raw, true) }
+		} else {
+			e.LoadHidden = func() map[string]string { return d.hiddenOf(raw, false) }
+		}
+	}
+	return e
+}
+
+// levelValue is the value of the level_from field of a line: the JSON
+// path p, hidden or not, else the field p extracted by a transform.
+func levelValue(root *fastjson.Value, p string, extracted []field) (string, bool) {
+	if v := lookup(root, p); v != nil {
+		return stringify(v), true
+	}
+	for _, f := range extracted {
+		if f.key == p {
+			return f.value, true
+		}
+	}
+	return "", false
+}
+
+// standard reads the standard fields of the profile from root into e and
+// returns used with the paths it read appended.
+func (d *JSONDecoder) standard(e *domain.LogEntry, root *fastjson.Value, used []string) []string {
 	take := func(paths []string) *fastjson.Value {
 		for _, p := range paths {
 			if v := lookup(root, p); v != nil {
@@ -71,13 +124,7 @@ func (d *JSONDecoder) Decode(raw domain.RawLine) domain.LogEntry {
 	}
 	e.Logger, e.Thread, e.Message = str(d.p.Logger), str(d.p.Thread), str(d.p.Message)
 	e.Stack, e.TraceID, e.App, e.PID = str(d.p.Stack), str(d.p.TraceID), str(d.p.App), str(d.p.PID)
-	var hasHidden bool
-	e.Fields, hasHidden = d.rest(root, used)
-	if hasHidden {
-		raw := text
-		e.LoadHidden = func() map[string]string { return d.hiddenOf(raw) }
-	}
-	return e
+	return used
 }
 
 // rest flattens the visible fields not consumed by the profile. Hidden
@@ -106,7 +153,7 @@ func (d *JSONDecoder) rest(root *fastjson.Value, used []string) (fields map[stri
 			}
 			if v.Type() == fastjson.TypeObject {
 				child, _ := v.Object()
-				if d.hidden(p + ".\x00") { // every key below is hidden
+				if d.hc.get(p).below { // every key below is hidden
 					hasHidden = hasHidden || child.Len() > 0
 					return
 				}
@@ -124,31 +171,42 @@ func (d *JSONDecoder) rest(root *fastjson.Value, used []string) (fields map[stri
 	return fields, hasHidden
 }
 
-// hiddenOf decodes the hidden fields of a line again, for the zoom view.
-func (d *JSONDecoder) hiddenOf(raw string) map[string]string {
+// hiddenOf decodes the hidden fields of a line again, for the zoom view
+// and layout columns; transforms run again only when they extracted hidden
+// fields. It runs on the UI goroutine, where a panic would end the
+// program, so a line it cannot read gives no hidden fields instead.
+func (d *JSONDecoder) hiddenOf(raw string, transformed bool) (out map[string]string) {
+	defer func() {
+		if recover() != nil {
+			out = nil
+		}
+	}()
 	p := parsers.Get()
 	defer parsers.Put(p)
 	root, err := p.Parse(raw)
 	if err != nil {
 		return nil
 	}
-	out := map[string]string{}
+	out = map[string]string{}
 	flatten("", true, root, func(k string, v *fastjson.Value) {
 		if d.hidden(k) {
 			out[k] = stringify(v)
 		}
 	})
+	if transformed {
+		var e domain.LogEntry
+		var usedBuf [16]string
+		d.standard(&e, root, usedBuf[:0])
+		for _, f := range transform(&e, d.p.Transforms, d.p.LevelAliases) {
+			if d.hidden(f.key) && lookup(root, f.key) == nil {
+				out[f.key] = f.value
+			}
+		}
+	}
 	return out
 }
 
-func (d *JSONDecoder) hidden(k string) bool {
-	for _, g := range d.p.Hidden {
-		if ok, _ := path.Match(g, k); ok {
-			return true
-		}
-	}
-	return false
-}
+func (d *JSONDecoder) hidden(k string) bool { return d.hc.get(k).self }
 
 // lookup finds p as a literal key, then as a dotted path through objects.
 // null counts as absent.

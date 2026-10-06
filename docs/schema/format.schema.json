@@ -145,7 +145,7 @@
       "type": "object"
     },
     "hidden": {
-      "description": "json decoder: fields (globs on dotted paths) never shown on the stream, only in zoom metadata, e.g. [\"kubernetes.*\"].",
+      "description": "json decoder: fields (globs on dotted paths) never shown on the stream nor searched, only in the hidden fields of zoom, e.g. [\"kubernetes.*\"].",
       "items": {
         "type": "string"
       },
@@ -157,17 +157,17 @@
     },
     "level_from": {
       "additionalProperties": false,
-      "description": "regex decoder: derive the level from another group, e.g. the HTTP status.",
+      "description": "json and regex decoders: raise the level from another field, e.g. the HTTP status. It never lowers the level.",
       "properties": {
         "field": {
-          "description": "Group whose value decides the level, e.g. status.",
+          "description": "Field whose value decides the level, e.g. status: a group of pattern (regex), or a JSON path or a field extracted by a transform (json).",
           "type": "string"
         },
         "map": {
           "additionalProperties": {
             "type": "string"
           },
-          "description": "Glob on the value to level (error, warn, info, debug), tried longest glob first, e.g. {\"5*\": error, \"4*\": warn, \"*\": info}.",
+          "description": "Glob on the value to level (error, warn, info, debug), tried longest glob first, e.g. {\"5*\": error, \"4*\": warn}. The line takes the more severe of its level and the matched one; no match keeps its level.",
           "type": "object"
         }
       },
@@ -253,6 +253,52 @@
     "time_format": {
       "description": "regex decoder: Go reference layout of the time group, e.g. 02/Jan/2006:15:04:05 -0700. Default RFC 3339.",
       "type": "string"
+    },
+    "transform": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "properties": {
+          "max_bytes": {
+            "description": "Values longer than this many bytes are left as they are (the regular expression costs about 50 µs per KiB). At least 1. Default 16384.",
+            "type": "integer"
+          },
+          "max_fields": {
+            "description": "At most this many fields extracted per line; the rest stays in the raw view. At least 1. Default 64.",
+            "type": "integer"
+          },
+          "pair_pattern": {
+            "description": "Go regular expression reading one pair of a pairs group, with the groups key and value, e.g. '(?P\u003ckey\u003e[\\w.-]+): (?P\u003cvalue\u003e[^;]*);?'. The matches must cover the group except white space, otherwise the group is kept whole. Default: key=value separated by white space.",
+            "type": "string"
+          },
+          "pairs": {
+            "description": "Groups of pattern holding key=value text, e.g. [before, after]: each pair becomes a field; empty values are left out.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "pattern": {
+            "description": "Go regular expression with a group named after the field, e.g. (?P\u003cmessage\u003e…): when it matches, the group becomes the field's value; otherwise nothing changes. Other named groups become fields of the line (standard ones fill their field when the JSON left it empty); time and stack groups are not allowed.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pattern"
+        ],
+        "type": "object"
+      },
+      "description": "json decoder: keep part of a standard field's value and extract fields from it, by field, e.g. {message: {pattern: '- (?P\u003cmessage\u003e.*?) -'}}.",
+      "propertyNames": {
+        "enum": [
+          "message",
+          "logger",
+          "thread",
+          "trace_id",
+          "app",
+          "pid"
+        ]
+      },
+      "type": "object"
     },
     "version": {
       "description": "Structure version of this file; must be 1.",

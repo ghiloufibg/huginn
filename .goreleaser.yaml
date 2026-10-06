@@ -1,0 +1,56 @@
+# Release of Huginn: static binaries attached to a GitHub release (D-055).
+# Run by .github/workflows/release.yml when a v* tag is pushed; check
+# locally with `goreleaser release --snapshot --clean` (nothing published).
+version: 2
+
+project_name: huginn
+
+builds:
+  - main: ./cmd/huginn
+    binary: huginn
+    env:
+      - CGO_ENABLED=0
+    # Same targets and version stamp as `make cross`: `huginn --version`
+    # prints the tag, v included, as a `make build` from a tag does.
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X github.com/ghiloufibg/huginn/internal/buildinfo.Version={{ .Tag }}
+
+archives:
+  - formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - README.md
+      - docs/CONFIG.md
+      - examples/**/*
+
+checksum:
+  name_template: checksums.txt
+
+# Release notes come from the conventional commits since the last tag.
+changelog:
+  use: git
+  sort: asc
+  groups:
+    - title: Features
+      regexp: '^feat(\(.+\))?!?:'
+      order: 0
+    - title: Fixes
+      regexp: '^fix(\(.+\))?!?:'
+      order: 1
+    - title: Other changes
+      order: 999
+  filters:
+    exclude:
+      - '^docs(\(.+\))?:'
+      - '^test(\(.+\))?:'
+      - '^chore(\(.+\))?:'
+
+release:
+  draft: false
+  prerelease: auto

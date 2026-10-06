@@ -36,7 +36,7 @@ func TestReorderBufferMergesInTimeOrder(t *testing.T) {
 				batch = append(batch, entryAt(pod, "c", ms[key]))
 			}
 		}
-		b.add(pod, "c", batch)
+		b.add("ns", pod, "c", batch)
 		all = append(all, batch...)
 	}
 	slices.SortStableFunc(all, compareEntries)
@@ -60,14 +60,14 @@ func TestReorderBufferGivesMemoryBack(t *testing.T) {
 	for i := range burst {
 		burst[i] = entryAt("p", "c", i)
 	}
-	b.add("p", "c", burst)
+	b.add("ns", "p", "c", burst)
 	for b.len() > 0 {
 		popOldest(&b)
 	}
-	if q := b.queues["p/c"]; q.segs != nil {
+	if q := b.queues["ns/p/c"]; q.segs != nil {
 		t.Fatalf("an empty queue keeps %d batches", len(q.segs))
 	}
-	b.forget("p")
+	b.forget("ns", "p")
 	if len(b.queues) != 0 {
 		t.Fatal("forget must drop the empty queues of the pod")
 	}
@@ -91,7 +91,7 @@ func BenchmarkReorderCommit(b *testing.B) {
 				next[c] += containers
 				batch = append(batch, domain.LogEntry{Pod: pods[c], Container: "c", Received: t0.Add(time.Duration(next[c]+c) * time.Millisecond)})
 			}
-			rb.add(pods[c], "c", batch)
+			rb.add("ns", pods[c], "c", batch)
 		}
 	}
 	feed(waiting)

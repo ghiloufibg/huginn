@@ -1,0 +1,16 @@
+ huginn  REC  gke_acme_europe-west1_main / ap…   services / payment-service / kafka   demo · watching · synced 19:14:02 
+ TOPIC               DIR     PARTS  STATE                                                                               
+ CONSUMES                                                                                                               
+ payments.requested  in          3  ready                                                                               
+ payments.completed  in+out      6  ready                                                                               
+ PRODUCES                                                                                                               
+ payments.dlq        out         1  ready                                                                               
+ TOPICS                                                                                                                 
+ ${TOPIC_AUDIT}                     TOPIC_AUDIT not found in the sources                                                
+ ledger.snapshots                2  topic ledger.snapshots: forbidden                                                   
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+ KAFKA   read only  ·  profile demo  ·  5 topics  ·  2 unreadable                                                       
+ enter records  r reconnect  esc back  ? help                                                                           

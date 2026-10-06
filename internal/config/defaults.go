@@ -7,6 +7,17 @@ package config
 // DefaultWindowPresets are bound to keys 1…7 when windows.presets is empty.
 var DefaultWindowPresets = []string{"15m", "30m", "40m", "45m", "1h", "1d", "2d"}
 
+// Default limits of a transform (formats/*.yaml): a value longer than
+// DefaultTransformMaxBytes is not read, which bounds a line to about 1 ms;
+// DefaultTransformMaxFields bounds the fields one line adds to the buffer.
+const (
+	// DefaultCopyMaxBytes bounds one copy (ui.yaml copy.max_bytes).
+	DefaultCopyMaxBytes = 1 << 20
+
+	DefaultTransformMaxBytes  = 16 << 10
+	DefaultTransformMaxFields = 64
+)
+
 func applyDefaults(c *Config) {
 	h := &c.Huginn
 	if len(h.Windows.Presets) == 0 {
@@ -31,11 +42,34 @@ func applyDefaults(c *Config) {
 		h.Demo.Rate = 1
 	}
 	h.ReposRoot = ExpandHome(h.ReposRoot)
+	kafkaDefaults(&h.Kafka)
 	if c.UI.Theme == "" {
-		c.UI.Theme = "light"
+		c.UI.Theme = "auto"
 	}
 	if c.UI.KeyBar == "" {
 		c.UI.KeyBar = "compact"
+	}
+	if c.UI.Clipboard == "" {
+		c.UI.Clipboard = "auto"
+	}
+	if c.UI.Copy.MaxBytes == 0 {
+		c.UI.Copy.MaxBytes = DefaultCopyMaxBytes
+	}
+	c.UI.Save.Dir = ExpandHome(c.UI.Save.Dir)
+	if c.UI.Mouse == nil {
+		on := true
+		c.UI.Mouse = &on
+	}
+	for i := range c.Formats {
+		for field, t := range c.Formats[i].Transform {
+			if t.MaxBytes == 0 {
+				t.MaxBytes = DefaultTransformMaxBytes
+			}
+			if t.MaxFields == 0 {
+				t.MaxFields = DefaultTransformMaxFields
+			}
+			c.Formats[i].Transform[field] = t
+		}
 	}
 	for name, l := range c.Layouts {
 		if len(l.Zoom.Columns) == 0 {
@@ -62,6 +96,32 @@ func applyDefaults(c *Config) {
 			if e, ok := c.Environments.ByName[w.Env]; w.Namespace == "" && ok && len(e.Namespaces) > 0 {
 				w.Namespace = e.Namespaces[0]
 			}
+		}
+	}
+}
+
+func kafkaDefaults(k *Kafka) {
+	if k.TailRecords == 0 {
+		k.TailRecords = 100
+	}
+	if k.MaxRecords == 0 {
+		k.MaxRecords = 20000
+	}
+	for _, d := range []struct {
+		v   *string
+		def string
+	}{
+		{&k.MaxBufferBytes, "64MiB"},
+		{&k.MaxValueBytes, "256KiB"},
+		{&k.FetchMaxBytes, "1MiB"},
+		{&k.PartitionFetchMaxBytes, "256KiB"},
+		{&k.ConnectTimeout, "10s"},
+		{&k.RequestTimeout, "30s"},
+		{&k.ClientID, "huginn"},
+		{&k.Isolation, "read_uncommitted"},
+	} {
+		if *d.v == "" {
+			*d.v = d.def
 		}
 	}
 }

@@ -88,7 +88,7 @@ func (t *tailer) logFormat() ports.LogFormat {
 }
 
 func (t *tailer) send(ctx context.Context, m tailMsg) bool {
-	m.pod, m.container = t.name, t.container
+	m.pod, m.namespace, m.container = t.name, t.ns, t.container
 	select {
 	case t.msgs <- m:
 		return true

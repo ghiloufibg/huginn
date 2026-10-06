@@ -117,3 +117,35 @@ func TestFarJumpStaysFast(t *testing.T) {
 		t.Fatalf("the cursor is not visible: offset %d", l.offset)
 	}
 }
+
+// bigKafka opens a topic's records screen with n records.
+func bigKafka(b *testing.B, n int) (*Model, *kafkaRecordsScreen) {
+	b.Helper()
+	m, _ := newKafkaModel(b)
+	m.opts.KafkaMaxRecords, m.opts.KafkaMaxBytes = n, 64<<20
+	selectRepo(b, m, "payment-service")
+	press(m, "M", "enter")
+	r := m.top().(*kafkaRecordsScreen)
+	feedKafka(m, r, ports.KafkaBatch{Records: kafkaRecords(n), HistoryDone: true})
+	render(m, 200, 60)
+	return m, r
+}
+
+// BenchmarkKafkaRecordsFrame is one frame of a topic holding 20 000 records.
+func BenchmarkKafkaRecordsFrame(b *testing.B) {
+	m, _ := bigKafka(b, 20000)
+	b.ReportAllocs()
+	for b.Loop() {
+		_ = m.View()
+	}
+}
+
+// BenchmarkKafkaFilter applies a filter to 20 000 records (each keystroke).
+func BenchmarkKafkaFilter(b *testing.B) {
+	_, r := bigKafka(b, 20000)
+	b.ReportAllocs()
+	for b.Loop() {
+		r.input.text = []rune("pay-0001")
+		r.setFilter()
+	}
+}

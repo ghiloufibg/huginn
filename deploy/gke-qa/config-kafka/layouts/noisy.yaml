@@ -1,0 +1,8 @@
+# yaml-language-server: $schema=../../../../docs/schema/layout.schema.json
+# Minimal layout for the noisy-fixture format: no logger/thread fields exist
+# on this synthetic source, unlike the Spring Boot services (layouts/spring.yaml).
+version: 1
+stream:
+  columns:
+    - { name: time,  key: t, show: "{time}",          role: time }
+    - { name: level, key: l, show: "{level|right:5}", role: level }

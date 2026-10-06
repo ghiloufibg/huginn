@@ -1,0 +1,33 @@
+name: release
+
+# Pushing a v* tag (git tag v0.1.0 && git push origin v0.1.0) builds the
+# binaries with goreleaser and publishes them in a GitHub release (D-055).
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write # create the release and upload its files
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0 # the changelog needs the previous tag
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version: "1.26.x"
+      # A tag must not publish what CI would reject.
+      - name: vet
+        run: go vet ./...
+      - name: test
+        run: go test ./...
+      - uses: goreleaser/goreleaser-action@v7.2.3
+        with:
+          distribution: goreleaser
+          version: v2.18.2
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -37,7 +37,7 @@ func (p *envPicker) update(m *Model, k tea.KeyPressMsg) tea.Cmd {
 }
 
 func (p *envPicker) view(m *Model) string {
-	t := m.opts.Theme
+	t := &m.opts.Theme
 	var lines []string
 	width := 0
 	for _, e := range m.opts.Envs {

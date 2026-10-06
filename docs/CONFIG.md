@@ -5,7 +5,8 @@ Huginn knows nothing about your applications. Everything specific to them comes 
 - how a workload maps to a repository;
 - which containers are sidecars;
 - how a log line is read;
-- how a log line is drawn.
+- how a log line is drawn;
+- where the Kafka settings of a service are, optionally.
 
 This page is the complete reference for that folder.
 
@@ -18,8 +19,9 @@ This page is the complete reference for that folder.
 - [7. `ui.yaml`](#7-uiyaml)
 - [8. `formats/<name>.yaml`](#8-formatsnameyaml): reading lines
 - [9. `layouts/<name>.yaml`](#9-layoutsnameyaml): drawing lines
-- [10. Errors](#10-errors)
-- [11. Your folder in 15 minutes](#11-your-folder-in-15-minutes)
+- [10. `kafka/<name>.yaml`](#10-kafkanameyaml): Kafka topics, read only
+- [11. Errors](#11-errors)
+- [12. Your folder in 15 minutes](#12-your-folder-in-15-minutes)
 
 Complete, tested examples:
 
@@ -28,6 +30,7 @@ Complete, tested examples:
 | [`examples/config/`](../examples/config) | Spring Boot 3, JSON logs from the logstash encoder, Kubernetes metadata added by the log agent. Also the folder used by `--demo`. |
 | [`examples/config-node/`](../examples/config-node) | Node.js with pino: numeric levels, epoch milliseconds, a column taken from any JSON path |
 | [`examples/config-nginx/`](../examples/config-nginx) | nginx access lines read with a regular expression, next to JSON application logs: two formats chosen per container |
+| [`examples/config-kafka/`](../examples/config-kafka) | Kafka profiles: settings read from a repository's dotenv overlays (one encrypted with sops), and a local cluster written by hand |
 
 **Editor completion**: each example file starts with a `# yaml-language-server: $schema=…` line pointing to the JSON schemas in [`docs/schema/`](schema). Editors that support it (VS Code with the YAML extension, JetBrains IDEs) then complete keys and show their documentation. Keep that line when you copy a file, adjusting the relative path.
 
@@ -50,7 +53,7 @@ huginn --demo                              # synthetic cluster + the embedded ex
 
 Huginn reads and checks the whole folder **before** the terminal UI opens:
 - if the folder is missing, Huginn prints the expected structure;
-- if the folder is invalid, it prints **every** problem with its file, line and column (see [Errors](#10-errors)).
+- if the folder is invalid, it prints **every** problem with its file, line and column (see [Errors](#11-errors)).
 
 In both cases it exits with code 2. It never starts with a partly understood folder.
 
@@ -65,14 +68,16 @@ acme-huginn/
 ├── ui.yaml               optional   theme, keymap, key bar, columns
 ├── formats/              required   at least one .yaml file, one format per file
 │   └── <name>.yaml
-└── layouts/              required   at least one .yaml file, one layout per file
+├── layouts/              required   at least one .yaml file, one layout per file
+│   └── <name>.yaml
+└── kafka/                optional   Kafka profiles, one per file
     └── <name>.yaml
 ```
 
 Rules common to every file:
 - **The names are fixed.** Any other file or folder is an error with a suggestion ("did you mean environments.yaml?"), so a typo never goes unnoticed. Hidden files (`.git`, `.gitignore`) and Markdown files (`README.md`) are ignored, so the folder can live in its own git repository with its own notes.
 - **Every file starts with `version: 1`.** This is the version of the structure described here. A future Huginn that changes the structure will recognise and report older files instead of misreading them.
-- **Formats and layouts are named after their file**: `formats/spring-json.yaml` is the format `spring-json`. Names use lower-case letters, digits, `.`, `_` and `-`. Both `.yaml` and `.yml` work.
+- **Formats, layouts and Kafka profiles are named after their file**: `formats/spring-json.yaml` is the format `spring-json`. Names use lower-case letters, digits, `.`, `_` and `-`. Both `.yaml` and `.yml` work.
 - **Decoding is strict**: unknown keys, wrong types and unknown values are errors.
 - **Optional keys may be left out.** The defaults below are neutral technical values. Huginn has no default environment, format, layout, label or sidecar.
 
@@ -110,7 +115,7 @@ demo:
 |---|---|---|---|---|
 | `version` | int | yes | | Must be `1`. |
 | `default_env` | string | yes | | Environment opened by `huginn` without argument. It must be a key of `environments.yaml`. `HUGINN_ENV`, `-e` and the positional argument override it. |
-| `repos_root` | string | | | Folder containing your repositories. Only needed by the `manifests` rule of `services.yaml`. |
+| `repos_root` | string | | | Folder containing your repositories. Needed by the `manifests` rule of `services.yaml` and by `{repo_dir}` in `kafka/`. |
 | `windows.presets` | list of durations | | `15m 30m 40m 45m 1h 1d 2d` | Windows of keys `1`…`7`, in order; at most 7. Tail (key `0`) and head (key `9`) are always there and are not presets. |
 | `windows.tail_lines` | int | | `500` | Lines loaded by the tail window (key `0`). |
 | `windows.head_lines` | int | | `500` | Lines loaded **per container** by the head window (key `9`): the first lines the node still keeps. At most `logs.buffer_lines`. |
@@ -118,6 +123,7 @@ demo:
 | `logs.buffer_lines` | int | | `50000` | Lines kept in memory per logs screen; older ones are dropped. At least 1000. |
 | `demo.seed` | int | | `42` | `--demo` only: the same seed gives the same synthetic cluster. |
 | `demo.rate` | number | | `1` | `--demo` only: live lines per second per pod. |
+| `kafka.*` | | | | Limits of the Kafka screen, see [Kafka limits](#limits-huginnyaml-kafka). |
 
 ## 4. `environments.yaml`
 
@@ -141,7 +147,7 @@ environments:
 | `environments` | map | yes | | At least one environment. Names use lower-case letters, digits and `-`, 32 characters at most. |
 | `environments.<env>.context` | string | | current context | kubeconfig context. It must already exist, for example after `gcloud container clusters get-credentials`. Huginn never logs in for you. |
 | `environments.<env>.namespaces` | list | one of the two | | Namespaces holding the environment's workloads. |
-| `environments.<env>.namespace_from` | string | one of the two | | Read the namespace from a sops-encrypted dotenv file: `sops:<file>#<key>`. A relative `<file>` is relative to the config folder (for example `sops:../infra/overlays/prd/config.env#K8S_NAMESPACE`); `~/` is your home folder. The `sops` command must be installed and able to decrypt the file with your usual keys (age, GCP KMS…). It runs once, when the environment is first opened; the decrypted content stays in memory. If it fails, the services screen shows sops' reason. |
+| `environments.<env>.namespace_from` | string | one of the two | | Read the namespace from a sops-encrypted dotenv file: `sops:<file>#<key>`. A relative `<file>` is relative to the config folder (for example `sops:../infra/overlays/prd/config.env#K8S_NAMESPACE`); `~/` is your home folder. The `sops` command must be installed and able to decrypt the file with your usual keys (age, GCP KMS…). It runs once, when the environment is first opened; the decrypted content stays in memory. If it fails, the services screen shows sops' reason. **The encrypted file itself must sit outside the config folder** (use `../`, as in the example) — the folder's names are fixed (§2), so a `.env.enc` dropped inside it fails to load with `unexpected file`. |
 | `environments.<env>.production` | bool | | `false` | Shows the red production banner. |
 
 Several environments may share one context (one cluster, one namespace each) or use different clusters.
@@ -211,7 +217,7 @@ Optional. These are personal display choices, usually not shared by a team.
 
 ```yaml
 version: 1
-theme: light
+theme: auto
 key_bar: compact
 keymap:
   follow: [f, ctrl+l]
@@ -221,11 +227,16 @@ log_columns: [time, level, logger]
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `version` | int | | Must be `1` (required). |
-| `theme` | `light`, `accessible`, `classic`, `none` | `light` | `--theme`, `NO_COLOR` and `HUGINN_THEME` override it. |
-| `paint_background` | bool | `false` | Paint the theme background instead of keeping the terminal's. |
+| `theme` | `auto`, `light`, `dark`, `accessible`, `classic`, `none` | `auto` | `auto` asks the terminal for its background color and picks `light` or `dark`. If the terminal does not answer, it uses `COLORFGBG` when set, else `dark`. `light` is for light terminal backgrounds and `dark` for dark ones. Both use fixed 256-color shades with readable contrast on common terminal palettes (VS Code, JetBrains, xterm, Solarized), whatever the terminal's own 16 colors. `accessible` keeps the terminal's 16 colors, `classic` is a k9s-like dark theme, and `none` uses no color. `--theme`, `NO_COLOR` and `HUGINN_THEME` override it. |
+| `paint_background` | bool | `false` | Paint the theme's own background (`light`: white, `dark`: near black) instead of keeping the terminal's. |
 | `key_bar` | `compact`, `full`, `hidden` | `compact` | Key bar at the bottom (`f2` cycles it). |
-| `keymap` | map action → keys | | Replaces all default keys of an action. The action names are those of the help screen (`?`) and the README; for example `follow`, `filter`, `columns_cycle`. |
+| `keymap` | map action → keys | | Replaces all default keys of an action. The action names are those of the help screen (`?`) and the README; for example `follow`, `filter`, `columns_cycle`, `field_next`, `field_prev`, `field_keep` and `field_exclude` for filtering on a field from zoom, or `select`, `mark`, `copy`, `copy_raw` and `save` for copying and saving lines. |
 | `log_columns` | list | | Columns shown when a logs screen opens: `pod` and column names from `layouts/`. Without it, every visible column is shown and narrowed automatically. |
+| `clipboard` | `auto`, `osc52`, `system`, `off` | | Where `y`/`Y` copy. `osc52`: the terminal's clipboard, through the OSC 52 sequence, which works over SSH, in tmux (`set -g set-clipboard on`), Windows Terminal, iTerm2, kitty, WezTerm and IDE terminals. `system`: the first command found among `pbcopy`, `wl-copy`, `xclip`, `xsel` and `clip.exe`. `auto`: the terminal, and the system command when one is installed. `off`: no copying. Default `auto`. |
+| `copy.max_bytes` | int | | Largest copy, in bytes. Terminals cap what OSC 52 carries. Past it, nothing is copied and a message says so. Default `1048576` (1 MiB). |
+| `save.dir` | path | | Where `ctrl+s` writes files. It must exist; `~` is the home directory. Files are named `<repo>-<env>-<yyyymmdd-hhmmss>.log` (`.raw.log` after a raw copy), never overwrite a file, and are readable by you only. Default: the current directory. |
+| `redact` | list | | Go regular expressions whose matches become `[redacted]` in everything copied (`y`, `Y`) or saved (`ctrl+s`). The screen still shows the logs as they are. None by default, for example `'(?i)bearer [a-z0-9._-]+'`. |
+| `mouse` | bool | | `true`: Huginn reads the mouse. The wheel scrolls, a click moves the cursor, `shift`+click selects from the cursor, and a drag selects lines. `false` leaves the mouse to the terminal, whose own selection then works directly. Default `true`. |
 
 ## 8. `formats/<name>.yaml`
 
@@ -246,7 +257,21 @@ Common keys:
 | `mute.loggers` | list | | Loggers whose lines are hidden. See [Muted loggers](#muted-loggers). |
 | `mute.keep` | list of levels | | Levels shown even from a muted logger: `error`, `warn`, `info`, `debug`. |
 | `levels` | map level → spellings | | Extra spellings of each level in these logs, case ignored. The keys are `error`, `warn`, `info` and `debug`. Common spellings are already understood: `ERROR`, `ERR`, `FATAL`, `SEVERE`, `CRITICAL`, `WARN`, `WARNING`, `INFO`, `NOTICE`, `DEBUG`, `TRACE`, `FINE`, and klog letters. |
+| `level_from.field` | string | | `json` and `regex` decoders: a field whose value can **raise** the level of a line, for example an HTTP status. For `regex`, a group of `pattern`. For `json`, a JSON path, read like `fields`, hidden or not; if absent, a field extracted by a `transform`. |
+| `level_from.map` | map glob → level | with `field` | Value glob to `error`, `warn`, `info` or `debug`; the longest glob is tried first. |
 | `layout` | string | yes | Layout drawing these lines: a file name of `layouts/` without extension. |
+
+**`level_from`** helps when a line's level is not its real severity, for example a request logged at `INFO` that answered 500:
+
+```yaml
+level_from:
+  field: http_status
+  map: { "5*": error, "4*": warn }
+```
+
+- The line takes **the more severe** of its own level and the level of the matching rule. `INFO` with `503` becomes `ERROR`. The level is **never lowered**: `ERROR` with `200` stays `ERROR`, so a real error is always kept by `e` and found by `>`.
+- A line whose value matches no rule, or that has no such field, keeps its level. A catch-all `"*"` rule is only useful to give a level to lines that have none.
+- A line with no level at all takes the level of the matching rule.
 
 ### `decoder: json`: one JSON object per line
 
@@ -272,7 +297,7 @@ layout: spring
 | Key | Type | Req. | Meaning |
 |---|---|---|---|
 | `fields.<field>` | paths | `message` is | Where each **standard field** is. Candidates are tried in order and the first one present wins. A path is first looked up as a key (`log.level` as one key), then as a walk into nested objects (`log` → `level`). |
-| `hidden` | list of globs | | Fields never shown on the stream, only in the zoom view's metadata section. Typical use: the Kubernetes metadata your log agent adds. |
+| `hidden` | list of globs | | Fields never shown on the stream, only in the zoom view's hidden fields section (`enter`), and not searched. Typical use: the Kubernetes metadata your log agent adds. |
 
 The standard fields are:
 
@@ -284,7 +309,7 @@ The standard fields are:
 | `thread` | Thread name. |
 | `message` | The message. |
 | `stack` | Stack trace, folded on the stream and shown in full in zoom. |
-| `trace_id` | Correlation id, shown in zoom and searchable. |
+| `trace_id` | Correlation id, shown in zoom and searchable. `v` on a line shows every line of the service with the same `trace_id`: the trace view. It can come from a JSON key, or from text through a `transform` group named `trace_id`. |
 | `app` | Application name. |
 | `pid` | Process id. |
 
@@ -298,6 +323,56 @@ Every other field of the object stays available:
 - zoom shows it;
 - text filters search it (`key=value`);
 - layouts can draw it with `{field:<path>}`, where `<path>` is its dotted path, for example `http.status`.
+
+#### `transform`: context inside a field
+
+Some logging stacks write context **into the text** of a field instead of in separate keys, for example a Logback MDC pattern giving `route=/v1/orders method=POST correlation-id=c1 - Order created - user_id= request_id=r1`. A `transform` reads such a field with a regular expression. It keeps only the part you want on the stream and turns the rest into fields of the line:
+
+```yaml
+transform:
+  message:
+    pattern: '^(?P<before>(?:[\w.-]+=\S*\s+)*)-\s+(?P<message>.*?)\s+-\s+(?P<after>(?:[\w.-]+=\S*\s*)*)$'
+    pairs: [before, after]
+```
+
+With this transform, the stream shows `Order created`. The line gets the fields `route`, `method`, `correlation-id` and `request_id`. `user_id` is left out because its value is empty.
+
+| Key | Type | Req. | Meaning |
+|---|---|---|---|
+| `transform.<field>` | map | | The standard field to read: `message`, `logger`, `thread`, `trace_id`, `app` or `pid`. It must be mapped in `fields`. |
+| `transform.<field>.pattern` | string | yes | A Go regular expression with **a group named after the field** (`(?P<message>…)`). |
+| `transform.<field>.pairs` | list | | Groups of `pattern` holding pairs, by default `key=value` separated by spaces. |
+| `transform.<field>.pair_pattern` | string | | A Go regular expression reading **one pair** of a `pairs` group, with the groups `(?P<key>…)` and `(?P<value>…)`. Default: `key=value` separated by white space. |
+| `transform.<field>.max_bytes` | int | | Values longer than this are left as they are (still shown, just not transformed). Default `16384`. |
+| `transform.<field>.max_fields` | int | | At most this many fields extracted per line; the others stay in the raw view. Default `64`. |
+
+When the pattern matches:
+- **The group named after the field becomes its value.** Write the parts you only want to drop as `(?:…)`.
+- **A group listed in `pairs`** is split into pairs, and each one becomes the field `key`, spelled as written (`{field:correlation-id}`). Keys never need to be listed, so a new key in the logs becomes a new field by itself. By default a pair is `key=value` and pairs are separated by white space. If one piece of the text is not a pair, the whole group is kept as one field named after the group.
+- **Another pair syntax** is set with `pair_pattern`. Put the separator in the pattern: the pairs it reads must cover the whole group, except white space, otherwise the group is kept whole. For example, `user: "bob smith"; route: "/a"` is read with:
+
+  ```yaml
+  pair_pattern: '(?P<key>[\w.-]+): "(?P<value>[^"]*)";?'
+  ```
+- **Another named group** becomes a field: `route=(?P<route>\S*)` gives the field `route`. Capture the value, not the `route=` before it.
+- **A group named like a standard field** (`level`, `logger`, `thread`, `trace_id`, `app`, `pid`) fills that field when the JSON left it empty. For example, `correlation-id=(?P<trace_id>\S*)` makes the correlation id the trace id. `time` and `stack` groups are not allowed.
+
+Rules:
+- **Empty values are left out**, so `user_id=` adds no field.
+- **A JSON key wins** over an extracted field of the same name. Between groups, named groups come first, then `pairs` in list order, and the first one wins.
+- **When the pattern does not match, nothing changes.** Lines without the context are shown unchanged, never as an error.
+- **Nothing is lost:** the raw view of zoom (`p`) shows the original line.
+- Extracted fields are like the other fields of the object:
+  - zoom lists them;
+  - text filters search them (`correlation-id=c1`);
+  - layouts can draw them;
+  - `hidden` applies to them.
+
+  They are never drawn on the stream unless a layout column names them, so they do not need to be hidden to keep lines short. Hiding them also takes them out of text search.
+- **Without `pairs` or other named groups, the removed parts leave text search.** They stay in the raw view.
+- Several transforms apply in the order `message`, `logger`, `thread`, `trace_id`, `app`, `pid`. Each one reads its own field only.
+- Lines that are not JSON are not transformed.
+- **Cost:** the regular expression reads about 20 MB/s. That is 5 to 10 µs per line for a context of 13 keys, and about 50 µs per KiB of value. `max_bytes` bounds a line to about 1 ms, and `max_fields` bounds the memory a line adds to the buffer. Give a transformed format a `match` so other containers do not pay the cost.
 
 ### `decoder: regex`: text lines
 
@@ -317,8 +392,7 @@ layout: access
 |---|---|---|---|
 | `pattern` | string | yes | A Go regular expression ([syntax](https://pkg.go.dev/regexp/syntax)) with **named groups** `(?P<name>…)`. Write it between single quotes in YAML. Groups named like standard fields fill them (`time`, `level`, `logger`, `thread`, `message`, `trace_id`, `app`, `pid`). Other groups become extra fields (`{field:status}`). A `message` group is required. |
 | `time_format` | string | | Layout of the `time` group in Go's reference-date notation, as described under `time_format` in [Layouts](#9-layoutsnameyaml). Default: RFC 3339. |
-| `level_from.field` | string | | A group whose value decides the level, for example an HTTP status. It must be a group of `pattern`. |
-| `level_from.map` | map glob → level | | Value glob to `error`, `warn`, `info` or `debug`; the longest glob is tried first. |
+| `level_from` | | | Raise the level from a group, for example the HTTP status, as described in the common keys above. |
 
 `fields` and `hidden` are not used by this decoder.
 
@@ -446,7 +520,131 @@ Two rules for columns:
 - **A column whose fields are all empty is left out, with its space.** For example, `[{app}]` disappears when there is no app name. A `default` filter keeps the column.
 - **Lines no format could parse keep only the columns that use nothing but `{time}`**, followed by the raw text.
 
-## 10. Errors
+## 10. `kafka/<name>.yaml`
+
+Optional. A Kafka profile says **where the Kafka settings of some repositories are** and **which topics to show**, so Huginn can list the records of those topics, read only. Without a `kafka/` folder, nothing about Kafka exists in Huginn.
+
+The Kafka screens are opened with key `M` on the services screen (see the README). To check a profile from a shell, without the TUI nor a Kubernetes cluster: `huginn kafka check <repo> -e <env>` lists the topics and why any cannot be read; `huginn kafka read <repo> <topic>` prints its records. With `--demo`, `examples/config/kafka/demo.yaml` lists topics of the demo services and records are generated. The brokers must be reachable from your workstation (VPN, private network): Huginn connects directly, as any Kafka client on your machine would.
+
+**Read only, always.** Huginn never joins a consumer group, never commits an offset, never produces and never creates a topic. No key of this file can change that. Reading does not take records away from the services that consume them.
+
+**Which profile applies?** Profiles are tried **in file name order**. The first whose `match` accepts the repository wins, as for `formats/`. The environment is the one Huginn runs on (`huginn rec`, `-e`, `ctrl+e`); it is written `{env}`.
+
+```yaml
+version: 1
+
+match:
+  repos: ["*"]
+  files: ["{repo_dir}/deploy/overlays/{env}/secrets/kafka.env"]
+
+sources:                                   # merged in order, the last one wins
+  - file: "{repo_dir}/deploy/base/kafka.env"
+  - file: "{repo_dir}/deploy/overlays/{env}/kafka.env"
+    optional: true
+  - file: "{repo_dir}/deploy/overlays/{env}/secrets/kafka.env"
+    sops: true
+
+vars:
+  account: APP
+
+connection:
+  bootstrap: ${KAFKA_BOOTSTRAP_SERVERS}
+  security: ${KAFKA_SECURITY_PROTOCOL:-plaintext}
+  sasl:
+    mechanism: scram-sha-512
+    username: ${{account}_USERNAME}
+    password: ${{account}_PASSWORD}
+  tls:
+    ca: "{repo_dir}/src/main/resources/truststore.p12"
+    ca_password: ${{account}_TRUSTSTORE_PASSWORD}
+
+topics:
+  discover: ["KAFKA_TOPIC_*"]
+
+repos:
+  orders:
+    vars: { account: ORDERS }
+    topics:
+      consume: ["${KAFKA_TOPIC_ORDERS_IN}"]
+      produce:
+        - { name: "${KAFKA_TOPIC_ORDERS_OUT}", vars: { account: ORDERS_OUT } }
+```
+
+Every path, key name and topic above is an example: write those of your repositories. Huginn has no default for any of them.
+
+### Placeholders and references
+
+Two kinds of references, always replaced in this order:
+
+| Written | Replaced by |
+|---|---|
+| `{env}` | The environment Huginn runs on. |
+| `{repo}` | The repository name. |
+| `{repo_dir}` | The repository folder: `repos_root` of `huginn.yaml` followed by the repository name, or the repository's `path` under `repos:`. |
+| `{name}` | A variable of `vars` (lower-case letters, digits, `_`). |
+| `${KEY}` | The value of `KEY` in the merged `sources`. A key that is missing is reported on the topic that needs it. |
+| `${KEY:-default}` | The same, with a value used when the key is missing or empty. |
+| `env:VAR` | The whole value read from the environment variable `VAR` of your shell, for credentials of your own. |
+
+So `${{account}_PASSWORD}` reads `ORDERS_PASSWORD` when `account` is `ORDERS`. `$$` writes a literal `$`.
+
+**Quoting**: a value that **starts** with `{` (such as `"{repo_dir}/x.env"`) and every reference written **inside** `[ ]` or `{ }` must be quoted: `consume: ["${TOPIC}"]`.
+
+### Keys
+
+| Key | Type | Req. | Meaning |
+|---|---|---|---|
+| `version` | int | yes | Must be `1`. |
+| `match.repos` | list of globs | | Repositories this profile applies to. Empty means any. A repository listed under `repos:` is accepted too. |
+| `match.files` | list of path globs | | The profile applies only when each glob matches at least one existing file. Huginn only checks that the files exist: nothing is read or decrypted until the Kafka screen opens. Use it so that only repositories with Kafka settings in the current environment get a Kafka screen. |
+| `sources` | list | | Dotenv files read in order and merged; a key in a later file replaces the earlier value. |
+| `sources[].file` | path | yes | A dotenv file: `KEY=VALUE` lines; blank lines and `#` comments are skipped, `export ` is ignored, quotes around a value are removed. A glob must match exactly one file. |
+| `sources[].sops` | bool | | Decrypt the file with `sops` first. The decrypted content stays in memory. |
+| `sources[].optional` | bool | | A missing file is skipped instead of being an error (an overlay that does not exist for every environment). |
+| `vars` | map | | Variables written `{name}`. `env`, `repo` and `repo_dir` are reserved. Their values are used as written. |
+| `connection.bootstrap` | string | yes | Brokers, `host:port`, comma separated. |
+| `connection.security` | string | yes | `plaintext`, `ssl`, `sasl_plaintext` or `sasl_ssl`; case is ignored, so `SASL_SSL` read from a file works. |
+| `connection.sasl.mechanism` | string | with `sasl_*` | `plain`, `scram-sha-256` or `scram-sha-512` (case ignored). |
+| `connection.sasl.username`, `password` | string | with `sasl_*` | |
+| `connection.tls.ca` | path | | Certificates trusted for the brokers: a PEM file (`.pem`, `.crt`, `.cer`) or a PKCS12 file (`.p12`, `.pfx`) such as a Java truststore. A glob must match exactly one file. Without it, the system's certificates are trusted. |
+| `connection.tls.ca_password` | string | | Password of a PKCS12 file. |
+| `topics.consume`, `topics.produce` | list | | Topics the services consume or produce, shown in two groups. |
+| `topics.list` | list | | Topics without a direction. |
+| `topics.discover` | list of globs | | Globs on the keys of the sources: the value of each matching key is a topic (a value with commas gives several). |
+| `repos.<repo>.path` | path | | The repository folder when it is not `repos_root/<repo>`. |
+| `repos.<repo>.enabled` | bool | | `false`: no Kafka screen for this repository. |
+| `repos.<repo>.vars`, `connection` | | | Merged over the profile's, key by key: changing `tls.ca` keeps the profile's `sasl`. |
+| `repos.<repo>.sources` | list | | Read after the profile's sources. |
+| `repos.<repo>.topics` | | | Added to the profile's topics. |
+
+A topic is a name, or an object `{name, vars}` whose `vars` apply to that topic only, for example another SASL account. Topics can be given a direction or not: a script that does not know whether a service consumes or produces a topic can rely on `discover` alone.
+
+The values that are known when the folder is loaded (`security`, `mechanism`, placeholders, reference syntax) are checked then. The others (files, keys, certificates) are checked when the Kafka screen opens, and a problem is shown on the topic it concerns.
+
+**PKCS12 files**: Java truststores (`keytool`) and keystores are read. A certificate-only PKCS12 file made by `openssl` without Java's trust attribute is not: convert it once with `openssl pkcs12 -in truststore.p12 -nokeys -out ca.pem` and point `tls.ca` to the PEM file.
+
+### Limits: `huginn.yaml` `kafka:`
+
+Optional, the same for every profile.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `kafka.tail_records` | `100` | Records per partition loaded by the tail (key `0`). 1 to 10 000. |
+| `kafka.max_records` | `20000` | Records kept per Kafka screen; the oldest are dropped first. |
+| `kafka.max_buffer_bytes` | `64MiB` | Bytes of keys, values and headers kept per Kafka screen; the oldest records are dropped first. |
+| `kafka.max_value_bytes` | `256KiB` | A larger key or value is kept truncated, with its real size shown. At most `max_buffer_bytes`. |
+| `kafka.fetch_max_bytes` | `1MiB` | Bytes per fetch response. |
+| `kafka.partition_fetch_max_bytes` | `256KiB` | Bytes per partition per fetch response. |
+| `kafka.connect_timeout` | `10s` | Time to reach a broker and authenticate. |
+| `kafka.request_timeout` | `30s` | Time allowed for one request. |
+| `kafka.client_id` | `huginn` | Client id, so the brokers' operators recognise Huginn. |
+| `kafka.isolation` | `read_uncommitted` | `read_uncommitted` shows every record; `read_committed` hides aborted transactions. Key `i` switches it. |
+
+Sizes are a number of bytes or a number followed by `KiB`, `MiB` or `GiB`. Durations use Go's notation: `500ms`, `10s`, `1m`.
+
+**Shared quotas**: when the credentials are the application's own, the brokers may count Huginn's reads against the same quota as the application's pods. The limits above keep reads small; Huginn reads only when asked (the tail, a window, or `f` to follow).
+
+## 11. Errors
 
 Every problem of the folder is listed at once, sorted by file and position. The location is `file:line:column` of the key concerned, or just the file when the problem is the file itself:
 
@@ -477,13 +675,17 @@ huginn: the config folder ~/work/acme-huginn has 5 errors (see docs/CONFIG.md):
 | `unknown field` / `unknown filter` in a template | See [Templates](#templates). |
 | `key "p" is used by the columns picker` | Pick another letter; `p`, `z`, `r` and `f` are taken. |
 | `is already the name of` / `is already the key of` | Column names and keys must be unique in a line. |
+| `unknown placeholder {x}` | Use `{env}`, `{repo}`, `{repo_dir}` or a variable defined in `vars`. |
+| `malformed reference` | Write `${KEY}` or `${KEY:-default}`; quote the value inside `[ ]` or `{ }`. |
+| `{repo_dir} needs repos_root` | Set `repos_root` in `huginn.yaml`, or a `path` for the repository. |
+| `sasl_ssl needs sasl.username` (and similar) | A SASL protocol needs the mechanism, user name and password. |
 | `logger pattern "x" matches every logger` / `* is only allowed at the end` / `contains a space` | A `mute.loggers` pattern is a logger name or a prefix ending in `*`, such as `com.example.metrics.*`. |
 | `"x" is already mute.loggers[n]` | Remove the duplicate pattern. |
 | `muting loggers needs fields.logger` / `needs a group (?P<logger>…)` | Tell the format where the logger is, or remove `mute`. |
 | `the plain decoder reads no logger to mute` | `mute` needs a `json` or `regex` format. |
 | `keep needs mute.loggers` | `mute.keep` applies to muted loggers: list some, or remove `keep`. |
 
-## 11. Your folder in 15 minutes
+## 12. Your folder in 15 minutes
 
 To have a coding agent (such as GitHub Copilot) draft the folder from your repositories, use the prompt in [`docs/prompts/copilot-config-folder.md`](prompts/copilot-config-folder.md), then check its result with the steps below.
 

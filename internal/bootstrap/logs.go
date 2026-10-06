@@ -24,22 +24,52 @@ func decoderRegistry() *ports.Registry[func(config.Format) ports.LogDecoder] {
 		return logformat.NewJSON(logformat.Profile{
 			Name: f.Name, Timestamp: fm.Time, Level: fm.Level, Logger: fm.Logger, Thread: fm.Thread, Message: fm.Message,
 			Stack: fm.Stack, TraceID: fm.TraceID, App: fm.App, PID: fm.PID, LevelAliases: levelAliases(f), Hidden: f.Hidden,
+			Transforms: transforms(f), LevelField: f.LevelFrom.Field, LevelRules: levelRules(f),
 		})
 	})
 	r.Register("regex", func(f config.Format) ports.LogDecoder {
-		p := logformat.RegexProfile{
+		return logformat.NewRegex(logformat.RegexProfile{
 			Name: f.Name, Pattern: regexp.MustCompile(f.Pattern), TimeFormat: f.TimeFormat,
-			LevelAliases: levelAliases(f), LevelField: f.LevelFrom.Field,
-		}
-		for glob, lvl := range f.LevelFrom.Map {
-			l, _ := domain.ParseLevel(lvl)
-			p.LevelRules = append(p.LevelRules, logformat.LevelRule{Glob: glob, Level: l})
-		}
-		slices.SortFunc(p.LevelRules, func(a, b logformat.LevelRule) int { return strings.Compare(a.Glob, b.Glob) })
-		return logformat.NewRegex(p)
+			LevelAliases: levelAliases(f), LevelField: f.LevelFrom.Field, LevelRules: levelRules(f),
+		})
 	})
 	r.Register("plain", func(f config.Format) ports.LogDecoder { return logformat.NewPlain(f.Name) })
 	return r
+}
+
+// levelRules turns level_from.map into rules, sorted by glob so that
+// rules of the same length keep a stable order. The folder is validated,
+// so levels parse.
+func levelRules(f config.Format) []logformat.LevelRule {
+	var out []logformat.LevelRule
+	for glob, lvl := range f.LevelFrom.Map {
+		l, _ := domain.ParseLevel(lvl)
+		out = append(out, logformat.LevelRule{Glob: glob, Level: l})
+	}
+	slices.SortFunc(out, func(a, b logformat.LevelRule) int { return strings.Compare(a.Glob, b.Glob) })
+	return out
+}
+
+// transformOrder is the order transforms apply in, whatever the order of
+// the file.
+var transformOrder = []string{"message", "logger", "thread", "trace_id", "app", "pid"}
+
+// transforms compiles the transform section of a json format. The folder
+// is validated, so the patterns compile.
+func transforms(f config.Format) []logformat.FieldTransform {
+	var out []logformat.FieldTransform
+	for _, field := range transformOrder {
+		if t, ok := f.Transform[field]; ok {
+			ft := logformat.FieldTransform{
+				Field: field, Pattern: regexp.MustCompile(t.Pattern), Pairs: t.Pairs, MaxBytes: t.MaxBytes, MaxFields: t.MaxFields,
+			}
+			if t.PairPattern != "" {
+				ft.PairPattern = regexp.MustCompile(t.PairPattern)
+			}
+			out = append(out, ft)
+		}
+	}
+	return out
 }
 
 // levelAliases turns the levels section (level → spellings) into the

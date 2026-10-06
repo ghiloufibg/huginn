@@ -14,7 +14,7 @@ import (
 // the k due entries costs O(k log containers), however many entries wait
 // (a sort of everything waiting on every tick grew with the line rate).
 type reorderBuffer struct {
-	queues map[string]*entryQueue // by pod/container
+	queues map[string]*entryQueue // by namespace/pod/container
 	heads  queueHeap              // non-empty queues, by their first entry
 	n      int                    // entries held
 }
@@ -83,11 +83,11 @@ func (q *entryQueue) drop() {
 
 // add queues a batch of live entries of one container, in its read order.
 // The buffer takes the batch over.
-func (b *reorderBuffer) add(pod, container string, entries []domain.LogEntry) {
+func (b *reorderBuffer) add(namespace, pod, container string, entries []domain.LogEntry) {
 	if len(entries) == 0 {
 		return
 	}
-	key := pod + "/" + container
+	key := namespace + "/" + pod + "/" + container
 	q := b.queues[key]
 	if q == nil {
 		if b.queues == nil {
@@ -130,11 +130,12 @@ func (b *reorderBuffer) drop() {
 	}
 }
 
-// forget drops the queues of a container that left (its pod is gone);
-// they are empty by then or soon flushed, so this only frees memory.
-func (b *reorderBuffer) forget(pod string) {
+// forget drops the queues of a pod that left; they are empty by then or
+// soon flushed, so this only frees memory.
+func (b *reorderBuffer) forget(namespace, pod string) {
+	prefix := namespace + "/" + pod + "/"
 	for key, q := range b.queues {
-		if q.len() == 0 && strings.HasPrefix(key, pod+"/") {
+		if q.len() == 0 && strings.HasPrefix(key, prefix) {
 			delete(b.queues, key)
 		}
 	}

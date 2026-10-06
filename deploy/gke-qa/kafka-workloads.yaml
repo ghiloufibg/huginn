@@ -1,0 +1,85 @@
+# Real single-broker Kafka (KRaft mode) for M12 (docs/plan/M12-gke-qa.md).
+# Secrets (broker.keystore.p12, server.properties with its embedded
+# passwords) are created imperatively from deploy/gke-qa/kafka-secrets/
+# (gitignored), never committed. Reached from the workstation via
+# `kubectl port-forward`, not a public LoadBalancer (M11-kafka.md §2.5:
+# "reached directly from the workstation"; a port-forward is exactly that,
+# without exposing a SASL test broker to the public internet).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kafka-qa-data
+  namespace: qa-rec
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka-qa
+  namespace: qa-rec
+  labels:
+    app.kubernetes.io/part-of: kafka-qa
+spec:
+  replicas: 1
+  strategy: { type: Recreate }   # a single ReadWriteOnce PVC: never two pods at once
+  selector:
+    matchLabels: { app: kafka-qa }
+  template:
+    metadata:
+      labels: { app: kafka-qa, app.kubernetes.io/part-of: kafka-qa }
+    spec:
+      securityContext:
+        fsGroup: 1000   # apache/kafka's appuser (uid/gid 1000); the PVC mounts root-owned otherwise
+      containers:
+        - name: kafka-qa
+          image: apache/kafka:3.9.0
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -e
+              if [ ! -f /var/lib/kafka/data/logs/meta.properties ]; then
+                /opt/kafka/bin/kafka-storage.sh format -t "$CLUSTER_ID" -c /opt/kafka/config/server.properties \
+                  --add-scram "SCRAM-SHA-512=[name=qa-user,password=$QA_USER_PASSWORD]"
+              fi
+              exec /opt/kafka/bin/kafka-server-start.sh /opt/kafka/config/server.properties
+          env:
+            - name: CLUSTER_ID
+              value: "q42DOl0iQhCqdAf8I-ZHwg"
+            - name: QA_USER_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: kafka-qa-tls, key: qa-user-password }
+            - name: KAFKA_HEAP_OPTS
+              value: "-Xmx1G -Xms512M"
+          ports:
+            - { containerPort: 9092, name: plaintext }
+            - { containerPort: 9093, name: controller }
+            - { containerPort: 9094, name: sasl-ssl }
+          resources:
+            requests: { cpu: 500m, memory: 1536Mi }
+            limits: { memory: 2Gi }
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/kafka/data }
+            - { name: config, mountPath: /opt/kafka/config/server.properties, subPath: server.properties }
+            - { name: tls, mountPath: /etc/kafka/secrets, readOnly: true }
+      volumes:
+        - name: data
+          persistentVolumeClaim: { claimName: kafka-qa-data }
+        - name: config
+          configMap: { name: kafka-qa-config }
+        - name: tls
+          secret: { secretName: kafka-qa-tls }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-qa
+  namespace: qa-rec
+spec:
+  selector: { app: kafka-qa }
+  ports:
+    - { name: plaintext, port: 9092, targetPort: 9092 }
+    - { name: sasl-ssl, port: 9094, targetPort: 9094 }

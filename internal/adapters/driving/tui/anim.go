@@ -2,6 +2,7 @@ package tui
 
 import (
 	"runtime/debug"
+	"sync/atomic"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -90,8 +91,23 @@ func (s *servicesScreen) busy(*Model) bool {
 	return ok && e.loading
 }
 
+// releasing is set while a releaseMemory call is in flight, so quick
+// screen navigation (several history loads in succession) coalesces into
+// one forced collection instead of stacking overlapping ones: each is a
+// stop-the-world pause, and piling them up would cost more right when the
+// user is interacting without freeing memory any sooner.
+var releasing atomic.Bool
+
 // releaseMemory returns the memory freed after a history load to the
 // system. Loading a long window decodes many more lines than the view
 // keeps; without this, the process keeps its peak size for minutes. It
 // runs in the background: the forced collection must not delay a frame.
-func releaseMemory() { go debug.FreeOSMemory() }
+func releaseMemory() {
+	if !releasing.CompareAndSwap(false, true) {
+		return // one is already freeing memory; let it finish
+	}
+	go func() {
+		defer releasing.Store(false)
+		debug.FreeOSMemory()
+	}()
+}

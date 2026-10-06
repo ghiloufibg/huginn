@@ -243,7 +243,7 @@ func (p *columnsPicker) update(m *Model, k tea.KeyPressMsg) tea.Cmd {
 }
 
 func (p *columnsPicker) view(m *Model) string {
-	t := m.opts.Theme
+	t := &m.opts.Theme
 	l := p.logs
 	hide := l.effectiveHide(m, m.width)
 	box := func(on bool) string {

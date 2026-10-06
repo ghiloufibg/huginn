@@ -167,6 +167,7 @@ type state struct {
 	workloads map[string]domain.Workload // namespace/name
 	pods      map[string]domain.Pod      // namespace/name
 	nsErr     map[string]error
+	errSince  map[string]time.Time // when each namespace in nsErr lost its watch
 	connected map[string]bool
 	warnings  map[string][]string // by namespace
 }
@@ -177,14 +178,21 @@ func key(ns, name string) string { return ns + "/" + name }
 // a workload of another kind); the environment is the catalog's.
 func refKey(r domain.WorkloadRef) domain.WorkloadRef { r.Env = ""; return r }
 
-func (s *state) apply(m feedMsg) {
+func (s *state) apply(m feedMsg, now time.Time) {
 	switch {
 	case m.err != nil:
 		s.nsErr[m.ns] = m.err
 		s.connected[m.ns] = false
+		if _, ok := s.errSince[m.ns]; !ok { // retries keep the first failure
+			if s.errSince == nil {
+				s.errSince = map[string]time.Time{}
+			}
+			s.errSince[m.ns] = now
+		}
 	case m.reset:
 		s.dropNamespace(m.ns)
 		delete(s.nsErr, m.ns)
+		delete(s.errSince, m.ns)
 		delete(s.warnings, m.ns)
 		s.connected[m.ns] = true
 	case m.workload != nil && m.workload.Warning != "":
@@ -244,7 +252,7 @@ func (c *Catalog) loop(ctx context.Context, env domain.Env, namespaces []string,
 		case <-ctx.Done():
 			return
 		case m := <-msgs:
-			st.apply(m)
+			st.apply(m, c.Clock.Now())
 			dirty = true
 		case <-tick.C():
 			if !dirty {
@@ -276,6 +284,9 @@ func (c *Catalog) snapshot(ctx context.Context, env domain.Env, namespaces []str
 		snap.NamespaceErrs = map[string]error{}
 		for ns, err := range st.nsErr {
 			snap.NamespaceErrs[ns] = err
+			if since := st.errSince[ns]; snap.StaleSince.IsZero() || since.Before(snap.StaleSince) {
+				snap.StaleSince = since
+			}
 		}
 	}
 	for _, ns := range namespaces {

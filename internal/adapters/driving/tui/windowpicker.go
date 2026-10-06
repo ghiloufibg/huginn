@@ -44,7 +44,7 @@ func (p *windowPicker) update(m *Model, k tea.KeyPressMsg) tea.Cmd {
 }
 
 func (p *windowPicker) view(m *Model) string {
-	t := m.opts.Theme
+	t := &m.opts.Theme
 	keysFor := []Action{ActWindow1, ActWindow2, ActWindow3, ActWindow4, ActWindow5, ActWindow6, ActWindow7}
 	var lines []string
 	for i, w := range m.opts.Windows {
