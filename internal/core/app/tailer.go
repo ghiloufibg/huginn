@@ -21,7 +21,8 @@ type tailer struct {
 	name, ns  string
 	container string
 	msgs      chan<- tailMsg
-	dec       ports.LogDecoder // chosen on first use
+	format    ports.LogFormat // chosen on first use, see logFormat
+	muted     *atomic.Uint64  // the session's count of muted lines
 
 	// running mirrors the container state from the pod watch, and wake is
 	// signalled when an instance starts running: a container that is not
@@ -38,7 +39,7 @@ type tailer struct {
 const waitFallback = time.Minute
 
 func newTailer(r *session, p domain.Pod, container string) *tailer {
-	t := &tailer{s: r.s, q: r.q, scope: r.scope, pod: p, name: p.Name, ns: p.Namespace, container: container, msgs: r.msgs, wake: make(chan struct{}, 1)}
+	t := &tailer{s: r.s, q: r.q, scope: r.scope, pod: p, name: p.Name, ns: p.Namespace, container: container, msgs: r.msgs, muted: &r.muted, wake: make(chan struct{}, 1)}
 	t.observe(p)
 	return t
 }
@@ -78,11 +79,12 @@ func containerOf(p domain.Pod, name string) (domain.Container, bool) {
 	return domain.Container{}, false
 }
 
-func (t *tailer) decode(l domain.RawLine) domain.LogEntry {
-	if t.dec == nil {
-		t.dec = t.s.Decoders.For(t.q.Repo, t.container)
+// logFormat returns the container's log format, chosen once.
+func (t *tailer) logFormat() ports.LogFormat {
+	if t.format.Decoder == nil {
+		t.format = t.s.formatFor(t.q, t.container)
 	}
-	return safeDecode(t.dec, l)
+	return t.format
 }
 
 func (t *tailer) send(ctx context.Context, m tailMsg) bool {
@@ -119,10 +121,7 @@ func (t *tailer) run(ctx context.Context) {
 	req := t.request()
 	hist, last, seen, err := t.history(ctx)
 	capped := req.Limit > 0 && len(hist) >= req.Limit
-	if t.dec == nil {
-		t.dec = t.s.Decoders.For(t.q.Repo, t.container)
-	}
-	if !t.send(ctx, tailMsg{history: hist, decoder: t.dec, historyDone: true, historyErr: err, capped: capped}) || !t.q.Follow {
+	if !t.send(ctx, tailMsg{history: hist, format: t.logFormat(), historyDone: true, historyErr: err, capped: capped}) || !t.q.Follow {
 		return
 	}
 	for attempt := 0; ctx.Err() == nil; attempt++ {
@@ -210,7 +209,9 @@ func (t *tailer) history(ctx context.Context) ([]domain.RawLine, time.Time, map[
 
 // follow streams live lines until the stream ends, skipping lines already
 // delivered (same source time and text at the resume boundary). It returns
-// the number of lines delivered and the last source time.
+// the number of lines read and the last source time. Muted lines are read
+// but not delivered: they still move the resume point, and a stream of
+// muted lines only is a healthy one.
 func (t *tailer) follow(ctx context.Context, req ports.LogRequest, seen map[string]bool) (int, time.Time, error) {
 	st, err := t.s.Logs.Stream(ctx, req)
 	if err != nil {
@@ -223,8 +224,11 @@ func (t *tailer) follow(ctx context.Context, req ports.LogRequest, seen map[stri
 		if skipResumed(req.SinceTime, l, seen) {
 			continue
 		}
-		e := t.decode(l)
-		if !t.send(ctx, tailMsg{live: &e}) {
+		f := t.logFormat()
+		e := safeDecode(f.Decoder, l)
+		if f.Mute.Mutes(&e) {
+			t.muted.Add(1)
+		} else if !t.send(ctx, tailMsg{live: &e}) {
 			return n, last, nil
 		}
 		n++

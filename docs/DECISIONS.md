@@ -295,3 +295,13 @@ Status: accepted.
 - **Rotation is shown, not worked around.** The API serves the current log file only; reading rotated files needs node access Huginn never has. The first line more than a minute after the container's start (`Container.Started`, from `state.running.startedAt`) gives a notice. Cloud Logging (the V2 source of D-010) could serve older lines later through the same port.
 - **With `P`**, the head reads the first lines of the previous instance: how the crashed instance started, for N lines instead of the whole instance.
 Status: accepted.
+
+## D-040 Muted loggers
+Some loggers are noise (connection pool state, resource snapshots). `mute.loggers` in a format hides their lines.
+- **Dropped before the buffer, not filtered in the view.** Lines are matched right after decoding, in the tailers (live) and the parallel decoding jobs (history). A muted line never takes a channel slot, a reorder slot, a buffer slot or a filter pass, so a chatty logger cannot evict the application's lines (the reasoning that keeps sidecars out, D-038), and the UI goroutine never sees it. The cost: showing them again reloads the session (`M`, `LogQuery.NoMute`), like `A`. A view-side "noise" filter (instant toggle) was rejected for that reason.
+- **In the format file.** The format is where "logger" is defined (`fields.logger`, a regex group), so validation can refuse a mute that cannot work (`plain`, no logger field), and `match` already scopes it per repository or container. A separate `mute.yaml` with its own match rules was rejected: a second matching mechanism.
+- **Exact names and prefixes only.** One map lookup and a few prefix checks per line (~80 ns, no allocation, with 20 patterns); general globs or regexes would cost more on every line for little gain. Case-sensitive, as the line writes the name.
+- **Errors are muted too**, unless listed in `mute.keep`: the user asked for the logger to disappear; `keep: [error]` is the opt-in safety valve.
+- **Resume and backoff count read lines.** A muted line still moves the resume point (`sinceTime`, the lines seen at the last second) and counts as stream activity, so a stream of muted lines neither replays them after a reconnect nor looks dead. The history limits count raw lines (that is what the API returns).
+- **Counted, never silent.** Tailers add to one atomic counter per session; each batch carries the lines muted since the previous one (`LogBatch.Muted`). The status bar shows the total, and an empty view says when every line was muted.
+Status: accepted.

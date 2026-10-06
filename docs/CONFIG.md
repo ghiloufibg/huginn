@@ -233,7 +233,7 @@ A format says how to **read** the lines of some containers. You can have several
 
 **Which format reads a container?** Formats are tried **in file name order**. The first one whose `match` accepts the repository and container wins. A format without `match` accepts everything, so give it a name that sorts last, such as `zz-default.yaml`, or number your files (`10-nginx.yaml`, `20-app.yaml`). Containers that no format accepts are read as plain text.
 
-**Lines a format cannot parse** keep their text as the message: a JSON format meeting a non-JSON line, or a regex format meeting a line its pattern does not match. Their level is guessed from a level word near the start of the line. Nothing is ever dropped.
+**Lines a format cannot parse** keep their text as the message: a JSON format meeting a non-JSON line, or a regex format meeting a line its pattern does not match. Their level is guessed from a level word near the start of the line. Nothing is dropped, except the lines of the loggers you mute (see [Muted loggers](#muted-loggers)).
 
 Common keys:
 
@@ -243,6 +243,8 @@ Common keys:
 | `decoder` | `json`, `regex`, `plain` | yes | How lines are read (see below). |
 | `match.repos` | list of globs | | Repositories read with this format; empty means any. |
 | `match.containers` | list of globs | | Containers read with this format; empty means any. Both lists must accept a container when both are given. |
+| `mute.loggers` | list | | Loggers whose lines are hidden. See [Muted loggers](#muted-loggers). |
+| `mute.keep` | list of levels | | Levels shown even from a muted logger: `error`, `warn`, `info`, `debug`. |
 | `levels` | map level → spellings | | Extra spellings of each level in these logs, case ignored. The keys are `error`, `warn`, `info` and `debug`. Common spellings are already understood: `ERROR`, `ERR`, `FATAL`, `SEVERE`, `CRITICAL`, `WARN`, `WARNING`, `INFO`, `NOTICE`, `DEBUG`, `TRACE`, `FINE`, and klog letters. |
 | `layout` | string | yes | Layout drawing these lines: a file name of `layouts/` without extension. |
 
@@ -323,6 +325,24 @@ layout: access
 ### `decoder: plain`
 
 This decoder reads nothing: the message is the line, and the level is guessed from a level word near the start. It is useful when you want a layout, and the columns picker, for containers whose lines have no structure.
+
+### Muted loggers
+
+Some loggers only add noise: connection pool state, resource snapshots, health probes. List them under `mute` and their lines never reach the logs screen:
+
+```yaml
+mute:
+  loggers:
+    - com.zaxxer.hikari.pool.HikariPool   # exact logger name
+    - com.example.metrics.*               # prefix: every logger starting with com.example.metrics.
+  keep: [error]                           # optional: these levels always show
+```
+
+- **Matching.** A pattern is a logger name, matched exactly, or a name ending in `*`, matched as a prefix. `*` is allowed only at the end. Names are compared as the lines write them (a logger shortened by the encoder, `c.z.h.pool.HikariPool`, is muted under that name), case-sensitively. Lines without a logger are never muted.
+- **Which lines.** The format's own containers (its `match`): give a repository its own mutes with a format that matches it. The decoder must read a logger: `fields.logger` for `json`, a `(?P<logger>…)` group for `regex`; `plain` reads none.
+- **Levels.** Every line of a muted logger is hidden, errors included, unless its level is in `keep`.
+- **On the logs screen.** The status bar counts the muted lines (`muted 1204`). `M` reloads the logs with the muted loggers shown (`muted loggers shown`), and again to hide them.
+- **Why the lines are dropped, not filtered.** Muted lines are left out as they are read, before the view's buffer: a chatty logger cannot push your application's lines out of the buffer, and the screen never filters them. Showing them again therefore reloads the logs. The window limits (`logs.buffer_lines`, `windows.head_lines`) count the lines read, muted ones included.
 
 ## 9. `layouts/<name>.yaml`
 

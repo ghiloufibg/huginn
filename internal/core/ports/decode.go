@@ -10,14 +10,22 @@ type LogDecoder interface {
 	Decode(raw domain.RawLine) domain.LogEntry
 }
 
-// LogDecoders picks the decoder of each container: the log format whose
-// match rules apply to the repository and container.
-type LogDecoders interface {
-	For(repo, container string) LogDecoder
+// LogFormat is how a container's lines are read: its decoder, and the
+// loggers whose entries are hidden (nil: none).
+type LogFormat struct {
+	Decoder LogDecoder
+	Mute    *domain.LoggerMute
 }
 
-// OneDecoder decodes every container with the same decoder.
+// LogDecoders picks the format of each container: the log format whose
+// match rules apply to the repository and container.
+type LogDecoders interface {
+	For(repo, container string) LogFormat
+}
+
+// OneDecoder decodes every container with the same decoder and mutes
+// nothing.
 type OneDecoder struct{ LogDecoder }
 
 // For implements LogDecoders.
-func (d OneDecoder) For(string, string) LogDecoder { return d.LogDecoder }
+func (d OneDecoder) For(string, string) LogFormat { return LogFormat{Decoder: d.LogDecoder} }

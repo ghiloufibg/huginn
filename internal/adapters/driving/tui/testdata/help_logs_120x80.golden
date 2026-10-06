@@ -41,6 +41,7 @@
      tab              pod scope: all, then each pod                                                                     
      S                select pods and containers (fullscreen)                                                           
      A                all containers (sidecars and init) or application containers only                                 
+     M                show or hide the lines of the loggers muted in formats/ (reloads)                                 
    Display                                                                                                              
      o                newest or oldest first                                                                            
      c                hide the next column (time, level, thread, class), then show them again                           
@@ -69,7 +70,6 @@
      !                invert (as first character; \! for a literal !)                                                   
      ctrl+a           stack another filter (AND)                                                                        
      enter / esc      keep / cancel the edit                                                                            
-                                                                                                                        
                                                                                                                         
                                                                                                                         
                                                                                                                         

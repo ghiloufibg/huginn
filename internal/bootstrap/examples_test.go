@@ -49,7 +49,7 @@ func TestExampleFoldersReadTheirLogs(t *testing.T) {
 			if probs != nil {
 				t.Fatal(probs)
 			}
-			e := lp.decoders.For(tc.repo, tc.container).Decode(domain.RawLine{Container: tc.container, Text: tc.line, Time: time.Unix(0, 0)})
+			e := lp.decoders.For(tc.repo, tc.container).Decoder.Decode(domain.RawLine{Container: tc.container, Text: tc.line, Time: time.Unix(0, 0)})
 			lo, ok := lp.layouts[e.Format]
 			if !ok {
 				t.Fatalf("no layout for format %q", e.Format)

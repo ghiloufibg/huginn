@@ -29,4 +29,9 @@ hidden:                        # never on the stream; shown in zoom metadata
   - stream
   - logtag
 
+mute:                          # loggers hidden from the logs screen (M shows them)
+  loggers:
+    - com.zaxxer.hikari.pool.HikariPool   # "Pool stats" every 30 seconds
+  # keep: [error]              # levels shown even from these loggers
+
 layout: spring

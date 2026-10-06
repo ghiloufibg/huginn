@@ -52,6 +52,8 @@ type LogQuery struct {
 	// Window and Follow do not apply, except a head window, which reads
 	// the first lines of that instance.
 	Previous bool
+	// NoMute shows the lines of the loggers the log formats mute.
+	NoMute bool
 }
 
 // PodState is a pod of a log session as the pod strip shows it.
@@ -89,6 +91,9 @@ type LogBatch struct {
 	// HistoryDone is set on the batch carrying the end of the window's
 	// history; later entries are live.
 	HistoryDone bool
+	// Muted is the number of lines hidden by the muted loggers of the
+	// log formats since the previous batch.
+	Muted uint64
 }
 
 // LogSession is the driving port behind the logs screen.

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/ghiloufibg/huginn/internal/core/domain"
@@ -168,6 +169,16 @@ func sameRef(a, b domain.WorkloadRef) bool {
 
 func (r *session) owned(p domain.Pod) bool { return ownedBy(p, r.workloads) }
 
+// formatFor returns a container's log format; a query asking for muted
+// lines gets the format without its mute.
+func (s *LogSessions) formatFor(q ports.LogQuery, container string) ports.LogFormat {
+	f := s.Decoders.For(q.Repo, container)
+	if q.NoMute {
+		f.Mute = nil
+	}
+	return f
+}
+
 func (s *LogSessions) logger() *slog.Logger {
 	if s.Log != nil {
 		return s.Log
@@ -179,7 +190,7 @@ func (s *LogSessions) logger() *slog.Logger {
 type tailMsg struct {
 	pod, container string
 	history        []domain.RawLine // with historyDone, undecoded
-	decoder        ports.LogDecoder // decodes history
+	format         ports.LogFormat  // decodes history
 	historyDone    bool
 	historyErr     error
 	capped         bool // the history reached the line limit
@@ -213,6 +224,12 @@ type session struct {
 	committed   time.Time
 	pending     ports.LogBatch
 	podsChanged bool
+	// muted counts the lines of muted loggers left out (live tailers add
+	// to it concurrently); mutedSent is the count already reported and
+	// mutedBatch the count in the batch being offered.
+	muted      atomic.Uint64
+	mutedSent  uint64
+	mutedBatch uint64
 }
 
 func (r *session) loop(ctx context.Context, initial []domain.Pod) {
@@ -254,21 +271,25 @@ func (r *session) loop(ctx context.Context, initial []domain.Pod) {
 		case <-tick.C():
 			r.commit(false)
 		case out <- r.batch():
-			r.pending, r.podsChanged = ports.LogBatch{}, false
+			r.pending, r.podsChanged, r.mutedSent = ports.LogBatch{}, false, r.mutedBatch
 		}
 	}
 }
 
 func (r *session) hasPending() bool {
-	return len(r.pending.Entries) > 0 || len(r.pending.Late) > 0 || len(r.pending.Notices) > 0 || r.pending.HistoryDone || r.podsChanged
+	return len(r.pending.Entries) > 0 || len(r.pending.Late) > 0 || len(r.pending.Notices) > 0 || r.pending.HistoryDone || r.podsChanged ||
+		r.muted.Load() != r.mutedSent
 }
 
-// batch returns the pending batch, with the pod list if it changed.
+// batch returns the pending batch, with the pod list if it changed and
+// the lines muted since the last batch sent.
 func (r *session) batch() ports.LogBatch {
 	b := r.pending
 	if r.podsChanged {
 		b.Pods = r.podList()
 	}
+	r.mutedBatch = r.muted.Load()
+	b.Muted = r.mutedBatch - r.mutedSent
 	return b
 }
 
@@ -390,10 +411,12 @@ func (r *session) handleHistory(m tailMsg) {
 	if r.historySent {
 		// History of a pod that appeared later: it is recent, treat it as
 		// live so the reorder window places it.
-		r.reorder = append(r.reorder, decodeAll(m.decoder, m.history)...)
+		entries, muted := decodeAll(m.format, m.history)
+		r.reorder = append(r.reorder, entries...)
+		r.muted.Add(uint64(muted))
 		return
 	}
-	r.history = append(r.history, rawHistory{lines: m.history, dec: m.decoder})
+	r.history = append(r.history, rawHistory{lines: m.history, format: m.format})
 	if n := r.retentionNotice(m); n != "" {
 		r.pending.Notices = append(r.pending.Notices, ports.LogNotice{Pod: m.pod, Text: n})
 	}
@@ -465,15 +488,20 @@ func (r *session) finishHistory() {
 		limit = 50000
 	}
 	head := r.q.Window.IsHead() && !r.q.Previous
-	entries, dropped := decodeHistory(r.history, limit, head)
+	entries, dropped, muted := decodeHistory(r.history, limit, head)
+	r.muted.Add(uint64(muted))
+	kept := fmt.Sprintf("%d lines kept (buffer size)", len(entries)+muted)
+	if muted > 0 {
+		kept = fmt.Sprintf("%d lines kept (buffer size, %d of them muted)", len(entries)+muted, muted)
+	}
 	switch {
 	case dropped > 0 && head:
 		r.pending.Notices = append(r.pending.Notices, ports.LogNotice{
-			Text: fmt.Sprintf("newer lines of the heads not loaded: %d lines kept (buffer size), %d newer skipped", len(entries), dropped),
+			Text: fmt.Sprintf("newer lines of the heads not loaded: %s, %d newer skipped", kept, dropped),
 		})
 	case dropped > 0:
 		r.pending.Notices = append(r.pending.Notices, ports.LogNotice{
-			Text: fmt.Sprintf("older lines of the window not loaded: %d lines kept (buffer size), %d older skipped", len(entries), dropped),
+			Text: fmt.Sprintf("older lines of the window not loaded: %s, %d older skipped", kept, dropped),
 		})
 	}
 	slices.SortStableFunc(entries, compareEntries)

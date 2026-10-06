@@ -219,6 +219,33 @@
       },
       "type": "object"
     },
+    "mute": {
+      "additionalProperties": false,
+      "description": "Loggers whose lines are hidden (connection pool state, resource snapshots…): they never reach the logs screen, where M shows them again.",
+      "properties": {
+        "keep": {
+          "description": "Levels shown even from a muted logger, e.g. [error]. Default: none, every line of a muted logger is hidden.",
+          "items": {
+            "enum": [
+              "error",
+              "warn",
+              "info",
+              "debug"
+            ],
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "loggers": {
+          "description": "Logger names as the lines write them, case-sensitive: exact (com.example.pool.Pool) or a prefix ending in * (com.example.metrics.*).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
     "pattern": {
       "description": "regex decoder: Go regular expression with named groups; time, level, logger, thread, message, trace_id, app and pid are standard fields, other groups become extra fields. message is required.",
       "type": "string"

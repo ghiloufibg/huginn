@@ -156,8 +156,12 @@ func TestRegexLevelGroup(t *testing.T) {
 
 func TestSelector(t *testing.T) {
 	a, b, fb := NewPlain("a"), NewPlain("b"), NewPlain("fallback")
+	mute, err := domain.NewLoggerMute([]string{"noisy"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	s := Selector{Rules: []Rule{
-		{Containers: []string{"nginx*"}, Decoder: a},
+		{Containers: []string{"nginx*"}, Decoder: a, Mute: mute},
 		{Repos: []string{"payment-*"}, Decoder: b},
 	}, Fallback: fb}
 	for _, tc := range []struct{ repo, container, want string }{
@@ -165,8 +169,11 @@ func TestSelector(t *testing.T) {
 		{"payment-service", "app", "b"},
 		{"user-api", "app", "fallback"},
 	} {
-		if got := s.For(tc.repo, tc.container).Decode(raw("x")).Format; got != tc.want {
+		if got := s.For(tc.repo, tc.container).Decoder.Decode(raw("x")).Format; got != tc.want {
 			t.Errorf("%s/%s: %s, want %s", tc.repo, tc.container, got, tc.want)
 		}
+	}
+	if s.For("x", "nginx").Mute != mute || s.For("x", "app").Mute != nil {
+		t.Error("the mute does not follow its rule")
 	}
 }

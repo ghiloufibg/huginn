@@ -175,6 +175,33 @@ func TestHeadWindow(t *testing.T) {
 	)
 }
 
+func TestMute(t *testing.T) {
+	fsys := valid()
+	fsys["formats/app.yaml"].Data = []byte("version: 1\ndecoder: json\nfields: {message: msg, logger: logger}\nmute:\n  loggers: [com.example.pool.Pool, com.example.metrics.*]\n  keep: [error]\nlayout: basic\n")
+	c, msg := load(t, fsys)
+	if msg != "" {
+		t.Fatal(msg)
+	}
+	if m := c.Formats[0].Mute; len(m.Loggers) != 2 || m.Keep[0] != "error" {
+		t.Fatalf("mute: %+v", m)
+	}
+	fsys["formats/app.yaml"].Data = []byte("version: 1\ndecoder: json\nfields: {message: msg}\nmute:\n  loggers: [a.*, \"*\", com.*.Pool, a.*]\n  keep: [fatal]\nlayout: basic\n")
+	fsys["formats/web.yaml"] = &fstest.MapFile{Data: []byte("version: 1\ndecoder: regex\npattern: '(?P<message>.*)'\nmute: {loggers: [x]}\nlayout: basic\n")}
+	fsys["formats/zz.yaml"] = &fstest.MapFile{Data: []byte("version: 1\ndecoder: plain\nmute: {loggers: [x]}\nlayout: basic\n")}
+	fsys["formats/zzz.yaml"] = &fstest.MapFile{Data: []byte("version: 1\ndecoder: plain\nmute: {keep: [error]}\nlayout: basic\n")}
+	_, msg = load(t, fsys)
+	wantErrors(t, msg,
+		`mute.loggers[1]: logger pattern "*" matches every logger`,
+		`mute.loggers[2]: logger pattern "com.*.Pool": * is only allowed at the end`,
+		`mute.loggers[3]: "a.*" is already mute.loggers[0]`,
+		`mute.keep[0]: "fatal" is not one of: error, warn, info, debug`,
+		"formats/app.yaml:4:1  mute: muting loggers needs fields.logger",
+		"formats/web.yaml:4:1  mute: muting loggers needs a group (?P<logger>…) in pattern",
+		"formats/zz.yaml:3:1  mute: the plain decoder reads no logger to mute",
+		"mute.keep: keep needs mute.loggers",
+	)
+}
+
 func TestRequiredKeys(t *testing.T) {
 	fsys := valid()
 	fsys["huginn.yaml"].Data = []byte("version: 1\n")

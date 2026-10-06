@@ -156,7 +156,14 @@ type Format struct {
 	Pattern    string           `yaml:"pattern" doc:"regex decoder: Go regular expression with named groups; time, level, logger, thread, message, trace_id, app and pid are standard fields, other groups become extra fields. message is required."`
 	TimeFormat string           `yaml:"time_format" doc:"regex decoder: Go reference layout of the time group, e.g. 02/Jan/2006:15:04:05 -0700. Default RFC 3339."`
 	LevelFrom  LevelFrom        `yaml:"level_from" doc:"regex decoder: derive the level from another group, e.g. the HTTP status."`
+	Mute       Mute             `yaml:"mute" doc:"Loggers whose lines are hidden (connection pool state, resource snapshots…): they never reach the logs screen, where M shows them again."`
 	Layout     string           `yaml:"layout" doc:"Layout used to draw these lines: a file name of layouts/ without extension." required:"true"`
+}
+
+// Mute hides the lines of chosen loggers.
+type Mute struct {
+	Loggers []string `yaml:"loggers" doc:"Logger names as the lines write them, case-sensitive: exact (com.example.pool.Pool) or a prefix ending in * (com.example.metrics.*)."`
+	Keep    []string `yaml:"keep" doc:"Levels shown even from a muted logger, e.g. [error]. Default: none, every line of a muted logger is hidden." enum:"error,warn,info,debug"`
 }
 
 // Match selects the containers of a format.

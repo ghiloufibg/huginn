@@ -231,6 +231,7 @@ func (v *validator) format(f Format) {
 			v.add(f.File, "levels."+lvl, "list at least one spelling")
 		}
 	}
+	v.mute(f)
 	switch f.Decoder {
 	case "json":
 		if len(f.Fields.Message) == 0 {
@@ -248,6 +249,41 @@ func (v *validator) format(f Format) {
 		if len(f.Fields.Message) > 0 || f.Pattern != "" {
 			v.add(f.File, "decoder", "the plain decoder reads no fields or pattern")
 		}
+	}
+}
+
+// mute checks the muted loggers of a format: valid, distinct patterns, and
+// a decoder that reads a logger.
+func (v *validator) mute(f Format) {
+	m := f.Mute
+	if len(m.Loggers) == 0 {
+		if len(m.Keep) > 0 {
+			v.add(f.File, "mute.keep", "keep needs mute.loggers")
+		}
+		return
+	}
+	seen := map[string]int{}
+	for i, p := range m.Loggers {
+		at := fmt.Sprintf("mute.loggers[%d]", i)
+		if err := domain.CheckMutePattern(p); err != nil {
+			v.add(f.File, at, "%v", err)
+		}
+		if j, dup := seen[p]; dup {
+			v.add(f.File, at, "%q is already mute.loggers[%d]", p, j)
+		}
+		seen[p] = i
+	}
+	switch f.Decoder {
+	case "json":
+		if len(f.Fields.Logger) == 0 {
+			v.add(f.File, "mute", "muting loggers needs fields.logger")
+		}
+	case "regex":
+		if re, err := regexp.Compile(f.Pattern); err == nil && !slices.Contains(re.SubexpNames(), "logger") {
+			v.add(f.File, "mute", "muting loggers needs a group (?P<logger>…) in pattern")
+		}
+	case "plain":
+		v.add(f.File, "mute", "the plain decoder reads no logger to mute")
 	}
 }
 

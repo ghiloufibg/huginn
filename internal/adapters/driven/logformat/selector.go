@@ -3,14 +3,16 @@ package logformat
 import (
 	"path"
 
+	"github.com/ghiloufibg/huginn/internal/core/domain"
 	"github.com/ghiloufibg/huginn/internal/core/ports"
 )
 
-// Rule gives the decoder of the containers it matches. Empty glob lists
-// match anything.
+// Rule gives the decoder, and the muted loggers, of the containers it
+// matches. Empty glob lists match anything.
 type Rule struct {
 	Repos, Containers []string
 	Decoder           ports.LogDecoder
+	Mute              *domain.LoggerMute
 }
 
 func (r Rule) matches(repo, container string) bool {
@@ -37,11 +39,11 @@ type Selector struct {
 }
 
 // For implements ports.LogDecoders.
-func (s Selector) For(repo, container string) ports.LogDecoder {
+func (s Selector) For(repo, container string) ports.LogFormat {
 	for _, r := range s.Rules {
 		if r.matches(repo, container) {
-			return r.Decoder
+			return ports.LogFormat{Decoder: r.Decoder, Mute: r.Mute}
 		}
 	}
-	return s.Fallback
+	return ports.LogFormat{Decoder: s.Fallback}
 }

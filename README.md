@@ -99,6 +99,7 @@ The pod strip shows each pod's state: a container that is not running says `wait
 | `t` / `T` / `1`…`7` / `0` / `9` | next window / window picker / 15m 30m 40m 45m 1h 1d 2d / tail / head (AZERTY: `&é"'(-è` / `à` / `ç`) |
 | `tab` / `S` | cycle pod scope / choose pods and containers (the two lists combine: one container of every pod, or one pod's container) |
 | `A` | all containers (sidecars and init) or application containers only (default: `default_mode` of `containers.yaml`) |
+| `M` | show or hide the lines of the loggers muted in `formats/` (`mute`; reloads the logs) |
 | `c` | hide the next column (time, level, thread, class); after the last one, show them again |
 | `ctrl+t` | time format: local, UTC, relative (never hides the time) |
 | `R` | reset the display (columns, pod id, time format, pan, wrap); filters, window and pods are kept |

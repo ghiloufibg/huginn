@@ -69,7 +69,11 @@ type logsScreen struct {
 	// streamed ones), chosen in the selector (S).
 	containerMode  domain.ContainerMode
 	containerScope map[string]bool
-	roles          map[string]map[string]domain.ContainerRole // pod → container → role
+	// showMuted streams the lines of the loggers muted by the log formats
+	// (M switches); muted counts the lines hidden in this session.
+	showMuted bool
+	muted     uint64
+	roles     map[string]map[string]domain.ContainerRole // pod → container → role
 	// multiContainer: some pod streams several containers, so the pod
 	// column names the container too.
 	multiContainer bool
@@ -153,7 +157,7 @@ func (l *logsScreen) open(m *Model) tea.Cmd {
 	l.rows, l.cursor, l.tail, l.paused, l.err, l.loading, l.notice = nil, 0, true, false, nil, true, ""
 	l.held, l.heldLate, l.heldLost = nil, nil, 0
 	l.formats = map[string]bool{}
-	l.levels, l.live, l.rate = [domain.LevelError + 1]int{}, false, rateMeter{}
+	l.levels, l.live, l.rate, l.muted = [domain.LevelError + 1]int{}, false, rateMeter{}, 0
 	if m.opts.Sessions == nil {
 		return nil
 	}
@@ -163,7 +167,7 @@ func (l *logsScreen) open(m *Model) tea.Cmd {
 	if l.window.IsHead() {
 		l.tail = false // a head is read from its first line, set once loaded
 	}
-	q := ports.LogQuery{Env: domain.Env(m.env.Name), Repo: l.repo, Window: l.window, Follow: l.follow && !l.window.IsHead(), Previous: l.previous, Containers: l.containerMode}
+	q := ports.LogQuery{Env: domain.Env(m.env.Name), Repo: l.repo, Window: l.window, Follow: l.follow && !l.window.IsHead(), Previous: l.previous, Containers: l.containerMode, NoMute: l.showMuted}
 	return func() tea.Msg {
 		ch, err := sessions.Open(ctx, q)
 		return logStartedMsg{screen: l, gen: gen, ch: ch, err: err}
@@ -231,6 +235,7 @@ func (l *logsScreen) apply(b ports.LogBatch, now time.Time) {
 	if l.live {
 		l.rate.add(now, len(b.Entries)+len(b.Late))
 	}
+	l.muted += b.Muted
 	if l.paused {
 		// The paused view keeps its lines: new ones wait outside the
 		// buffer, which would otherwise evict what is on screen.
@@ -598,6 +603,10 @@ func (l *logsScreen) key(m *Model, k tea.KeyPressMsg) (bool, tea.Cmd) {
 			mode = domain.ContainersApp
 		}
 		return true, l.setContainerMode(m, mode)
+	case keys.Is(key, ActShowMuted):
+		l.showMuted = !l.showMuted
+		m.flash(map[bool]string{true: "muted loggers shown", false: "muted loggers hidden"}[l.showMuted])
+		return true, l.open(m)
 	case keys.Is(key, ActPreviousLogs):
 		l.previous = !l.previous
 		m.flash(map[bool]string{true: "previous instance of the restarted containers", false: "current logs"}[l.previous])
@@ -805,6 +814,9 @@ func (l *logsScreen) emptyMessage(m *Model) string {
 			l.keyHint(m, ActBack, "clear the last filter", ActAllLevels, "all levels")
 	case l.buf.Len() > 0:
 		return t.Dim.Render("no line from the selected pods") + "\n\n" + l.keyHint(m, ActPodScope, "pods")
+	case l.muted > 0:
+		return t.Dim.Render(fmt.Sprintf("all %s are from muted loggers (mute in formats/)", plural(int(l.muted), "line"))) + "\n\n" +
+			l.keyHint(m, ActShowMuted, "show them", ActWindowNext, "longer window", ActBack, "back")
 	case l.window.IsHead():
 		return t.Dim.Render("no log line in "+l.repo+"'s containers yet") + "\n\n" + l.keyHint(m, ActWindowTail, "last lines", ActBack, "back")
 	case l.window.Tail > 0:
@@ -1185,6 +1197,12 @@ func (l *logsScreen) statusLeft(m *Model) string {
 	if f := l.filterSummary(); f != "" {
 		fields = append(fields, f)
 	}
+	switch {
+	case l.showMuted:
+		fields = append(fields, "muted loggers shown")
+	case l.muted > 0:
+		fields = append(fields, fmt.Sprintf("muted %d", l.muted))
+	}
 	// Most useful first: a narrow terminal truncates the end.
 	if gone == "REMOVED" {
 		fields = append(fields, l.repo+" no longer exists in "+m.env.Name)
@@ -1238,7 +1256,7 @@ func (l *logsScreen) fullHints(m *Model) []hint {
 		m.h(ActAllLevels, "all"), m.pair(ActNextError, ActPrevError, "error"), m.h(ActOpen, "zoom"),
 		m.h(ActFollow, "follow"), m.h(ActPause, "pause"), m.h(ActWindowNext, "window"), m.h(ActWindowPick, "windows"),
 		{m.label(ActWindow1) + "…" + m.label(ActWindow7) + " " + m.label(ActWindowTail), "15m…2d tail"},
-		m.h(ActPodScope, "pods"), m.h(ActPodSelector, "select pods/containers"), m.h(ActAllContainers, "all containers"), m.h(ActCycleColumns, "hide next column"), m.h(ActColumns, "columns"),
+		m.h(ActPodScope, "pods"), m.h(ActPodSelector, "select pods/containers"), m.h(ActAllContainers, "all containers"), m.h(ActShowMuted, "muted loggers"), m.h(ActCycleColumns, "hide next column"), m.h(ActColumns, "columns"),
 		m.h(ActPreviousLogs, "previous instance"), m.h(ActFocus, "focus"), m.h(ActResetDisplay, "reset display"), m.h(ActTimestamps, "time format"), m.h(ActOrder, "order"), m.h(ActWrap, "wrap"), m.h(ActFullscreen, "fullscreen"),
 		m.h(ActBack, "back"), m.h(ActKeyBar, "keys"), m.h(ActHelp, "help"),
 	}

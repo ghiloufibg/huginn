@@ -55,6 +55,18 @@ func levelAliases(f config.Format) map[string]domain.Level {
 	return out
 }
 
+// loggerMute compiles the muted loggers of a format (nil: none). The
+// folder is validated, so patterns and levels parse.
+func loggerMute(f config.Format) *domain.LoggerMute {
+	keep := make([]domain.Level, 0, len(f.Mute.Keep))
+	for _, lvl := range f.Mute.Keep {
+		l, _ := domain.ParseLevel(lvl)
+		keep = append(keep, l)
+	}
+	m, _ := domain.NewLoggerMute(f.Mute.Loggers, keep)
+	return m
+}
+
 // roles maps the role names of layouts/*.yaml to render roles.
 var roles = map[string]ports.Role{
 	"time": ports.RoleTimestamp, "level": ports.RoleLevel, "thread": ports.RoleThread, "logger": ports.RoleLogger,
@@ -114,7 +126,7 @@ func logParts(c *config.Config) (logging, []config.Problem) {
 			probs = append(probs, c.Problem(f.File, "decoder", "%v", err))
 			continue
 		}
-		sel.Rules = append(sel.Rules, logformat.Rule{Repos: f.Match.Repos, Containers: f.Match.Containers, Decoder: newDecoder(f)})
+		sel.Rules = append(sel.Rules, logformat.Rule{Repos: f.Match.Repos, Containers: f.Match.Containers, Decoder: newDecoder(f), Mute: loggerMute(f)})
 		lo := compiled[f.Layout]
 		lp.layouts[f.Name] = lo
 		if lp.fallback == nil {

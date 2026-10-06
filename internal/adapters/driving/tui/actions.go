@@ -70,6 +70,7 @@ var actions = map[Action]actionInfo{
 	ActResetDisplay:  {"Display", "reset the display (columns, time format, pan, wrap), keep the filters"},
 	ActPodID:         {"Display", "pod id: short, full, hidden"},
 	ActAllContainers: {"Inspect", "all containers (sidecars and init) or application containers only"},
+	ActShowMuted:     {"Inspect", "show or hide the lines of the loggers muted in formats/ (reloads)"},
 	ActColumns:       {"Display", "columns: time, pod, level, thread, class"},
 	ActFocus:         {"Display", "focus layout: hide pod, thread and class"},
 }

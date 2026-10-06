@@ -80,6 +80,7 @@ const (
 	ActResetDisplay  Action = "reset_display"
 	ActPodID         Action = "pod_id"
 	ActAllContainers Action = "all_containers"
+	ActShowMuted     Action = "show_muted"
 	ActMark          Action = "mark"
 	ActCopy          Action = "copy"
 	ActSave          Action = "save"
@@ -107,7 +108,7 @@ var defaultKeys = map[Action][]string{
 	ActNextEntry: {"J"}, ActPrevEntry: {"K"},
 	ActJSONView: {"p"}, ActViewTrace: {"v"}, ActDiagnostics: {"d"}, ActPreviousLogs: {"P"},
 	ActErrorGroups: {"E"}, ActPodScope: {"tab"}, ActPodSelector: {"S"}, ActFullscreen: {"F"},
-	ActWrap: {"W"}, ActTimestamps: {"ctrl+t"}, ActCycleColumns: {"c"}, ActResetDisplay: {"R"}, ActPodID: {"I"}, ActMark: {"m"}, ActAllContainers: {"A"},
+	ActWrap: {"W"}, ActTimestamps: {"ctrl+t"}, ActCycleColumns: {"c"}, ActResetDisplay: {"R"}, ActPodID: {"I"}, ActMark: {"m"}, ActAllContainers: {"A"}, ActShowMuted: {"M"},
 	ActCopy: {"ctrl+y"}, ActSave: {"ctrl+s"}, ActBugReport: {"B"},
 }
 

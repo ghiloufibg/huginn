@@ -74,6 +74,7 @@ type reader struct {
 	pods    []ports.PodState
 	notices []string
 	history bool
+	muted   uint64
 }
 
 func (r *reader) until(step time.Duration, ok func() bool) {
@@ -98,6 +99,7 @@ func (r *reader) until(step time.Duration, ok func() bool) {
 				r.notices = append(r.notices, n.Text)
 			}
 			r.history = r.history || b.HistoryDone
+			r.muted += b.Muted
 		case <-time.After(2 * time.Millisecond):
 			r.clock.Advance(step)
 		}
@@ -212,6 +214,87 @@ func TestResumeWithSecondPrecisionSource(t *testing.T) {
 	}
 	if counts["early"] != 1 || counts["last"] != 1 {
 		t.Fatalf("resumed lines delivered again: %v", counts)
+	}
+}
+
+// noisyDecoders decode lines starting with "pool" as entries of the
+// logger "pool", which they mute, and the others as entries of "app".
+type noisyDecoders struct{ mute *domain.LoggerMute }
+
+func (d noisyDecoders) For(string, string) ports.LogFormat {
+	return ports.LogFormat{Decoder: noisyDecoder{}, Mute: d.mute}
+}
+
+type noisyDecoder struct{}
+
+func (noisyDecoder) Decode(r domain.RawLine) domain.LogEntry {
+	e := passthrough{}.Decode(r)
+	e.Logger, e.Structured = "app", true
+	if strings.HasPrefix(r.Text, "pool") {
+		e.Logger = "pool"
+	}
+	return e
+}
+
+func newNoisyFixture(t *testing.T) *fixture {
+	t.Helper()
+	f := newFixture(t)
+	mute, err := domain.NewLoggerMute([]string{"pool"}, []domain.Level{domain.LevelError})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.s.Decoders = noisyDecoders{mute: mute}
+	f.logs.SetLines("ns", "api-1", "api", []domain.RawLine{
+		line("api-1", t0.Add(-5*time.Minute), "a1"), line("api-1", t0.Add(-4*time.Minute), "pool-h"), line("api-1", t0.Add(-3*time.Minute), "a3"),
+	}, nil)
+	return f
+}
+
+func TestMutedLoggersLeftOutAndCounted(t *testing.T) {
+	f := newNoisyFixture(t)
+	r, cancel := f.open(t, ports.LogQuery{Follow: true})
+	defer cancel()
+	r.until(10*time.Millisecond, func() bool { return r.history })
+	if got := strings.Join(r.entries, ","); got != "a1,b2,a3,b4" {
+		t.Fatalf("history %s", got)
+	}
+	r.until(10*time.Millisecond, func() bool { return f.logs.Following("ns", "api-1", "api") == 1 })
+	f.logs.Push("ns", "api-1", line("api-1", t0.Add(100*time.Millisecond), "pool-live"))
+	f.logs.Push("ns", "api-1", line("api-1", t0.Add(200*time.Millisecond), "after"))
+	r.until(20*time.Millisecond, func() bool { return slices.Contains(r.entries, "after") && r.muted == 2 })
+	if slices.ContainsFunc(r.entries, func(e string) bool { return strings.HasPrefix(e, "pool") }) {
+		t.Fatalf("muted lines delivered: %v", r.entries)
+	}
+}
+
+func TestNoMuteShowsMutedLoggers(t *testing.T) {
+	f := newNoisyFixture(t)
+	r, cancel := f.open(t, ports.LogQuery{NoMute: true})
+	defer cancel()
+	r.until(10*time.Millisecond, func() bool { return r.history })
+	if got := strings.Join(r.entries, ","); got != "a1,pool-h,b2,a3,b4" || r.muted != 0 {
+		t.Fatalf("history %s, %d muted", got, r.muted)
+	}
+}
+
+// TestMutedLinesMoveTheResumePoint: a muted line is not delivered but is
+// read; after a reconnect, it must not be read (and counted) again.
+func TestMutedLinesMoveTheResumePoint(t *testing.T) {
+	f := newNoisyFixture(t)
+	f.logs.SecondPrecision = true
+	f.s.Backoff = []time.Duration{time.Second}
+	r, cancel := f.open(t, ports.LogQuery{Follow: true})
+	defer cancel()
+	r.until(10*time.Millisecond, func() bool { return r.history })
+	r.until(10*time.Millisecond, func() bool { return f.logs.Following("ns", "api-1", "api") == 1 })
+	f.logs.Push("ns", "api-1", line("api-1", t0.Add(100*time.Millisecond), "pool-live"))
+	r.until(10*time.Millisecond, func() bool { return r.muted == 2 })
+	f.logs.Close("ns", "api-1", "api")
+	r.until(100*time.Millisecond, func() bool { return f.logs.Following("ns", "api-1", "api") == 1 })
+	f.logs.Push("ns", "api-1", line("api-1", f.clock.Now(), "after"))
+	r.until(50*time.Millisecond, func() bool { return slices.Contains(r.entries, "after") })
+	if r.muted != 2 {
+		t.Fatalf("%d muted lines, want 2 (the muted line was read again)", r.muted)
 	}
 }
 
