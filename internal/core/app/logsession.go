@@ -231,6 +231,7 @@ type session struct {
 	muted         uint64
 	mutedBy       map[string]uint64
 	mutedReported uint64
+	lastBatch     int // entries in the last batch sent: the next one's likely size
 }
 
 // limit is the number of entries the view keeps (its buffer size): the
@@ -283,6 +284,7 @@ func (r *session) loop(ctx context.Context, initial []domain.Pod) {
 			r.commit(false)
 			r.reportMuted()
 		case out <- r.batch():
+			r.lastBatch = len(r.pending.Entries)
 			r.pending, r.podsChanged = ports.LogBatch{}, false
 		}
 	}
@@ -579,6 +581,9 @@ func (r *session) commitOne(e domain.LogEntry) {
 	if t.Before(r.committed) {
 		r.pending.Late = append(r.pending.Late, e)
 		return
+	}
+	if r.pending.Entries == nil { // sized like the last batch: no regrowth
+		r.pending.Entries = make([]domain.LogEntry, 0, max(r.lastBatch, 16))
 	}
 	r.pending.Entries = append(r.pending.Entries, e)
 	r.committed = t

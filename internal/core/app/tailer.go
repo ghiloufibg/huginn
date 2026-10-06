@@ -356,6 +356,9 @@ func (t *tailer) follow(ctx context.Context, req ports.LogRequest, seen map[stri
 	}
 	lines := st.Lines()
 	for l := range lines {
+		// Sized for the lines already waiting: no regrowth, and no
+		// large batch for a quiet stream.
+		batch = make([]domain.LogEntry, 0, min(len(lines)+1, liveBatch))
 		read(l)
 		open := true
 	drain:
@@ -372,7 +375,7 @@ func (t *tailer) follow(ctx context.Context, req ports.LogRequest, seen map[stri
 		if (len(batch) > 0 || muted != nil) && !t.send(ctx, tailMsg{live: batch, muted: muted}) {
 			return n, last, nil
 		}
-		batch, muted = nil, nil
+		muted = nil
 		if !open {
 			break
 		}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -704,5 +705,70 @@ func TestHeadOfANewPod(t *testing.T) {
 	r.until(20*time.Millisecond, func() bool { return len(r.pods) == 3 })
 	if slices.Contains(r.entries, "ready") {
 		t.Fatalf("a new pod loads its head only: %v", r.entries)
+	}
+}
+
+// BenchmarkSessionLive pushes live lines from 20 pods through a session,
+// as fast as it takes them, and reads every batch: the cost per line of
+// the whole live path (tailers, reorder window, batches), decoding aside.
+func BenchmarkSessionLive(b *testing.B) {
+	const pods = 20
+	clock := portstest.NewFakeClock(t0)
+	fc := portstest.NewFakeCluster()
+	fc.AddWorkload(deployment("ns", "api", "shop", pods, pods))
+	logs := portstest.NewFakeLogSource(clock)
+	names := make([]string, pods)
+	for i := range names {
+		names[i] = fmt.Sprintf("api-%02d", i)
+		fc.PutPod(podWithSidecar(names[i], t0.Add(-2*time.Hour)))
+		logs.SetLines("ns", names[i], "api", nil, nil)
+	}
+	s := &LogSessions{
+		Cluster: fc, Logs: logs, Clock: clock, Decoders: ports.OneDecoder{LogDecoder: passthrough{}},
+		Resolver: LabelResolver{Keys: []string{"app.kubernetes.io/part-of"}}, Scopes: scopes("ns"),
+		Filter: domain.ContainerFilter{Deny: []string{"istio-proxy"}},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ch, err := s.Open(ctx, ports.LogQuery{Env: "rec", Repo: "shop", Window: domain.TimeWindow{Since: time.Minute}, Follow: true})
+	if err != nil {
+		b.Fatal(err)
+	}
+	stop := make(chan struct{})
+	defer close(stop)
+	go func() { // time passes: the reorder window commits
+		for {
+			select {
+			case <-stop:
+				return
+			case <-time.After(time.Millisecond):
+				clock.Advance(50 * time.Millisecond)
+			}
+		}
+	}()
+	var got atomic.Int64
+	go func() {
+		for batch := range ch {
+			got.Add(int64(len(batch.Entries)+len(batch.Late)) + int64(batch.Skipped))
+		}
+	}()
+	deadline := time.Now().Add(10 * time.Second)
+	for logs.Following("ns", names[pods-1], "api") == 0 {
+		if time.Now().After(deadline) {
+			b.Fatal("streams not followed")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := range b.N {
+		p := names[i%pods]
+		logs.Push("ns", p, domain.RawLine{Time: t0.Add(time.Duration(i) * time.Microsecond), Pod: p, Container: "api", Text: "line"})
+	}
+	for got.Load() < int64(b.N) {
+		if time.Now().After(deadline.Add(time.Minute)) {
+			b.Fatalf("%d of %d lines delivered", got.Load(), b.N)
+		}
+		time.Sleep(100 * time.Microsecond)
 	}
 }
