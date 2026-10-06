@@ -510,19 +510,6 @@ func (r *kafkaRecordsScreen) decodes() bool {
 	return r.topics.session != nil && r.topics.session.Decodes()
 }
 
-// payloadPreview is a key or value on one line: decoded ones are
-// introduced by their format and schema id, and the bytes of one that
-// could not be decoded are followed by the reason.
-func payloadPreview(b []byte, size int, ref domain.SchemaRef, maxRunes int) string {
-	switch {
-	case ref.Decoded():
-		return fmt.Sprintf("%s %d · ", ref.Format, ref.ID) + domain.PayloadPreview(b, size, maxRunes)
-	case ref.Err != "":
-		return domain.PayloadPreview(b, size, maxRunes) + " · " + domain.EscapeControls(ref.Err)
-	}
-	return domain.PayloadPreview(b, size, maxRunes)
-}
-
 func (r *kafkaRecordsScreen) emptyHint(m *Model) string {
 	return fmt.Sprintf("%s longer window  ·  %s follow  ·  %s back", m.label(ActWindow5), m.label(ActFollow), m.label(ActBack))
 }
@@ -534,7 +521,7 @@ func (r *kafkaRecordsScreen) line(m *Model, l recordLayout, rec *domain.KafkaRec
 	if !rec.Time.IsZero() {
 		ts = rec.Time.In(time.Local).Format(l.timeFormat)
 	}
-	key := payloadPreview(rec.Key, rec.KeySize, rec.KeySchema, recordKeyWidth)
+	key := domain.SchemaPayloadPreview(rec.Key, rec.KeySize, rec.KeySchema, recordKeyWidth)
 	dim := m.dim()
 	part := fmt.Sprintf("p%-*d", recordPartWidth-1, rec.Partition)
 	head := dim.paint(fmt.Sprintf("%-*s ", l.timeWidth, ts)) + m.podInk(int(rec.Partition)).paint(part) +
@@ -544,7 +531,7 @@ func (r *kafkaRecordsScreen) line(m *Model, l recordLayout, rec *domain.KafkaRec
 	if !ok {
 		// Computed once per record (the whole value is classified), cut
 		// to the widest terminal it may be drawn on.
-		preview = payloadPreview(rec.Value, rec.ValueSize, rec.ValueSchema, 400)
+		preview = domain.SchemaPayloadPreview(rec.Value, rec.ValueSize, rec.ValueSchema, 400)
 		if rec.Value == nil {
 			preview = "tombstone"
 		}

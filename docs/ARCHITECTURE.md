@@ -22,7 +22,7 @@ Huginn is built first as a **prototype** and will then be adapted to an enterpri
 | Layer | Package(s) | Contains | May import |
 |---|---|---|---|
 | Domain | `internal/core/domain` | Pure types and rules: Env, Repo, Workload, Pod, Container, Status aggregation, LogEntry, Level, TimeWindow, Filter, Fingerprint, redaction, filter engine | stdlib only |
-| Ports | `internal/core/ports` | Interfaces only. **Driven**: `ClusterClient`, `LogSource`, `LogDecoder`, `LogRenderer`, `ManifestScanner`, `RepoResolver`, `SecretsProvider`, `Clock`, `Clipboard`, `FileSink`, `Opener`. **Driving**: `ServiceCatalog`, `LogSession`, `PodEvents`, `Diagnostics` (use cases the UI calls) | domain |
+| Ports | `internal/core/ports` | Interfaces only. **Driven**: `ClusterClient`, `LogSource`, `LogDecoder`, `LogRenderer`, `ManifestScanner`, `RepoResolver`, `SecretsProvider`, `Clock`, `Clipboard`, `FileSink`, `Opener`, `TopicSourceFactory`, `SchemaDecoderFactory`. **Driving**: `ServiceCatalog`, `LogSession`, `PodEvents`, `Diagnostics` (use cases the UI calls) | domain |
 | Application | `internal/core/app` | Use-case implementations: build the service list, open a log session, merge streams, apply filters, group errors. Orchestrates ports, no I/O of its own | domain, ports |
 | Driven adapters | `internal/adapters/driven/<name>` | One technology each: client-go, sops CLI, Kustomize scanner, JSON log decoder, Spring Boot renderer, demo cluster, file system, OS clipboard | domain, ports, third-party libs |
 | Driving adapters | `internal/adapters/driving/tui`, `…/cli` | Bubble Tea UI, Cobra CLI. Talk to the core **only through driving ports** | domain, ports |
@@ -62,6 +62,8 @@ These rules are enforced mechanically: `golangci-lint` `depguard` rules give edi
 | Secrets in Vault / GSM / another file | New `SecretsProvider` adapter | One package |
 | Kafka settings in other files or keys, topics of a service | A file in `kafka/` | No |
 | Another way to read topics (another client, a REST proxy) | New `TopicSourceFactory` adapter | One package |
+| Records written by Schema Registry serializers | `schema_registry` in a file of `kafka/` | No |
+| Another schema format (Protobuf) or registry | A decoder in `adapters/driven/schemaregistry`, or a new `SchemaDecoderFactory` adapter | One package |
 | Another log backend (Cloud Logging, Loki, Elastic) | New `LogSource` adapter | One package |
 | Other sidecars to hide | Edit `containers.yaml` | No |
 | Noisy loggers to hide (pool state, snapshots) | `mute.loggers` in the format of `formats/` | No |
@@ -95,6 +97,8 @@ internal/
   adapters/driven/filesink/     FileSink: saved lines, new files only, mode 0600
   adapters/driven/kafka/        TopicSourceFactory with franz-go, read only behind a request guard (D-057)
   adapters/driven/localfiles/   LocalFiles: dotenv sources, truststores, globs of Kafka profiles
+  adapters/driven/schemaregistry/  SchemaDecoderFactory: Schema Registry read only (GET), cache by id;
+                                avrojson/: Avro binary -> JSON (hamba/avro confined here)
   adapters/driven/logformat/    LogDecoder: json, regex, plain; Selector (format per container)
   adapters/driven/layout/       LogLayout from templates (layouts/*.yaml)
   adapters/driving/cli/         cobra command tree -> cli.Options

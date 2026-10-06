@@ -100,3 +100,37 @@ func TestKafkaReadIntoAClosedPipeIsQuiet(t *testing.T) {
 		t.Fatalf("| head must not fail: %v", err)
 	}
 }
+
+// With --demo the demo registry answers in memory: check reports it, read
+// prints decoded records, --no-decode their bytes.
+func TestKafkaCommandsWithTheSchemaRegistry(t *testing.T) {
+	ctx := context.Background()
+	demo := cli.KafkaOptions{Options: cli.Options{Demo: true}, Repo: "payment-service"}
+	var out bytes.Buffer
+	if err := kafkaCheck(ctx, demo, noFiles(), diag.Discard(), &out); err != nil || !strings.Contains(out.String(), "schema registry: ready") {
+		t.Fatalf("check: %v\n%s", err, out.String())
+	}
+
+	read := demo
+	read.Topic, read.Tail = "payments.requested", 100
+	out.Reset()
+	var notices bytes.Buffer
+	if err := kafkaRead(ctx, read, noFiles(), diag.Discard(), &out, &notices, false); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), `avro 1 · {"id":"PAY-`) || !strings.Contains(out.String(), `"occurredAt":"20`) || !strings.Contains(out.String(), "json 2 · ") {
+		t.Fatalf("decoded records:\n%s", out.String())
+	}
+	if !strings.Contains(notices.String(), "schema 999") || strings.Count(notices.String(), "schema 999") != 1 {
+		t.Fatalf("one notice for the unknown schema:\n%s", notices.String())
+	}
+
+	read.NoDecode = true
+	out.Reset()
+	if err := kafkaRead(ctx, read, noFiles(), diag.Discard(), &out, &bytes.Buffer{}, false); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), "avro 1 · ") || !strings.Contains(out.String(), "schema 1, ") {
+		t.Fatalf("--no-decode:\n%s", out.String())
+	}
+}

@@ -59,7 +59,9 @@ func (r *registry) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 	var body any
 	var ok bool
-	if id, found := strings.CutPrefix(req.URL.Path, "/schemas/ids/"); found {
+	if req.URL.Path == "/schemas/types" {
+		body, ok = []string{"JSON", "PROTOBUF", "AVRO"}, true
+	} else if id, found := strings.CutPrefix(req.URL.Path, "/schemas/ids/"); found {
 		var n uint32
 		if _, err := fmt.Sscan(id, &n); err == nil {
 			body, ok = r.ids[n]

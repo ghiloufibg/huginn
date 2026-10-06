@@ -114,6 +114,9 @@ type KafkaSession interface {
 	// Decodes reports whether records written by Schema Registry
 	// serializers are decoded (the profile names a registry).
 	Decodes() bool
+	// CheckRegistry tells whether the profile names a Schema Registry
+	// and, if so, whether it can be used (a request to it).
+	CheckRegistry(ctx context.Context) (named bool, err error)
 	Topics() []KafkaTopicState
 	// Read streams the records of one topic; the channel closes when ctx
 	// is cancelled or the read ends.

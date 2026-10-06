@@ -2,10 +2,10 @@ package demo
 
 import (
 	"context"
-	"encoding/binary"
 	"fmt"
 	"math/rand/v2"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -141,8 +141,9 @@ func (s kafkaSource) Read(ctx context.Context, q ports.TopicRead) (<-chan ports.
 var demoEvents = []string{"Created", "Updated", "Validated", "Rejected", "Completed"}
 
 // record is the record of a topic partition at an offset: mostly JSON
-// events, sometimes plain text, a schema-registry framed value or a
-// tombstone, so every rendering shows in the demo.
+// events, sometimes plain text, values written by Schema Registry
+// serializers (Avro, JSON Schema, and an unknown schema) or a tombstone,
+// so every rendering shows in the demo.
 func (k *Kafka) record(topic string, p int32, off int64) domain.KafkaRecord {
 	h := hashOf(k.Seed, topic, p, off)
 	r := rand.New(rand.NewPCG(h, h>>17|h<<47)) // cheap to seed: one per record
@@ -157,12 +158,17 @@ func (k *Kafka) record(topic string, p int32, off int64) domain.KafkaRecord {
 	switch n := r.IntN(100); {
 	case n < 2:
 		rec.Value = nil // tombstone
-	case n < 5:
-		v := make([]byte, 5, 40)
-		v[0] = 0
-		binary.BigEndian.PutUint32(v[1:], uint32(100+r.IntN(400)))
-		rec.Value = append(v, fmt.Appendf(nil, "\x02%s", id)...)
-	case n < 10:
+	case n < 14: // Avro, decoded with the demo registry
+		note := ""
+		if r.IntN(3) == 0 {
+			note = "retry " + strconv.Itoa(r.IntN(3)+1)
+		}
+		rec.Value = framed(demoSchemaAvro, avroEvent(id, r.IntN(len(demoEvents)), int64(r.IntN(90000)+1000), at, note))
+	case n < 17: // JSON Schema
+		rec.Value = framed(demoSchemaJSON, jsonNotice(id, demoEvents[r.IntN(len(demoEvents))], at))
+	case n < 18: // a schema the registry does not know: shown undecoded, with why
+		rec.Value = framed(demoSchemaUnknown, fmt.Appendf(nil, "\x02%s", id))
+	case n < 22:
 		rec.Value = fmt.Appendf(nil, "%s %s at %s", id, strings.ToLower(demoEvents[r.IntN(len(demoEvents))]), at.Format(time.RFC3339))
 	default:
 		rec.Value = fmt.Appendf(nil, `{"eventId":"%08x","type":"%s%s","id":"%s","amount":%d.%02d,"currency":"EUR","attempt":%d,"occurredAt":"%s"}`,

@@ -176,6 +176,13 @@ func (d *decoder) Decode(ctx context.Context, framed []byte) ([]byte, domain.Sch
 	return nil, ref, fmt.Errorf("schema %d is %s, not decoded: %w", id, s.format, domain.ErrNotImplemented)
 }
 
+// Check implements ports.SchemaDecoder: one GET /schemas/types, which
+// every registry answers and which needs the same credentials as schemas.
+func (d *decoder) Check(ctx context.Context) error {
+	var types []string
+	return d.get(ctx, "/schemas/types", &types)
+}
+
 // schema returns the schema of id: cached, being fetched by another
 // caller (it waits), or fetched now.
 func (d *decoder) schema(ctx context.Context, id uint32) (schema, error) {

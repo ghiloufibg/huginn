@@ -39,6 +39,10 @@ func clampInt32(n int64) int32 { return int32(min(n, 1<<31-1)) }
 func schemaRegistries() *ports.Registry[func() ports.SchemaDecoderFactory] {
 	r := ports.NewRegistry[func() ports.SchemaDecoderFactory]("schema registry")
 	r.Register("kubernetes", func() ports.SchemaDecoderFactory { return &schemaregistry.Factory{} })
+	// The real client, answered in memory: --demo decodes as a real run.
+	r.Register("demo", func() ports.SchemaDecoderFactory {
+		return &schemaregistry.Factory{Transport: demo.RegistryTransport()}
+	})
 	return r
 }
 

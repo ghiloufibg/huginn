@@ -95,6 +95,20 @@ func PayloadPreview(b []byte, size int, maxRunes int) string {
 	return cutRunes(escapeControls(s), maxRunes)
 }
 
+// SchemaPayloadPreview is PayloadPreview for a key or value that may have
+// been decoded with a Schema Registry (ref): a decoded one is introduced
+// by its format and schema id (`avro 7 · {…}`), and the bytes of one that
+// could not be decoded are followed by the reason, escaped.
+func SchemaPayloadPreview(b []byte, size int, ref SchemaRef, maxRunes int) string {
+	switch {
+	case ref.Decoded():
+		return fmt.Sprintf("%s %d · ", ref.Format, ref.ID) + PayloadPreview(b, size, maxRunes)
+	case ref.Err != "":
+		return PayloadPreview(b, size, maxRunes) + " · " + escapeControls(ref.Err)
+	}
+	return PayloadPreview(b, size, maxRunes)
+}
+
 // compactJSON drops the whitespace outside strings, as json.Compact does,
 // without validating: b may be the start of a document.
 func compactJSON(b []byte) string {

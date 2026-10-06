@@ -589,8 +589,19 @@ type kafkaSession struct {
 	closed  bool
 }
 
-func (k *kafkaSession) Profile() string                 { return k.profile }
-func (k *kafkaSession) Decodes() bool                   { return k.schemas.dec != nil }
+func (k *kafkaSession) Profile() string { return k.profile }
+func (k *kafkaSession) Decodes() bool   { return k.schemas.dec != nil }
+
+// CheckRegistry implements ports.KafkaSession.
+func (k *kafkaSession) CheckRegistry(ctx context.Context) (bool, error) {
+	switch {
+	case k.registryErr != nil:
+		return true, k.registryErr
+	case k.schemas.dec == nil:
+		return false, nil
+	}
+	return true, k.schemas.dec.Check(ctx)
+}
 func (k *kafkaSession) Topics() []ports.KafkaTopicState { return slices.Clone(k.topics) }
 
 // Close implements ports.KafkaSession.

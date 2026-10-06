@@ -69,6 +69,13 @@ func (f *FakeSchemaRegistry) Decode(_ context.Context, framed []byte) ([]byte, d
 	return []byte(j), ref, nil
 }
 
+// Check implements ports.SchemaDecoder.
+func (f *FakeSchemaRegistry) Check(context.Context) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.Err
+}
+
 // Decodes is the number of Decode calls so far.
 func (f *FakeSchemaRegistry) Decodes() int {
 	f.mu.Lock()

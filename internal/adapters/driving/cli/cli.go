@@ -38,6 +38,9 @@ type KafkaOptions struct {
 	// Raw prints each value as received, one per line (for jq), instead
 	// of a line per record.
 	Raw bool
+	// NoDecode leaves records written by Schema Registry serializers as
+	// their bytes, even when the profile names a registry.
+	NoDecode bool
 }
 
 // Handlers are supplied by the composition root.
@@ -132,7 +135,8 @@ func kafkaCommand(h Handlers) *cobra.Command {
 	rf.IntVar(&o.Tail, "tail", 0, "last records of each partition (default: kafka.tail_records)")
 	rf.BoolVarP(&o.Follow, "follow", "f", false, "keep printing new records until interrupted")
 	rf.BoolVar(&o.Committed, "committed", false, "committed records only (read_committed isolation)")
-	rf.BoolVar(&o.Raw, "raw", false, "print each value as received, one per line: line breaks inside a value are written \\n, a tombstone null, control characters escaped on a terminal")
+	rf.BoolVar(&o.Raw, "raw", false, "print each value as received, one per line: line breaks inside a value are written \\n, a tombstone null, control characters escaped on a terminal (values decoded with the Schema Registry print as their JSON)")
+	rf.BoolVar(&o.NoDecode, "no-decode", false, "leave records written by Schema Registry serializers as their bytes, even when the profile has schema_registry")
 	k.AddCommand(check, read)
 	return k
 }

@@ -627,8 +627,6 @@ The values that are known when the folder is loaded (`security`, `mechanism`, pl
 
 ### Schema Registry
 
-> **Status: being built** ([`docs/plan/M13-schema-registry.md`](plan/M13-schema-registry.md)): records are decoded on the Kafka screens; `huginn kafka read` and `--demo` follow.
-
 Records written by Confluent's serializers (Avro, JSON Schema) start with a `0` byte and a 4-byte schema id. Without `schema_registry`, the Kafka screens show them as `schema <id>, N B` with a hex dump. With it, Huginn reads each writer schema from the registry by id, as the Java `KafkaAvroDeserializer` does, and shows the record as JSON. It only reads the registry: no schema is ever registered.
 
 ```yaml
@@ -659,6 +657,8 @@ On the Kafka screens:
 - a record that cannot be decoded keeps its bytes and says why (`schema 404, 6 B · registry answered 404 Schema not found`); each distinct registry problem is also said once in the status bar, never once per record;
 - `D` shows the records as their bytes, reading the topic again, and back;
 - a value larger than `kafka.max_value_bytes` is cut before it could be decoded, and says so.
+
+From a shell, `huginn kafka read` prints decoded records too (`--raw | jq .` gets their JSON), `--no-decode` their bytes; `huginn kafka check` also checks the registry and its credentials, and fails when it cannot be used. With `--demo`, `examples/config/kafka/demo.yaml` names a registry answered in memory, so decoded Avro and JSON Schema records show.
 
 Schemas are read once per id and kept; a failed read is retried after 30 seconds at most. Protobuf schemas are not decoded yet: their records are shown as bytes.
 

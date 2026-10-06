@@ -130,6 +130,12 @@ func RunSchemaDecoderContract(t *testing.T, newDecoder func(t *testing.T) ports.
 		}
 	})
 
+	t.Run("check", func(t *testing.T) {
+		if err := newDecoder(t).Check(ctx); err != nil {
+			t.Fatalf("Check: %v", err)
+		}
+	})
+
 	t.Run("concurrent", func(t *testing.T) {
 		d := newDecoder(t)
 		var wg sync.WaitGroup

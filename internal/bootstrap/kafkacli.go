@@ -108,8 +108,19 @@ func kafkaCheck(ctx context.Context, o cli.KafkaOptions, e Env, log *slog.Logger
 	if err := tw.Flush(); err != nil {
 		return err
 	}
-	if bad > 0 {
+	named, regErr := sess.CheckRegistry(ctx)
+	switch {
+	case !named:
+	case regErr != nil:
+		fmt.Fprintf(w, "\nschema registry: %s\n", domain.EscapeControls(regErr.Error()))
+	default:
+		fmt.Fprintln(w, "\nschema registry: ready (records written by its serializers are decoded)")
+	}
+	switch {
+	case bad > 0:
 		return fmt.Errorf("%d of %d topics cannot be read", bad, len(sess.Topics()))
+	case regErr != nil:
+		return fmt.Errorf("the schema registry cannot be used")
 	}
 	return nil
 }
@@ -141,7 +152,7 @@ func kafkaRead(ctx context.Context, o cli.KafkaOptions, e Env, log *slog.Logger,
 		return err
 	}
 	defer sess.Close()
-	ch, err := sess.Read(ctx, ports.KafkaQuery{Topic: o.Topic, Window: window, Follow: o.Follow, ReadCommitted: o.Committed})
+	ch, err := sess.Read(ctx, ports.KafkaQuery{Topic: o.Topic, Window: window, Follow: o.Follow, ReadCommitted: o.Committed, Raw: o.NoDecode})
 	if err != nil {
 		return err
 	}
@@ -182,9 +193,9 @@ func recordLine(rec *domain.KafkaRecord, raw, terminal bool) string {
 	if !rec.Time.IsZero() {
 		ts = rec.Time.UTC().Format(time.RFC3339Nano)
 	}
-	value := domain.PayloadPreview(rec.Value, rec.ValueSize, 0)
+	value := domain.SchemaPayloadPreview(rec.Value, rec.ValueSize, rec.ValueSchema, 0)
 	if rec.Value == nil {
 		value = "tombstone"
 	}
-	return fmt.Sprintf("%s  p%d  #%d  key=%s  %s\n", ts, rec.Partition, rec.Offset, domain.PayloadPreview(rec.Key, rec.KeySize, 64), value)
+	return fmt.Sprintf("%s  p%d  #%d  key=%s  %s\n", ts, rec.Partition, rec.Offset, domain.SchemaPayloadPreview(rec.Key, rec.KeySize, rec.KeySchema, 64), value)
 }

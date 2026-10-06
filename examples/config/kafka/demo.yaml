@@ -31,7 +31,10 @@ match:
   repos: [payment-service, order-orchestrator, notification-worker, ledger-writer]
 
 # Records written by Schema Registry serializers (Avro, JSON Schema) are
-# decoded with the registry's schemas (docs/CONFIG.md, "Schema Registry"):
-# schema_registry:
+# decoded with the registry's schemas (docs/CONFIG.md, "Schema Registry").
+# With --demo the registry is answered in memory. A real one would read,
+# for example:
 #   url: ${SCHEMA_REGISTRY_URL}
 #   basic_auth: { username: "${SR_USERNAME}", password: "${SR_PASSWORD}" }
+schema_registry:
+  url: http://schema-registry.demo:8081

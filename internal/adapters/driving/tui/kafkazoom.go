@@ -110,7 +110,7 @@ func (z *kafkaZoomScreen) lines(t *Theme) []string {
 		field("topic", rec.Topic),
 		field("partition", fmt.Sprint(rec.Partition)) + t.Dim.Render("   offset ") + fmt.Sprint(rec.Offset),
 		field("time", ts),
-		field("key", payloadPreview(rec.Key, rec.KeySize, rec.KeySchema, 200)),
+		field("key", domain.SchemaPayloadPreview(rec.Key, rec.KeySize, rec.KeySchema, 200)),
 		field("value", size),
 	}
 	if len(rec.Headers) > 0 {

@@ -20,6 +20,9 @@ type SchemaDecoder interface {
 	// following their schema), ErrNotImplemented (a schema type that is
 	// not decoded, such as Protobuf).
 	Decode(ctx context.Context, framed []byte) ([]byte, domain.SchemaRef, error)
+	// Check reads the registry once, to tell whether it is reachable and
+	// accepts the credentials; errors wrap the same kinds as Decode.
+	Check(ctx context.Context) error
 }
 
 // SchemaDecoderFactory reads one Schema Registry.

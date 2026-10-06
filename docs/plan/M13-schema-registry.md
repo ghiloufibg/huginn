@@ -1,4 +1,4 @@
-# M13 — Schema Registry records decoded (Avro, JSON Schema)  (status: S0 to S3 done)
+# M13 — Schema Registry records decoded (Avro, JSON Schema)  (status: done)
 
 ## 0. In one paragraph
 Records written by Confluent serializers start with `0x00` and a 4-byte schema id. Today the Kafka screens recognise this framing and show `schema <id>, N B` with a hex dump (M11 §5). This milestone **decodes them**, as Confluent's Java `KafkaAvroDeserializer` and `KafkaJsonSchemaDeserializer` do: the writer schema is read from the Schema Registry by id, and the record is shown as JSON. Huginn stays read only: there is no serializer, the registry is only ever read (GET), and nothing about it exists unless a Kafka profile names a registry.
@@ -71,7 +71,7 @@ archtest       rules for the two packages
 - **Zoom**: `value: avro, schema 7 (com.acme.OrderCreated)` above the indented JSON; on failure `schema 7: registry unreachable` above the hex dump.
 - **Key** (new, Kafka records screen): show undecoded / decoded, re-reading the topic, as `M` does for muted loggers (D-062).
 - **Help** lists the registry state: reachable, schemas cached, failures.
-- **CLI**: `huginn kafka read` prints decoded JSON by default (works with `jq`); `--raw` keeps the bytes. `huginn kafka check` also checks the registry (`GET /schemas/types`) and its credentials.
+- **CLI**: `huginn kafka read` prints decoded JSON by default (works with `jq`); `--no-decode` keeps the bytes. `huginn kafka check` also checks the registry (`GET /schemas/types`) and its credentials.
 
 ## 7. Performance
 - Cache hit: no I/O; Avro decoding about 1–5 µs per record.
@@ -84,7 +84,7 @@ archtest       rules for the two packages
 2. **S1 — avrojson** (done: `schemaregistry/avrojson`, a sub-package of the registry adapter since adapters do not import each other; hamba/avro confined to it by archtest; a record using every type decodes in about 4.5 µs, 12 allocations; 2.8 million fuzzed inputs without a failure): transcoder, golden fixtures (every type, unions, logical types, nesting, arrays, maps, references), fuzzing, benchmark.
 3. **S2 — schemaregistry** (done; it passes the S0 contract suite over HTTP): HTTP client against `httptest.Server`: cache, one fetch per id, negative cache, GET guard, basic/bearer auth, TLS, references; JSON Schema.
 4. **S3 — app and screens** (done; the undecoded key is `D`; help lists the key, the registry state is in the status bar notices): decode before truncation, failures as `SchemaRef.Err`, notices, list/zoom/help, the undecoded key, golden files.
-5. **S4 — CLI and demo**: `kafka read`/`check`; the demo's framed records become real Avro and JSON Schema with a fake registry, so `--demo` shows the feature; README; D-067.
+5. **S4 — CLI and demo** (done; `--raw` already meant "values only, for jq" and now prints the decoded JSON, so the undecoded bytes are `--no-decode`; the demo registry is the real client over an in-memory transport): `kafka read`/`check`; the demo's framed records become real Avro and JSON Schema with a fake registry, so `--demo` shows the feature; README; D-067.
 
 ## 9. Not in this version (added only on a real need)
 Protobuf (message indexes after the header, descriptor decoding); validating JSON Schema payloads; a reader schema or schema evolution views; subject/version browsing; registry contexts and multi-registry profiles; OAuth for the registry; showing the schema text in zoom.

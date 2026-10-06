@@ -72,8 +72,8 @@ func TestKafkaSubcommands(t *testing.T) {
 	if err := exec("kafka", "check", "orders", "-e", "rec", "--config", "/c"); err != nil || which != "check" || got.Repo != "orders" || got.EnvFlag != "rec" || got.ConfigPath != "/c" {
 		t.Fatalf("check: %v %s %+v", err, which, got)
 	}
-	if err := exec("kafka", "read", "orders", "orders.in", "--since", "1h", "-f", "--committed", "--raw", "--demo"); err != nil || which != "read" ||
-		got.Topic != "orders.in" || got.Since != "1h" || !got.Follow || !got.Committed || !got.Raw || !got.Demo {
+	if err := exec("kafka", "read", "orders", "orders.in", "--since", "1h", "-f", "--committed", "--raw", "--no-decode", "--demo"); err != nil || which != "read" ||
+		got.Topic != "orders.in" || got.Since != "1h" || !got.Follow || !got.Committed || !got.Raw || !got.NoDecode || !got.Demo {
 		t.Fatalf("read: %v %+v", err, got)
 	}
 	if err := exec("kafka", "read", "orders", "t", "--since", "1h", "--tail", "5"); err == nil {

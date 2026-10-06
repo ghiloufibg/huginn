@@ -53,8 +53,11 @@ type fakeKafkaSession struct {
 	decodes bool
 }
 
-func (s *fakeKafkaSession) Profile() string                 { return "demo" }
-func (s *fakeKafkaSession) Decodes() bool                   { return s.decodes }
+func (s *fakeKafkaSession) Profile() string { return "demo" }
+func (s *fakeKafkaSession) Decodes() bool   { return s.decodes }
+func (s *fakeKafkaSession) CheckRegistry(context.Context) (bool, error) {
+	return s.decodes, nil
+}
 func (s *fakeKafkaSession) Topics() []ports.KafkaTopicState { return s.topics }
 func (s *fakeKafkaSession) Close() {
 	s.mu.Lock()

@@ -76,6 +76,7 @@ huginn kafka read <repo> <topic> [-e env]          last records of each partitio
       -f, --follow                                 then new records until ctrl+c
       --committed                                  committed records only
       --raw                                        values only, one per line (for jq)
+      --no-decode                                  records of Schema Registry serializers as bytes, not decoded
 ```
 
 `check` exits with `1` when a topic cannot be read, so it can run in a script. `read` prints `time  partition  #offset  key=…  value` per record; notices (`brokers unreachable, retrying…`) go to standard error.
