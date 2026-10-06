@@ -16,7 +16,7 @@ import (
 // nothing.
 type LoggerMute struct {
 	exact    map[string]struct{}
-	prefixes []string
+	prefixes []string // the patterns ending in "*"
 	keep     LevelSet // levels shown even from a muted logger
 }
 
@@ -33,8 +33,8 @@ func NewLoggerMute(patterns []string, keep []Level) (*LoggerMute, error) {
 			errs = append(errs, err)
 			continue
 		}
-		if prefix, ok := strings.CutSuffix(p, "*"); ok {
-			m.prefixes = append(m.prefixes, prefix)
+		if strings.HasSuffix(p, "*") {
+			m.prefixes = append(m.prefixes, p)
 		} else {
 			m.exact[p] = struct{}{}
 		}
@@ -63,16 +63,23 @@ func CheckMutePattern(p string) error {
 // Mutes reports whether the entry is hidden: its logger matches a pattern
 // and its level is not kept.
 func (m *LoggerMute) Mutes(e *LogEntry) bool {
+	_, ok := m.Match(e)
+	return ok
+}
+
+// Match is Mutes, also returning the pattern that hides the entry, as
+// configured. An exact name wins over a prefix.
+func (m *LoggerMute) Match(e *LogEntry) (pattern string, ok bool) {
 	if m == nil || e.Logger == "" || m.keep[e.Level] {
-		return false
+		return "", false
 	}
 	if _, ok := m.exact[e.Logger]; ok {
-		return true
+		return e.Logger, true
 	}
 	for _, p := range m.prefixes {
-		if strings.HasPrefix(e.Logger, p) {
-			return true
+		if strings.HasPrefix(e.Logger, p[:len(p)-1]) {
+			return p, true
 		}
 	}
-	return false
+	return "", false
 }

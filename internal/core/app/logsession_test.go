@@ -75,6 +75,7 @@ type reader struct {
 	notices []string
 	history bool
 	muted   uint64
+	mutedBy map[string]uint64
 }
 
 func (r *reader) until(step time.Duration, ok func() bool) {
@@ -100,6 +101,9 @@ func (r *reader) until(step time.Duration, ok func() bool) {
 			}
 			r.history = r.history || b.HistoryDone
 			r.muted += b.Muted
+			if b.MutedBy != nil {
+				r.mutedBy = b.MutedBy
+			}
 		case <-time.After(2 * time.Millisecond):
 			r.clock.Advance(step)
 		}
@@ -264,6 +268,9 @@ func TestMutedLoggersLeftOutAndCounted(t *testing.T) {
 	r.until(20*time.Millisecond, func() bool { return slices.Contains(r.entries, "after") && r.muted == 2 })
 	if slices.ContainsFunc(r.entries, func(e string) bool { return strings.HasPrefix(e, "pool") }) {
 		t.Fatalf("muted lines delivered: %v", r.entries)
+	}
+	if len(r.mutedBy) != 1 || r.mutedBy["pool"] != 2 {
+		t.Fatalf("muted per pattern %v, want pool:2", r.mutedBy)
 	}
 }
 

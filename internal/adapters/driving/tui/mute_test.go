@@ -37,3 +37,20 @@ func TestEmptyViewSaysLinesAreMuted(t *testing.T) {
 		t.Fatalf("empty view:\n%s", out)
 	}
 }
+
+func TestHelpCountsMutedLinesPerPattern(t *testing.T) {
+	m, l := openLogs(t)
+	press(m, "?")
+	if out := render(m, 120, 120); !strings.Contains(out, "MUTED LOGGERS") || !strings.Contains(out, "no line muted") {
+		t.Fatalf("help without muted lines:\n%s", out)
+	}
+	press(m, "esc")
+	feed(m, l, ports.LogBatch{Muted: 15, MutedBy: map[string]uint64{"com.example.metrics.*": 3, "com.zaxxer.hikari.pool.HikariPool": 12}})
+	press(m, "?")
+	out := render(m, 120, 120)
+	hikari, metrics := strings.Index(out, "com.zaxxer.hikari.pool.HikariPool"), strings.Index(out, "com.example.metrics.*")
+	if hikari < 0 || metrics < 0 || hikari > metrics {
+		t.Fatalf("patterns must be listed, most muted first:\n%s", out)
+	}
+	golden(t, "help_logs_muted_120x120", out)
+}

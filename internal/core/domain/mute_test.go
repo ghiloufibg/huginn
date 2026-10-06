@@ -32,6 +32,22 @@ func TestLoggerMute(t *testing.T) {
 	}
 }
 
+func TestLoggerMuteMatchNamesThePattern(t *testing.T) {
+	m, err := NewLoggerMute([]string{"com.example.*", "com.example.pool.Pool"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for logger, want := range map[string]string{
+		"com.example.pool.Pool": "com.example.pool.Pool", // exact wins
+		"com.example.Other":     "com.example.*",
+		"org.Other":             "",
+	} {
+		if got, _ := m.Match(&LogEntry{Logger: logger}); got != want {
+			t.Errorf("Match(%q) = %q, want %q", logger, got, want)
+		}
+	}
+}
+
 func TestLoggerMuteNil(t *testing.T) {
 	m, err := NewLoggerMute(nil, nil)
 	if err != nil || m != nil {
@@ -66,8 +82,10 @@ func BenchmarkLoggerMute(b *testing.B) {
 		b.Fatal(err)
 	}
 	e := LogEntry{Logger: "com.example.orders.OrderService", Level: LevelInfo}
+	muted := LogEntry{Logger: "org.libr.Pool", Level: LevelInfo}
 	b.ReportAllocs()
 	for b.Loop() {
 		m.Mutes(&e)
+		m.Match(&muted)
 	}
 }

@@ -1,8 +1,11 @@
 package tui
 
 import (
+	"cmp"
 	"fmt"
+	"maps"
 	"slices"
+	"strconv"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -57,7 +60,8 @@ func newHelpScreen(m *Model, from screen) *helpScreen {
 	for _, a := range globalActions {
 		h.lines = append(h.lines, h.line(m, a))
 	}
-	if _, ok := from.(*logsScreen); ok {
+	if l, ok := from.(*logsScreen); ok {
+		h.lines = append(h.lines, l.mutedHelp(m)...)
 		h.lines = append(h.lines, helpLine{}, helpLine{section: "IN THE FILTER PROMPT"},
 			helpLine{keys: "ctrl+r", desc: "regex on/off"}, helpLine{keys: "ctrl+x", desc: "filter or highlight"},
 			helpLine{keys: "!", desc: "invert (as first character; \\! for a literal !)"},
@@ -65,6 +69,28 @@ func newHelpScreen(m *Model, from screen) *helpScreen {
 			helpLine{keys: "enter / esc", desc: "keep / cancel the edit"})
 	}
 	return h
+}
+
+// mutedHelp lists the lines hidden per pattern of mute.loggers since the
+// logs opened, most first.
+func (l *logsScreen) mutedHelp(m *Model) []helpLine {
+	out := []helpLine{{}, {section: "MUTED LOGGERS (lines hidden since the logs opened)"}}
+	switch {
+	case l.showMuted:
+		return append(out, helpLine{keys: m.label(ActShowMuted), desc: "muted loggers are shown; press again to hide them"})
+	case len(l.mutedBy) == 0:
+		return append(out, helpLine{keys: "-", desc: "no line muted (mute.loggers in formats/)"})
+	}
+	patterns := slices.SortedFunc(maps.Keys(l.mutedBy), func(a, b string) int {
+		if c := cmp.Compare(l.mutedBy[b], l.mutedBy[a]); c != 0 {
+			return c
+		}
+		return strings.Compare(a, b)
+	})
+	for _, p := range patterns {
+		out = append(out, helpLine{keys: strconv.FormatUint(l.mutedBy[p], 10), desc: p})
+	}
+	return out
 }
 
 // grouped orders actions by help group, one section per group.

@@ -94,6 +94,9 @@ type LogBatch struct {
 	// Muted is the number of lines hidden by the muted loggers of the
 	// log formats since the previous batch.
 	Muted uint64
+	// MutedBy is, when Muted is not zero, the lines hidden since the
+	// session opened per pattern of mute.loggers, as configured.
+	MutedBy map[string]uint64
 }
 
 // LogSession is the driving port behind the logs screen.

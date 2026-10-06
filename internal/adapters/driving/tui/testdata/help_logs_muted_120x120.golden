@@ -10,7 +10,7 @@
      >                next ERROR line                                                                                   
      <                previous ERROR line                                                                               
    Time and stream                                                                                                      
-     ctrl+l           follow on/off (in a head: back to the default window, following)                                  
+     f                follow on/off (in a head: back to the default window, following)                                  
      space            pause / resume (keeps buffering)                                                                  
      P                previous instance of the restarted containers (why it crashed), again for the current logs        
      t                next time window                                                                                  
@@ -65,7 +65,8 @@
      q  ctrl+c        quit                                                                                              
                                                                                                                         
  MUTED LOGGERS (lines hidden since the logs opened)                                                                     
-     -                no line muted (mute.loggers in formats/)                                                          
+     12               com.zaxxer.hikari.pool.HikariPool                                                                 
+     3                com.example.metrics.*                                                                             
                                                                                                                         
  IN THE FILTER PROMPT                                                                                                   
      ctrl+r           regex on/off                                                                                      
@@ -73,6 +74,45 @@
      !                invert (as first character; \! for a literal !)                                                   
      ctrl+a           stack another filter (AND)                                                                        
      enter / esc      keep / cancel the edit                                                                            
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
                                                                                                                         
                                                                                                                         
                                                                                                                         

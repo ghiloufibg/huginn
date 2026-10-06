@@ -99,8 +99,8 @@ func TestDecodeHistoryLeavesOutMutedLoggers(t *testing.T) {
 	hs := []rawHistory{{lines: lines, format: ports.LogFormat{Decoder: loggerDecoder{}, Mute: mute}}}
 	out, dropped, muted := decodeHistory(hs, 8, false)
 	// The cut keeps the newest 8 raw lines, 4 of them muted.
-	if len(out) != 4 || dropped != 2 || muted != 4 {
-		t.Fatalf("%d kept, %d dropped, %d muted; want 4, 2, 4", len(out), dropped, muted)
+	if len(out) != 4 || dropped != 2 || len(muted) != 1 || muted["pool"] != 4 {
+		t.Fatalf("%d kept, %d dropped, muted %v; want 4, 2, pool:4", len(out), dropped, muted)
 	}
 	for _, e := range out {
 		if e.Logger != "app" {
@@ -117,4 +117,24 @@ func minTime(es []domain.LogEntry) time.Time {
 		}
 	}
 	return m
+}
+
+func TestMuteStatsConcurrentAdds(t *testing.T) {
+	var s muteStats
+	done := make(chan struct{})
+	for range 4 {
+		go func() {
+			for range 1000 {
+				s.add("a", 1)
+			}
+			done <- struct{}{}
+		}()
+	}
+	for range 4 {
+		<-done
+	}
+	s.addAll(map[string]int{"b": 2})
+	if got := s.snapshot(); s.total.Load() != 4002 || got["a"] != 4000 || got["b"] != 2 {
+		t.Fatalf("total %d, per pattern %v", s.total.Load(), got)
+	}
 }

@@ -341,7 +341,7 @@ mute:
 - **Matching.** A pattern is a logger name, matched exactly, or a name ending in `*`, matched as a prefix. `*` is allowed only at the end. Names are compared as the lines write them (a logger shortened by the encoder, `c.z.h.pool.HikariPool`, is muted under that name), case-sensitively. Lines without a logger are never muted.
 - **Which lines.** The format's own containers (its `match`): give a repository its own mutes with a format that matches it. The decoder must read a logger: `fields.logger` for `json`, a `(?P<logger>…)` group for `regex`; `plain` reads none.
 - **Levels.** Every line of a muted logger is hidden, errors included, unless its level is in `keep`.
-- **On the logs screen.** The status bar counts the muted lines (`muted 1204`). `M` reloads the logs with the muted loggers shown (`muted loggers shown`), and again to hide them.
+- **On the logs screen.** The status bar counts the muted lines (`muted 1204`), and help (`?`) lists them per pattern, most first. `M` reloads the logs with the muted loggers shown (`muted loggers shown`), and again to hide them.
 - **Why the lines are dropped, not filtered.** Muted lines are left out as they are read, before the view's buffer: a chatty logger cannot push your application's lines out of the buffer, and the screen never filters them. Showing them again therefore reloads the logs. The window limits (`logs.buffer_lines`, `windows.head_lines`) count the lines read, muted ones included.
 
 ## 9. `layouts/<name>.yaml`

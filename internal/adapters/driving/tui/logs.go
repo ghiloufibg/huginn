@@ -70,9 +70,11 @@ type logsScreen struct {
 	containerMode  domain.ContainerMode
 	containerScope map[string]bool
 	// showMuted streams the lines of the loggers muted by the log formats
-	// (M switches); muted counts the lines hidden in this session.
+	// (M switches); muted counts the lines hidden in this session, and
+	// mutedBy per pattern of mute.loggers (help shows them).
 	showMuted bool
 	muted     uint64
+	mutedBy   map[string]uint64
 	roles     map[string]map[string]domain.ContainerRole // pod → container → role
 	// multiContainer: some pod streams several containers, so the pod
 	// column names the container too.
@@ -157,7 +159,7 @@ func (l *logsScreen) open(m *Model) tea.Cmd {
 	l.rows, l.cursor, l.tail, l.paused, l.err, l.loading, l.notice = nil, 0, true, false, nil, true, ""
 	l.held, l.heldLate, l.heldLost = nil, nil, 0
 	l.formats = map[string]bool{}
-	l.levels, l.live, l.rate, l.muted = [domain.LevelError + 1]int{}, false, rateMeter{}, 0
+	l.levels, l.live, l.rate, l.muted, l.mutedBy = [domain.LevelError + 1]int{}, false, rateMeter{}, 0, nil
 	if m.opts.Sessions == nil {
 		return nil
 	}
@@ -236,6 +238,9 @@ func (l *logsScreen) apply(b ports.LogBatch, now time.Time) {
 		l.rate.add(now, len(b.Entries)+len(b.Late))
 	}
 	l.muted += b.Muted
+	if b.MutedBy != nil {
+		l.mutedBy = b.MutedBy
+	}
 	if l.paused {
 		// The paused view keeps its lines: new ones wait outside the
 		// buffer, which would otherwise evict what is on screen.

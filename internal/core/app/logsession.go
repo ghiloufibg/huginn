@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/ghiloufibg/huginn/internal/core/domain"
@@ -225,11 +224,12 @@ type session struct {
 	pending     ports.LogBatch
 	podsChanged bool
 	// muted counts the lines of muted loggers left out (live tailers add
-	// to it concurrently); mutedSent is the count already reported and
-	// mutedBatch the count in the batch being offered.
-	muted      atomic.Uint64
+	// to it concurrently); mutedSent is the total already reported and
+	// mutedBatch the total in the batch being offered.
+	muted      muteStats
 	mutedSent  uint64
 	mutedBatch uint64
+	mutedBy    map[string]uint64 // snapshot of muted at mutedBatch
 }
 
 func (r *session) loop(ctx context.Context, initial []domain.Pod) {
@@ -278,7 +278,7 @@ func (r *session) loop(ctx context.Context, initial []domain.Pod) {
 
 func (r *session) hasPending() bool {
 	return len(r.pending.Entries) > 0 || len(r.pending.Late) > 0 || len(r.pending.Notices) > 0 || r.pending.HistoryDone || r.podsChanged ||
-		r.muted.Load() != r.mutedSent
+		r.muted.total.Load() != r.mutedSent
 }
 
 // batch returns the pending batch, with the pod list if it changed and
@@ -288,8 +288,14 @@ func (r *session) batch() ports.LogBatch {
 	if r.podsChanged {
 		b.Pods = r.podList()
 	}
-	r.mutedBatch = r.muted.Load()
-	b.Muted = r.mutedBatch - r.mutedSent
+	// batch is evaluated on every loop turn: the counts per pattern are
+	// copied only when the total moved.
+	if total := r.muted.total.Load(); total != r.mutedBatch {
+		r.mutedBatch, r.mutedBy = total, r.muted.snapshot()
+	}
+	if b.Muted = r.mutedBatch - r.mutedSent; b.Muted > 0 {
+		b.MutedBy = r.mutedBy
+	}
 	return b
 }
 
@@ -413,7 +419,7 @@ func (r *session) handleHistory(m tailMsg) {
 		// live so the reorder window places it.
 		entries, muted := decodeAll(m.format, m.history)
 		r.reorder = append(r.reorder, entries...)
-		r.muted.Add(uint64(muted))
+		r.muted.addAll(muted)
 		return
 	}
 	r.history = append(r.history, rawHistory{lines: m.history, format: m.format})
@@ -488,8 +494,9 @@ func (r *session) finishHistory() {
 		limit = 50000
 	}
 	head := r.q.Window.IsHead() && !r.q.Previous
-	entries, dropped, muted := decodeHistory(r.history, limit, head)
-	r.muted.Add(uint64(muted))
+	entries, dropped, mutedBy := decodeHistory(r.history, limit, head)
+	r.muted.addAll(mutedBy)
+	muted := sum(mutedBy)
 	kept := fmt.Sprintf("%d lines kept (buffer size)", len(entries)+muted)
 	if muted > 0 {
 		kept = fmt.Sprintf("%d lines kept (buffer size, %d of them muted)", len(entries)+muted, muted)

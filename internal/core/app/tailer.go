@@ -22,7 +22,7 @@ type tailer struct {
 	container string
 	msgs      chan<- tailMsg
 	format    ports.LogFormat // chosen on first use, see logFormat
-	muted     *atomic.Uint64  // the session's count of muted lines
+	muted     *muteStats      // the session's counts of muted lines
 
 	// running mirrors the container state from the pod watch, and wake is
 	// signalled when an instance starts running: a container that is not
@@ -226,8 +226,8 @@ func (t *tailer) follow(ctx context.Context, req ports.LogRequest, seen map[stri
 		}
 		f := t.logFormat()
 		e := safeDecode(f.Decoder, l)
-		if f.Mute.Mutes(&e) {
-			t.muted.Add(1)
+		if pattern, muted := f.Mute.Match(&e); muted {
+			t.muted.add(pattern, 1)
 		} else if !t.send(ctx, tailMsg{live: &e}) {
 			return n, last, nil
 		}

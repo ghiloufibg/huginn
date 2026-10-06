@@ -25,8 +25,9 @@ const decodeChunk = 4096
 // without the cut a repository with n containers would decode n times what
 // the view can hold. It returns the entries and the number of lines
 // skipped. Without source times (zero), nothing is cut. The lines of muted
-// loggers are left out after the cut; it returns their number too.
-func decodeHistory(hs []rawHistory, limit int, oldest bool) (entries []domain.LogEntry, dropped, muted int) {
+// loggers are left out after the cut; it returns their number per pattern
+// too.
+func decodeHistory(hs []rawHistory, limit int, oldest bool) (entries []domain.LogEntry, dropped int, muted map[string]int) {
 	total := 0
 	timed := true
 	for _, h := range hs {
@@ -53,7 +54,7 @@ func decodeHistory(hs []rawHistory, limit int, oldest bool) (entries []domain.Lo
 		lines  []domain.RawLine
 		format ports.LogFormat
 		out    []domain.LogEntry
-		muted  int
+		muted  map[string]int
 	}
 	var jobs []*job
 	kept := 0
@@ -95,19 +96,27 @@ func decodeHistory(hs []rawHistory, limit int, oldest bool) (entries []domain.Lo
 	out := make([]domain.LogEntry, 0, kept)
 	for _, j := range jobs {
 		out = append(out, j.out...)
-		muted += j.muted
+		for p, n := range j.muted {
+			if muted == nil {
+				muted = map[string]int{}
+			}
+			muted[p] += n
+		}
 	}
 	return out, total - kept, muted
 }
 
 // decodeAll decodes lines, leaving out those of muted loggers; it returns
-// their number.
-func decodeAll(f ports.LogFormat, lines []domain.RawLine) (out []domain.LogEntry, muted int) {
+// their number per pattern (nil when none).
+func decodeAll(f ports.LogFormat, lines []domain.RawLine) (out []domain.LogEntry, muted map[string]int) {
 	out = make([]domain.LogEntry, 0, len(lines))
 	for _, l := range lines {
 		e := safeDecode(f.Decoder, l)
-		if f.Mute.Mutes(&e) {
-			muted++
+		if pattern, ok := f.Mute.Match(&e); ok {
+			if muted == nil {
+				muted = map[string]int{}
+			}
+			muted[pattern]++
 			continue
 		}
 		out = append(out, e)
