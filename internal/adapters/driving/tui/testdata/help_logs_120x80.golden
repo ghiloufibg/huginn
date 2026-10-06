@@ -65,7 +65,7 @@
      q  ctrl+c        quit                                                                                              
                                                                                                                         
  MUTED LOGGERS (lines hidden since the logs opened)                                                                     
-     -                no line muted (mute.loggers in formats/)                                                          
+     -                no logger muted for these containers (mute.loggers in formats/)                                   
                                                                                                                         
  IN THE FILTER PROMPT                                                                                                   
      ctrl+r           regex on/off                                                                                      

@@ -16,7 +16,8 @@ import (
 // It is immutable and safe for concurrent use; a nil *LoggerMute mutes
 // nothing.
 type LoggerMute struct {
-	exact map[string]struct{}
+	patterns []string // as configured
+	exact    map[string]struct{}
 	// prefixes maps each prefix (a pattern without its "*") to its
 	// pattern; lengths lists their distinct lengths, longest first. A
 	// logger is checked with one lookup per length, however many
@@ -32,7 +33,7 @@ func NewLoggerMute(patterns []string, keep []Level) (*LoggerMute, error) {
 	if len(patterns) == 0 {
 		return nil, nil
 	}
-	m := &LoggerMute{exact: map[string]struct{}{}, prefixes: map[string]string{}, keep: LevelSet{}}
+	m := &LoggerMute{patterns: slices.Clone(patterns), exact: map[string]struct{}{}, prefixes: map[string]string{}, keep: LevelSet{}}
 	var errs []error
 	for _, p := range patterns {
 		if err := CheckMutePattern(p); err != nil {
@@ -68,6 +69,14 @@ func CheckMutePattern(p string) error {
 		return fmt.Errorf("logger pattern %q: * is only allowed at the end (a prefix)", p)
 	}
 	return nil
+}
+
+// Patterns returns the patterns, as configured (nil for a nil mute).
+func (m *LoggerMute) Patterns() []string {
+	if m == nil {
+		return nil
+	}
+	return m.patterns
 }
 
 // Mutes reports whether the entry is hidden: its logger matches a pattern

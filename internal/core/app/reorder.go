@@ -2,6 +2,7 @@ package app
 
 import (
 	"container/heap"
+	"slices"
 	"strings"
 
 	"github.com/ghiloufibg/huginn/internal/core/domain"
@@ -18,60 +19,70 @@ type reorderBuffer struct {
 	n      int                    // entries held
 }
 
-// entryQueue is one container's waiting entries, oldest first.
+// entryQueue is one container's waiting entries, oldest first, kept in
+// the batches the tailer sent (each in time order): entries are not copied
+// on their way through the reorder window.
 type entryQueue struct {
-	entries []domain.LogEntry
-	first   int // index of the oldest entry still waiting
-	index   int // position in the heap, -1 when not in it
+	segs  [][]domain.LogEntry
+	first int // index of the oldest waiting entry in segs[0]
+	n     int // entries waiting
+	index int // position in the heap, -1 when not in it
 }
 
-func (q *entryQueue) len() int               { return len(q.entries) - q.first }
-func (q *entryQueue) head() *domain.LogEntry { return &q.entries[q.first] }
+func (q *entryQueue) len() int               { return q.n }
+func (q *entryQueue) head() *domain.LogEntry { return &q.segs[0][q.first] }
+func (q *entryQueue) tail() *domain.LogEntry {
+	last := q.segs[len(q.segs)-1]
+	return &last[len(last)-1]
+}
 
-// push adds an entry at its place by time: at the end in the usual case,
-// else (a source clock going back) by binary search. It reports whether
-// the entry became the head of a non-empty queue.
-func (q *entryQueue) push(e domain.LogEntry) (newHead bool) {
-	n := len(q.entries)
-	if q.len() == 0 || compareEntryPtrs(&q.entries[n-1], &e) <= 0 {
-		q.entries = append(q.entries, e)
+// push queues a batch of the container. The queue takes it over. A batch
+// in time order after the waiting entries (the usual case) is queued as
+// is; else (a source clock going back) the waiting entries and the batch
+// are merged into one segment. It reports whether the head changed in a
+// queue that was not empty.
+func (q *entryQueue) push(batch []domain.LogEntry) (newHead bool) {
+	ordered := q.n == 0 || compareEntryPtrs(q.tail(), &batch[0]) <= 0
+	for i := 1; ordered && i < len(batch); i++ {
+		ordered = compareEntryPtrs(&batch[i-1], &batch[i]) <= 0
+	}
+	if ordered {
+		q.segs = append(q.segs, batch)
+		q.n += len(batch)
 		return false
 	}
-	lo, hi := q.first, n
-	for lo < hi {
-		mid := (lo + hi) / 2
-		if compareEntryPtrs(&q.entries[mid], &e) <= 0 {
-			lo = mid + 1
-		} else {
-			hi = mid
+	merged := make([]domain.LogEntry, 0, q.n+len(batch))
+	for i, seg := range q.segs {
+		if i == 0 {
+			seg = seg[q.first:]
 		}
+		merged = append(merged, seg...)
 	}
-	q.entries = append(q.entries, domain.LogEntry{})
-	copy(q.entries[lo+1:], q.entries[lo:n])
-	q.entries[lo] = e
-	return lo == q.first
+	merged = append(merged, batch...)
+	slices.SortStableFunc(merged, compareEntries)
+	wasEmpty := q.n == 0
+	q.segs, q.first, q.n = [][]domain.LogEntry{merged}, 0, len(merged)
+	return !wasEmpty
 }
 
-// pop removes the oldest entry; the storage is reused once the queue is
-// empty or mostly consumed.
-func (q *entryQueue) pop() domain.LogEntry {
-	e := q.entries[q.first]
-	q.entries[q.first] = domain.LogEntry{} // release its strings
+// drop removes the head, once the caller copied it. Its strings are
+// released at once; a batch is released once consumed.
+func (q *entryQueue) drop() {
+	q.segs[0][q.first] = domain.LogEntry{}
 	q.first++
-	switch {
-	case q.first == len(q.entries) && cap(q.entries) > 1024:
-		q.entries, q.first = nil, 0 // a burst is over: give its memory back
-	case q.first == len(q.entries):
-		q.entries, q.first = q.entries[:0], 0
-	case q.first > 1024 && q.first > len(q.entries)/2:
-		n := copy(q.entries, q.entries[q.first:])
-		clear(q.entries[n:])
-		q.entries, q.first = q.entries[:n], 0
+	q.n--
+	if q.first < len(q.segs[0]) {
+		return
 	}
-	return e
+	q.segs[0] = nil
+	q.segs, q.first = q.segs[1:], 0
+	if len(q.segs) == 0 {
+		q.segs = nil // the next batch does not grow an old array
+	}
 }
 
-// add queues live entries of one container.
+// add queues a batch of live entries of one container, in its read order.
+// The buffer takes the batch over.
 func (b *reorderBuffer) add(pod, container string, entries []domain.LogEntry) {
 	if len(entries) == 0 {
 		return
@@ -85,15 +96,13 @@ func (b *reorderBuffer) add(pod, container string, entries []domain.LogEntry) {
 		q = &entryQueue{index: -1}
 		b.queues[key] = q
 	}
-	for _, e := range entries {
-		newHead := q.push(e)
-		b.n++
-		switch {
-		case q.index < 0:
-			heap.Push(&b.heads, q)
-		case newHead:
-			heap.Fix(&b.heads, q.index)
-		}
+	newHead := q.push(entries)
+	b.n += len(entries)
+	switch {
+	case q.index < 0:
+		heap.Push(&b.heads, q)
+	case newHead:
+		heap.Fix(&b.heads, q.index)
 	}
 }
 
@@ -108,17 +117,17 @@ func (b *reorderBuffer) oldest() (*domain.LogEntry, bool) {
 	return b.heads[0].head(), true
 }
 
-// pop removes the oldest waiting entry. The buffer must not be empty.
-func (b *reorderBuffer) pop() domain.LogEntry {
+// drop removes the oldest waiting entry, once the caller copied it (see
+// oldest). The buffer must not be empty.
+func (b *reorderBuffer) drop() {
 	q := b.heads[0]
-	e := q.pop()
+	q.drop()
 	b.n--
 	if q.len() == 0 {
 		heap.Pop(&b.heads)
 	} else {
 		heap.Fix(&b.heads, 0)
 	}
-	return e
 }
 
 // forget drops the queues of a container that left (its pod is gone);

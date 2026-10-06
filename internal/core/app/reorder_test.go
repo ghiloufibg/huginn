@@ -29,13 +29,20 @@ func TestReorderBufferMergesInTimeOrder(t *testing.T) {
 			at -= r.IntN(20)
 		}
 		e := entryAt(pod, "c", at)
-		b.add(pod, "c", []domain.LogEntry{e})
-		all = append(all, e)
+		batch := []domain.LogEntry{e}
+		if r.IntN(3) == 0 { // a batch of several lines, in read order
+			for range r.IntN(5) {
+				ms[key] += r.IntN(3)
+				batch = append(batch, entryAt(pod, "c", ms[key]))
+			}
+		}
+		b.add(pod, "c", batch)
+		all = append(all, batch...)
 	}
 	slices.SortStableFunc(all, compareEntries)
 	var got []domain.LogEntry
 	for b.len() > 0 {
-		got = append(got, b.pop())
+		got = append(got, popOldest(&b))
 	}
 	if len(got) != len(all) {
 		t.Fatalf("%d entries out, %d in", len(got), len(all))
@@ -55,10 +62,10 @@ func TestReorderBufferGivesMemoryBack(t *testing.T) {
 	}
 	b.add("p", "c", burst)
 	for b.len() > 0 {
-		b.pop()
+		popOldest(&b)
 	}
-	if q := b.queues["p/c"]; q.entries != nil {
-		t.Fatalf("an empty queue keeps %d entries of capacity", cap(q.entries))
+	if q := b.queues["p/c"]; q.segs != nil {
+		t.Fatalf("an empty queue keeps %d batches", len(q.segs))
 	}
 	b.forget("p")
 	if len(b.queues) != 0 {
@@ -77,10 +84,9 @@ func BenchmarkReorderCommit(b *testing.B) {
 		pods[c] = fmt.Sprintf("p%d", c)
 	}
 	next := make([]int, containers)
-	batch := make([]domain.LogEntry, 0, waiting/containers)
 	feed := func(n int) { // as tailers send them: a batch per container
 		for c := range containers {
-			batch = batch[:0]
+			batch := make([]domain.LogEntry, 0, n/containers)
 			for range n / containers {
 				next[c] += containers
 				batch = append(batch, domain.LogEntry{Pod: pods[c], Container: "c", Received: t0.Add(time.Duration(next[c]+c) * time.Millisecond)})
@@ -93,7 +99,15 @@ func BenchmarkReorderCommit(b *testing.B) {
 	for b.Loop() {
 		feed(perTick)
 		for range perTick {
-			rb.pop()
+			popOldest(&rb)
 		}
 	}
+}
+
+// popOldest takes the oldest entry, as the session commits it.
+func popOldest(b *reorderBuffer) domain.LogEntry {
+	e, _ := b.oldest()
+	v := *e
+	b.drop()
+	return v
 }

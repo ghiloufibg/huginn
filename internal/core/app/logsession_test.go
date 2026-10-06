@@ -280,6 +280,23 @@ func TestMutedLoggersLeftOutAndCounted(t *testing.T) {
 	}
 }
 
+// The patterns that apply are reported before they mute anything, so the
+// view can list them with 0.
+func TestMutePatternsReportedBeforeMuting(t *testing.T) {
+	f := newFixture(t)
+	mute, err := domain.NewLoggerMute([]string{"pool", "idle.*"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.s.Decoders = noisyDecoders{mute: mute}
+	r, cancel := f.open(t, ports.LogQuery{})
+	defer cancel()
+	r.until(10*time.Millisecond, func() bool { return r.history && r.mutedBy != nil })
+	if len(r.mutedBy) != 2 || r.mutedBy["pool"] != 0 || r.mutedBy["idle.*"] != 0 || r.muted != 0 {
+		t.Fatalf("muted %d, per pattern %v; want both patterns at 0", r.muted, r.mutedBy)
+	}
+}
+
 func TestNoMuteShowsMutedLoggers(t *testing.T) {
 	f := newNoisyFixture(t)
 	r, cancel := f.open(t, ports.LogQuery{NoMute: true})

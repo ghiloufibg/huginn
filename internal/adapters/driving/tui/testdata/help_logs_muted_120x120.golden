@@ -67,6 +67,7 @@
  MUTED LOGGERS (lines hidden since the logs opened)                                                                     
      12               com.zaxxer.hikari.pool.HikariPool                                                                 
      3                com.example.metrics.*                                                                             
+     0                com.example.idle.*                                                                                
                                                                                                                         
  IN THE FILTER PROMPT                                                                                                   
      ctrl+r           regex on/off                                                                                      
@@ -74,7 +75,6 @@
      !                invert (as first character; \! for a literal !)                                                   
      ctrl+a           stack another filter (AND)                                                                        
      enter / esc      keep / cancel the edit                                                                            
-                                                                                                                        
                                                                                                                         
                                                                                                                         
                                                                                                                         

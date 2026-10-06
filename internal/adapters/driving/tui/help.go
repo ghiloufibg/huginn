@@ -72,14 +72,14 @@ func newHelpScreen(m *Model, from screen) *helpScreen {
 }
 
 // mutedHelp lists the lines hidden per pattern of mute.loggers since the
-// logs opened, most first.
+// logs opened, most first; patterns that muted nothing yet show 0.
 func (l *logsScreen) mutedHelp(m *Model) []helpLine {
 	out := []helpLine{{}, {section: "MUTED LOGGERS (lines hidden since the logs opened)"}}
 	switch {
 	case l.showMuted:
 		return append(out, helpLine{keys: m.label(ActShowMuted), desc: "muted loggers are shown; press again to hide them"})
 	case len(l.mutedBy) == 0:
-		return append(out, helpLine{keys: "-", desc: "no line muted (mute.loggers in formats/)"})
+		return append(out, helpLine{keys: "-", desc: "no logger muted for these containers (mute.loggers in formats/)"})
 	}
 	patterns := slices.SortedFunc(maps.Keys(l.mutedBy), func(a, b string) int {
 		if c := cmp.Compare(l.mutedBy[b], l.mutedBy[a]); c != 0 {

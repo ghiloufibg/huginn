@@ -94,8 +94,10 @@ type LogBatch struct {
 	// Muted is the number of lines hidden by the muted loggers of the
 	// log formats since the previous batch.
 	Muted uint64
-	// MutedBy is, when Muted is not zero, the lines hidden since the
-	// session opened per pattern of mute.loggers, as configured.
+	// MutedBy is, when Muted is not zero or patterns became known, the
+	// lines hidden since the session opened per pattern of mute.loggers
+	// that applies to its containers (0 for a pattern that muted
+	// nothing yet), as configured.
 	MutedBy map[string]uint64
 	// Skipped is the number of entries left out because more arrived
 	// than the view keeps (its buffer size) before it took them: the view
