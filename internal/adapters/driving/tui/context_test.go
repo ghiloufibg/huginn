@@ -51,5 +51,3 @@ func TestContextRowsAppendedMatchAFullSelection(t *testing.T) {
 		})
 	}
 }
-
-func tail(rows []viewRow) []viewRow { return rows[max(len(rows)-8, 0):] }
