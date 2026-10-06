@@ -69,6 +69,7 @@ func (s *LogSessions) Open(ctx context.Context, q ports.LogQuery) (<-chan ports.
 	}
 	run := &session{
 		s: s, q: q, scope: scope, workloads: workloads, opened: s.Clock.Now(),
+		hist: newHistoryCollector(s.limit(), q.Window.IsHead() && !q.Previous),
 		pods: map[string]*podState{}, msgs: make(chan tailMsg, 1024), out: make(chan ports.LogBatch, 1),
 	}
 	go run.loop(ctx, pods)
@@ -189,8 +190,7 @@ func (s *LogSessions) logger() *slog.Logger {
 // tailMsg is what a tailer or pod watch reports to the session loop.
 type tailMsg struct {
 	pod, container string
-	history        []domain.RawLine // with historyDone, undecoded
-	format         ports.LogFormat  // decodes history
+	history        historyResult // with historyDone
 	historyDone    bool
 	historyErr     error
 	capped         bool              // the history reached the line limit
@@ -219,7 +219,8 @@ type session struct {
 	out       chan ports.LogBatch
 
 	awaiting    int // initial containers whose history is pending
-	history     []rawHistory
+	hist        *historyCollector
+	histSkipped int // history lines tailers could not keep
 	historySent bool
 	reorder     reorderBuffer
 	committed   time.Time
@@ -442,16 +443,16 @@ func (r *session) handleHistory(m tailMsg) {
 			r.podsChanged = true
 		}
 	}
+	h := m.history
+	r.countMuted(h.muted)
 	if r.historySent {
 		// History of a pod that appeared later: it is recent, treat it as
 		// live so the reorder window places it.
-		entries, muted := decodeAll(m.format, m.history)
-		r.countMuted(muted)
-		r.reorder.add(m.pod, m.container, entries)
+		r.reorder.add(m.pod, m.container, h.own)
 		r.boundReorder()
 		return
 	}
-	r.history = append(r.history, rawHistory{lines: m.history, format: m.format})
+	r.histSkipped += h.skipped
 	if n := r.retentionNotice(m); n != "" {
 		r.pending.Notices = append(r.pending.Notices, ports.LogNotice{Pod: m.pod, Text: n})
 	}
@@ -473,9 +474,9 @@ func (r *session) retentionNotice(m tailMsg) string {
 		return r.rotationNotice(m)
 	}
 	if m.capped && !r.q.Window.IsTail() {
-		return fmt.Sprintf("%s: older lines of the window not loaded (limit %d lines per container)", m.pod, len(m.history))
+		return fmt.Sprintf("%s: older lines of the window not loaded (limit %d lines per container)", m.pod, m.history.read)
 	}
-	if r.q.Window.IsTail() || r.q.Window.Since <= 0 || len(m.history) == 0 {
+	if r.q.Window.IsTail() || r.q.Window.Since <= 0 || m.history.read == 0 {
 		return ""
 	}
 	start := r.opened.Add(-r.q.Window.Since)
@@ -483,7 +484,7 @@ func (r *session) retentionNotice(m tailMsg) string {
 	if p == nil || p.Pod.Started.IsZero() || !p.Pod.Started.Before(start) {
 		return ""
 	}
-	first := m.history[0].Time
+	first := m.history.first
 	if first.IsZero() {
 		return ""
 	}
@@ -498,14 +499,14 @@ func (r *session) retentionNotice(m tailMsg) string {
 // start of its logs away, and the API serves the current file only.
 func (r *session) rotationNotice(m tailMsg) string {
 	p := r.pods[m.pod]
-	if p == nil || len(m.history) == 0 || m.history[0].Time.IsZero() {
+	if p == nil || m.history.read == 0 || m.history.first.IsZero() {
 		return ""
 	}
 	c, ok := containerOf(p.Pod, m.container)
 	if !ok || c.Started.IsZero() {
 		return ""
 	}
-	first := m.history[0].Time
+	first := m.history.first
 	if first.Sub(c.Started) <= time.Minute {
 		return ""
 	}
@@ -517,32 +518,29 @@ func (r *session) rotationNotice(m tailMsg) string {
 		who, first.In(time.Local).Format("Jan 2 15:04"), c.Started.In(time.Local).Format("Jan 2 15:04"))
 }
 
+// finishHistory cuts the history of the window: the lines kept by the
+// collector are decoded, from the side shown, until the buffer is full.
 func (r *session) finishHistory() {
-	limit := r.s.limit()
 	head := r.q.Window.IsHead() && !r.q.Previous
-	entries, dropped, mutedBy := decodeHistory(r.history, limit, head)
-	r.countMuted(mutedBy)
-	muted := sum(mutedBy)
-	kept := fmt.Sprintf("%d lines kept (buffer size)", len(entries)+muted)
-	if muted > 0 {
-		kept = fmt.Sprintf("%d lines kept (buffer size, %d of them muted)", len(entries)+muted, muted)
-	}
+	items, evicted := r.hist.close()
+	entries, notDecoded, muted := decodeKept(items, r.s.limit(), head)
+	r.countMuted(muted)
+	dropped := r.histSkipped + evicted + notDecoded
 	switch {
 	case dropped > 0 && head:
 		r.pending.Notices = append(r.pending.Notices, ports.LogNotice{
-			Text: fmt.Sprintf("newer lines of the heads not loaded: %s, %d newer skipped", kept, dropped),
+			Text: fmt.Sprintf("newer lines of the heads not loaded: %d lines kept (buffer size), %d newer skipped", len(entries), dropped),
 		})
 	case dropped > 0:
 		r.pending.Notices = append(r.pending.Notices, ports.LogNotice{
-			Text: fmt.Sprintf("older lines of the window not loaded: %s, %d older skipped", kept, dropped),
+			Text: fmt.Sprintf("older lines of the window not loaded: %d lines kept (buffer size), %d older skipped", len(entries), dropped),
 		})
 	}
-	slices.SortStableFunc(entries, compareEntries)
 	r.pending.Entries = append(r.pending.Entries, entries...)
 	if n := len(entries); n > 0 {
 		r.committed = entries[n-1].OrderTime()
 	}
-	r.history, r.historySent = nil, true
+	r.historySent = true
 	r.pending.HistoryDone = true
 	r.boundPending()
 }

@@ -22,6 +22,7 @@ type tailer struct {
 	container string
 	msgs      chan<- tailMsg
 	format    ports.LogFormat // chosen on first use, see logFormat
+	hist      *historyCollector
 
 	// running mirrors the container state from the pod watch, and wake is
 	// signalled when an instance starts running: a container that is not
@@ -38,7 +39,7 @@ type tailer struct {
 const waitFallback = time.Minute
 
 func newTailer(r *session, p domain.Pod, container string) *tailer {
-	t := &tailer{s: r.s, q: r.q, scope: r.scope, pod: p, name: p.Name, ns: p.Namespace, container: container, msgs: r.msgs, wake: make(chan struct{}, 1)}
+	t := &tailer{s: r.s, q: r.q, scope: r.scope, pod: p, name: p.Name, ns: p.Namespace, container: container, msgs: r.msgs, hist: r.hist, wake: make(chan struct{}, 1)}
 	t.observe(p)
 	return t
 }
@@ -104,9 +105,15 @@ func (t *tailer) request() ports.LogRequest {
 	req := ports.LogRequest{Scope: t.scope, Namespace: t.ns, Pod: t.name, Container: t.container, Window: t.q.Window, Previous: t.q.Previous}
 	if w := t.q.Window; w.IsHead() { // the first lines, of the previous instance too
 		req.Window.Head = min(w.Head, limit)
+		if t.logFormat().Mute != nil {
+			req.Window.Head *= muteBudget
+		}
 		return req
 	}
 	req.Limit = limit
+	if t.logFormat().Mute != nil { // muted lines must not use up the room
+		req.Limit *= muteBudget
+	}
 	if t.q.Previous { // the whole instance, up to the limit
 		req.Window = domain.TimeWindow{}
 	}
@@ -118,11 +125,18 @@ func (t *tailer) run(ctx context.Context) {
 		t.send(ctx, tailMsg{streamErr: err})
 	})
 	req := t.request()
-	hist, last, seen, err := t.history(ctx)
-	capped := req.Limit > 0 && len(hist) >= req.Limit
-	if !t.send(ctx, tailMsg{history: hist, format: t.logFormat(), historyDone: true, historyErr: err, capped: capped}) || !t.q.Follow {
+	h, err := t.history(ctx)
+	if limit := t.s.limit(); len(h.own) > limit {
+		var skipped uint64
+		h.own = keepNewest(h.own, limit, &skipped)
+		h.skipped += int(skipped)
+	}
+	capped := req.Limit > 0 && h.read >= req.Limit
+	msg := tailMsg{historyDone: true, historyErr: err, capped: capped, history: h}
+	if !t.send(ctx, msg) || !t.q.Follow {
 		return
 	}
+	last, seen := h.last, h.seen
 	for attempt := 0; ctx.Err() == nil; attempt++ {
 		select { // a start seen while the stream ran is not news
 		case <-t.wake:
@@ -175,35 +189,125 @@ func (t *tailer) run(ctx context.Context) {
 	}
 }
 
-// history reads the window without following. It returns the raw lines
-// (decoded later by the session, which keeps only the newest lines of all
-// containers), the source time of the last line and the texts of the lines
-// at that time, which a stream resumed from that time delivers again. A
-// head stops after its lines and closes the stream, whatever the source
-// sends.
-func (t *tailer) history(ctx context.Context) ([]domain.RawLine, time.Time, map[string]bool, error) {
-	seen := map[string]bool{}
+// historyResult is what a tailer read of its container's window.
+type historyResult struct {
+	last    time.Time       // source time of the last line read
+	seen    map[string]bool // texts of the lines at last
+	first   time.Time       // source time of the first line read
+	read    int             // lines read
+	skipped int             // lines that could not be kept (beyond the window's cut)
+	own     []domain.LogEntry
+	muted   map[string]int // lines of muted loggers decoded while read
+}
+
+// historyOfferBatch is the number of lines a tailer offers the history
+// collector at a time (one lock per batch).
+const historyOfferBatch = 256
+
+// history reads the window without following. Its lines go to the
+// session's history collector undecoded, unless they cannot be kept there
+// (beyond the cut, skipped as read). Heads are decoded as read, since a
+// head counts the lines it shows. Once the session's history is cut (a pod
+// appeared later), the tailer keeps and decodes its own, which the session
+// places as live lines. It also returns what resuming the stream needs:
+// the source time of the last line and the texts of the lines at that
+// time, which a stream resumed from that time delivers again.
+func (t *tailer) history(ctx context.Context) (historyResult, error) {
+	res := historyResult{seen: map[string]bool{}}
 	req := t.request()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	st, err := t.s.Logs.Stream(ctx, req)
 	if err != nil {
-		return nil, time.Time{}, seen, err
+		return res, err
 	}
-	var out []domain.RawLine
-	var last time.Time
+	f := t.logFormat()
+	hc := t.hist
+	head := 0
+	if req.Window.IsHead() {
+		head = min(t.q.Window.Head, t.s.limit())
+	}
+	own := hc.isClosed()
+	q := hc.newQueue()
+	shown := 0 // lines kept by a head
+	var batch []histItem
+	flush := func() {
+		if len(batch) > 0 && !own && !hc.offer(q, batch, f.Mute != nil) {
+			own = true // the history was cut meanwhile
+		}
+		if own {
+			for i := range batch {
+				t.keepOwn(&res, &batch[i], head)
+			}
+		}
+		batch = batch[:0]
+	}
 	for l := range st.Lines() {
-		out = append(out, l)
-		if l.Time.After(last) {
-			last = l.Time
-			clear(seen)
+		if res.read == 0 {
+			res.first = l.Time
 		}
-		seen[l.Text] = true
-		if req.Window.IsHead() && len(out) >= req.Window.Head {
-			return out, last, seen, nil // the deferred cancel closes the stream
+		res.read++
+		if l.Time.After(res.last) {
+			res.last = l.Time
+			clear(res.seen)
+		}
+		res.seen[l.Text] = true
+		if !own && !hc.admits(l.Time) {
+			res.skipped++
+			continue
+		}
+		it := histItem{line: l, format: &t.format, seq: uint64(res.read)}
+		if head > 0 { // decoded now: a head counts the lines it shows
+			e := safeDecode(f.Decoder, l)
+			if pattern, ok := f.Mute.Match(&e); ok {
+				if res.muted == nil {
+					res.muted = map[string]int{}
+				}
+				res.muted[pattern]++
+				continue
+			}
+			it.entry = &e
+			shown++
+		}
+		batch = append(batch, it)
+		if len(batch) == historyOfferBatch {
+			flush()
+		}
+		if head > 0 && shown >= head {
+			break // the deferred cancel closes the stream
 		}
 	}
-	return out, last, seen, st.Err()
+	flush()
+	if head > 0 && shown >= head {
+		return res, nil
+	}
+	return res, st.Err()
+}
+
+// keepOwn keeps a history line of a tailer whose session's history is
+// already cut: decoded, the newest limit (or the first head ones).
+func (t *tailer) keepOwn(res *historyResult, it *histItem, head int) {
+	e := it.entry
+	if e == nil {
+		d := safeDecode(t.format.Decoder, it.line)
+		if pattern, ok := t.format.Mute.Match(&d); ok {
+			if res.muted == nil {
+				res.muted = map[string]int{}
+			}
+			res.muted[pattern]++
+			return
+		}
+		e = &d
+	}
+	if head > 0 && len(res.own) >= head {
+		return
+	}
+	res.own = append(res.own, *e)
+	if limit := t.s.limit(); head == 0 && len(res.own) > 2*limit {
+		var skipped uint64
+		res.own = keepNewest(res.own, limit, &skipped)
+		res.skipped += int(skipped)
+	}
 }
 
 // liveBatch is the most live entries a tailer sends in one message.
