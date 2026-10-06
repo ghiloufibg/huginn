@@ -22,7 +22,6 @@ type tailer struct {
 	container string
 	msgs      chan<- tailMsg
 	format    ports.LogFormat // chosen on first use, see logFormat
-	muted     *muteStats      // the session's counts of muted lines
 
 	// running mirrors the container state from the pod watch, and wake is
 	// signalled when an instance starts running: a container that is not
@@ -39,7 +38,7 @@ type tailer struct {
 const waitFallback = time.Minute
 
 func newTailer(r *session, p domain.Pod, container string) *tailer {
-	t := &tailer{s: r.s, q: r.q, scope: r.scope, pod: p, name: p.Name, ns: p.Namespace, container: container, msgs: r.msgs, muted: &r.muted, wake: make(chan struct{}, 1)}
+	t := &tailer{s: r.s, q: r.q, scope: r.scope, pod: p, name: p.Name, ns: p.Namespace, container: container, msgs: r.msgs, wake: make(chan struct{}, 1)}
 	t.observe(p)
 	return t
 }
@@ -207,29 +206,42 @@ func (t *tailer) history(ctx context.Context) ([]domain.RawLine, time.Time, map[
 	return out, last, seen, st.Err()
 }
 
+// liveBatch is the most live entries a tailer sends in one message.
+const liveBatch = 256
+
 // follow streams live lines until the stream ends, skipping lines already
 // delivered (same source time and text at the resume boundary). It returns
 // the number of lines read and the last source time. Muted lines are read
 // but not delivered: they still move the resume point, and a stream of
 // muted lines only is a healthy one.
+//
+// Lines are sent in batches without waiting: after a line arrives, the
+// lines already waiting in the stream join it, up to liveBatch. A quiet
+// stream sends each line at once; a busy one sends one message per
+// hundreds of lines instead of one per line.
 func (t *tailer) follow(ctx context.Context, req ports.LogRequest, seen map[string]bool) (int, time.Time, error) {
 	st, err := t.s.Logs.Stream(ctx, req)
 	if err != nil {
 		return 0, time.Time{}, err
 	}
 	t.send(ctx, tailMsg{clearErr: true})
+	f := t.logFormat()
 	n := 0
 	var last time.Time
-	for l := range st.Lines() {
+	var batch []domain.LogEntry
+	var muted map[string]int
+	read := func(l domain.RawLine) {
 		if skipResumed(req.SinceTime, l, seen) {
-			continue
+			return
 		}
-		f := t.logFormat()
 		e := safeDecode(f.Decoder, l)
-		if pattern, muted := f.Mute.Match(&e); muted {
-			t.muted.add(pattern, 1)
-		} else if !t.send(ctx, tailMsg{live: &e}) {
-			return n, last, nil
+		if pattern, ok := f.Mute.Match(&e); ok {
+			if muted == nil {
+				muted = map[string]int{}
+			}
+			muted[pattern]++
+		} else {
+			batch = append(batch, e)
 		}
 		n++
 		if l.Time.After(last) {
@@ -237,6 +249,29 @@ func (t *tailer) follow(ctx context.Context, req ports.LogRequest, seen map[stri
 			clear(seen)
 		}
 		seen[l.Text] = true
+	}
+	lines := st.Lines()
+	for l := range lines {
+		read(l)
+		open := true
+	drain:
+		for open && len(batch) < liveBatch {
+			select {
+			case l, open = <-lines:
+				if open {
+					read(l)
+				}
+			default:
+				break drain
+			}
+		}
+		if (len(batch) > 0 || muted != nil) && !t.send(ctx, tailMsg{live: batch, muted: muted}) {
+			return n, last, nil
+		}
+		batch, muted = nil, nil
+		if !open {
+			break
+		}
 	}
 	return n, last, st.Err()
 }

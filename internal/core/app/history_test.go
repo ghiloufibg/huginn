@@ -118,23 +118,3 @@ func minTime(es []domain.LogEntry) time.Time {
 	}
 	return m
 }
-
-func TestMuteStatsConcurrentAdds(t *testing.T) {
-	var s muteStats
-	done := make(chan struct{})
-	for range 4 {
-		go func() {
-			for range 1000 {
-				s.add("a", 1)
-			}
-			done <- struct{}{}
-		}()
-	}
-	for range 4 {
-		<-done
-	}
-	s.addAll(map[string]int{"b": 2})
-	if got := s.snapshot(); s.total.Load() != 4002 || got["a"] != 4000 || got["b"] != 2 {
-		t.Fatalf("total %d, per pattern %v", s.total.Load(), got)
-	}
-}

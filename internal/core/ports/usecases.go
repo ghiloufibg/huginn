@@ -97,6 +97,10 @@ type LogBatch struct {
 	// MutedBy is, when Muted is not zero, the lines hidden since the
 	// session opened per pattern of mute.loggers, as configured.
 	MutedBy map[string]uint64
+	// Skipped is the number of entries left out because more arrived
+	// than the view keeps (its buffer size) before it took them: the view
+	// would have evicted them on arrival.
+	Skipped uint64
 }
 
 // LogSession is the driving port behind the logs screen.

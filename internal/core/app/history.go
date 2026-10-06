@@ -106,6 +106,15 @@ func decodeHistory(hs []rawHistory, limit int, oldest bool) (entries []domain.Lo
 	return out, total - kept, muted
 }
 
+// sum is the number of lines in counts.
+func sum(counts map[string]int) int {
+	n := 0
+	for _, c := range counts {
+		n += c
+	}
+	return n
+}
+
 // decodeAll decodes lines, leaving out those of muted loggers; it returns
 // their number per pattern (nil when none).
 func decodeAll(f ports.LogFormat, lines []domain.RawLine) (out []domain.LogEntry, muted map[string]int) {

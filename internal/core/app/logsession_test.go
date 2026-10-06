@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -76,6 +77,8 @@ type reader struct {
 	history bool
 	muted   uint64
 	mutedBy map[string]uint64
+	skipped uint64
+	largest int // most entries in one batch
 }
 
 func (r *reader) until(step time.Duration, ok func() bool) {
@@ -101,6 +104,8 @@ func (r *reader) until(step time.Duration, ok func() bool) {
 			}
 			r.history = r.history || b.HistoryDone
 			r.muted += b.Muted
+			r.skipped += b.Skipped
+			r.largest = max(r.largest, len(b.Entries))
 			if b.MutedBy != nil {
 				r.mutedBy = b.MutedBy
 			}
@@ -302,6 +307,36 @@ func TestMutedLinesMoveTheResumePoint(t *testing.T) {
 	r.until(50*time.Millisecond, func() bool { return slices.Contains(r.entries, "after") })
 	if r.muted != 2 {
 		t.Fatalf("%d muted lines, want 2 (the muted line was read again)", r.muted)
+	}
+}
+
+// TestSlowViewKeepsSessionBounded: a view that does not read keeps at
+// most its buffer's worth of entries waiting in the session; the older ones
+// are counted as skipped, and the newest are delivered.
+func TestSlowViewKeepsSessionBounded(t *testing.T) {
+	f := newFixture(t)
+	f.s.MaxHistory = 10
+	r, cancel := f.open(t, ports.LogQuery{Follow: true})
+	defer cancel()
+	r.until(10*time.Millisecond, func() bool { return r.history })
+	r.until(10*time.Millisecond, func() bool { return f.logs.Following("ns", "api-1", "api") == 1 })
+	before := len(r.entries)
+	for i := range 200 {
+		f.logs.Push("ns", "api-1", line("api-1", t0.Add(time.Duration(i)*time.Millisecond), fmt.Sprintf("live-%03d", i)))
+	}
+	for range 20 { // the session commits and waits for the view
+		f.clock.Advance(100 * time.Millisecond)
+		time.Sleep(2 * time.Millisecond)
+	}
+	r.until(10*time.Millisecond, func() bool { return uint64(len(r.entries)-before)+r.skipped == 200 })
+	if r.largest > 10 {
+		t.Fatalf("a batch of %d entries, more than the buffer (10)", r.largest)
+	}
+	if got := r.entries[len(r.entries)-1]; got != "live-199" {
+		t.Fatalf("newest entry %s, want live-199", got)
+	}
+	if r.skipped == 0 {
+		t.Fatal("nothing skipped: the view kept up, the test proves nothing")
 	}
 }
 

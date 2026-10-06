@@ -75,7 +75,10 @@ type logsScreen struct {
 	showMuted bool
 	muted     uint64
 	mutedBy   map[string]uint64
-	roles     map[string]map[string]domain.ContainerRole // pod → container → role
+	// skipped counts entries the session left out because more arrived
+	// than the buffer holds (counted with the evicted ones as dropped).
+	skipped uint64
+	roles   map[string]map[string]domain.ContainerRole // pod → container → role
 	// multiContainer: some pod streams several containers, so the pod
 	// column names the container too.
 	multiContainer bool
@@ -159,7 +162,7 @@ func (l *logsScreen) open(m *Model) tea.Cmd {
 	l.rows, l.cursor, l.tail, l.paused, l.err, l.loading, l.notice = nil, 0, true, false, nil, true, ""
 	l.held, l.heldLate, l.heldLost = nil, nil, 0
 	l.formats = map[string]bool{}
-	l.levels, l.live, l.rate, l.muted, l.mutedBy = [domain.LevelError + 1]int{}, false, rateMeter{}, 0, nil
+	l.levels, l.live, l.rate, l.muted, l.mutedBy, l.skipped = [domain.LevelError + 1]int{}, false, rateMeter{}, 0, nil, 0
 	if m.opts.Sessions == nil {
 		return nil
 	}
@@ -235,9 +238,10 @@ func (l *logsScreen) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 // rate.
 func (l *logsScreen) apply(b ports.LogBatch, now time.Time) {
 	if l.live {
-		l.rate.add(now, len(b.Entries)+len(b.Late))
+		l.rate.add(now, len(b.Entries)+len(b.Late)+int(b.Skipped))
 	}
 	l.muted += b.Muted
+	l.skipped += b.Skipped
 	if b.MutedBy != nil {
 		l.mutedBy = b.MutedBy
 	}
@@ -1224,7 +1228,7 @@ func (l *logsScreen) statusLeft(m *Model) string {
 	fields = append(fields, order,
 		fmt.Sprintf("%d/%d lines", l.shown(), l.buf.Len()),
 		fmt.Sprintf("buffer %d%%", l.buf.Len()*100/max(l.buf.Cap(), 1)),
-		fmt.Sprintf("dropped %d", l.buf.Dropped()),
+		fmt.Sprintf("dropped %d", l.buf.Dropped()+l.skipped),
 	)
 	return out + bar.Render(strings.Join(fields, "  ·  "))
 }

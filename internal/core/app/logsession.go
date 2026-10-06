@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -68,7 +69,7 @@ func (s *LogSessions) Open(ctx context.Context, q ports.LogQuery) (<-chan ports.
 	}
 	run := &session{
 		s: s, q: q, scope: scope, workloads: workloads, opened: s.Clock.Now(),
-		pods: map[string]*podState{}, msgs: make(chan tailMsg, 1024), out: make(chan ports.LogBatch, 16),
+		pods: map[string]*podState{}, msgs: make(chan tailMsg, 1024), out: make(chan ports.LogBatch, 1),
 	}
 	go run.loop(ctx, pods)
 	return run.out, nil
@@ -192,8 +193,9 @@ type tailMsg struct {
 	format         ports.LogFormat  // decodes history
 	historyDone    bool
 	historyErr     error
-	capped         bool // the history reached the line limit
-	live           *domain.LogEntry
+	capped         bool              // the history reached the line limit
+	live           []domain.LogEntry // decoded live entries, in order
+	muted          map[string]int    // live lines left out, per mute pattern
 	notice         string
 	podEvent       *domain.PodEvent
 	streamErr      error // current error of the container, nil when streaming
@@ -219,17 +221,25 @@ type session struct {
 	awaiting    int // initial containers whose history is pending
 	history     []rawHistory
 	historySent bool
-	reorder     []domain.LogEntry
+	reorder     reorderBuffer
 	committed   time.Time
 	pending     ports.LogBatch
 	podsChanged bool
-	// muted counts the lines of muted loggers left out (live tailers add
-	// to it concurrently); mutedSent is the total already reported and
-	// mutedBatch the total in the batch being offered.
-	muted      muteStats
-	mutedSent  uint64
-	mutedBatch uint64
-	mutedBy    map[string]uint64 // snapshot of muted at mutedBatch
+	// mutedBy counts the lines of muted loggers left out per pattern, and
+	// muted in total; mutedReported is the total already put in a batch.
+	muted         uint64
+	mutedBy       map[string]uint64
+	mutedReported uint64
+}
+
+// limit is the number of entries the view keeps (its buffer size): the
+// most any stage of the session holds, since older entries would be
+// evicted from the view anyway.
+func (s *LogSessions) limit() int {
+	if s.MaxHistory > 0 {
+		return s.MaxHistory
+	}
+	return 50000
 }
 
 func (r *session) loop(ctx context.Context, initial []domain.Pod) {
@@ -270,33 +280,48 @@ func (r *session) loop(ctx context.Context, initial []domain.Pod) {
 			r.handle(ctx, m)
 		case <-tick.C():
 			r.commit(false)
+			r.reportMuted()
 		case out <- r.batch():
-			r.pending, r.podsChanged, r.mutedSent = ports.LogBatch{}, false, r.mutedBatch
+			r.pending, r.podsChanged = ports.LogBatch{}, false
 		}
 	}
 }
 
 func (r *session) hasPending() bool {
-	return len(r.pending.Entries) > 0 || len(r.pending.Late) > 0 || len(r.pending.Notices) > 0 || r.pending.HistoryDone || r.podsChanged ||
-		r.muted.total.Load() != r.mutedSent
+	b := &r.pending
+	return len(b.Entries) > 0 || len(b.Late) > 0 || len(b.Notices) > 0 || b.HistoryDone || b.Muted > 0 || b.Skipped > 0 || r.podsChanged
 }
 
-// batch returns the pending batch, with the pod list if it changed and
-// the lines muted since the last batch sent.
+// batch returns the pending batch, with the pod list if it changed.
 func (r *session) batch() ports.LogBatch {
 	b := r.pending
 	if r.podsChanged {
 		b.Pods = r.podList()
 	}
-	// batch is evaluated on every loop turn: the counts per pattern are
-	// copied only when the total moved.
-	if total := r.muted.total.Load(); total != r.mutedBatch {
-		r.mutedBatch, r.mutedBy = total, r.muted.snapshot()
-	}
-	if b.Muted = r.mutedBatch - r.mutedSent; b.Muted > 0 {
-		b.MutedBy = r.mutedBy
-	}
 	return b
+}
+
+// countMuted adds lines left out by muted loggers.
+func (r *session) countMuted(byPattern map[string]int) {
+	for p, n := range byPattern {
+		if r.mutedBy == nil {
+			r.mutedBy = map[string]uint64{}
+		}
+		r.mutedBy[p] += uint64(n)
+		r.muted += uint64(n)
+	}
+}
+
+// reportMuted puts the lines muted since the last report in the pending
+// batch, with a copy of the counts per pattern: once per flush tick at
+// most, whatever the rate of muted lines.
+func (r *session) reportMuted() {
+	if r.muted == r.mutedReported {
+		return
+	}
+	r.pending.Muted += r.muted - r.mutedReported
+	r.pending.MutedBy = maps.Clone(r.mutedBy)
+	r.mutedReported = r.muted
 }
 
 func (r *session) podList() []ports.PodState {
@@ -366,8 +391,10 @@ func (r *session) handle(ctx context.Context, m tailMsg) {
 		r.handlePod(ctx, *m.podEvent)
 	case m.historyDone:
 		r.handleHistory(m)
-	case m.live != nil:
-		r.reorder = append(r.reorder, *m.live)
+	case m.live != nil || m.muted != nil:
+		r.countMuted(m.muted)
+		r.reorder.add(m.pod, m.container, m.live)
+		r.boundReorder()
 	case m.notice != "":
 		r.pending.Notices = append(r.pending.Notices, ports.LogNotice{Pod: m.pod, Text: m.notice})
 	case m.streamErr != nil || m.clearErr:
@@ -395,6 +422,7 @@ func (r *session) handlePod(ctx context.Context, ev domain.PodEvent) {
 	case ev.Type == domain.PodDeleted && known:
 		p.Terminated, p.Pod = true, ev.Pod
 		p.cancel()
+		r.reorder.forget(ev.Pod.Name)
 		r.podsChanged = true
 	case !known && ev.Type != domain.PodDeleted:
 		r.addPod(ctx, ev.Pod, true)
@@ -418,8 +446,9 @@ func (r *session) handleHistory(m tailMsg) {
 		// History of a pod that appeared later: it is recent, treat it as
 		// live so the reorder window places it.
 		entries, muted := decodeAll(m.format, m.history)
-		r.reorder = append(r.reorder, entries...)
-		r.muted.addAll(muted)
+		r.countMuted(muted)
+		r.reorder.add(m.pod, m.container, entries)
+		r.boundReorder()
 		return
 	}
 	r.history = append(r.history, rawHistory{lines: m.history, format: m.format})
@@ -489,13 +518,10 @@ func (r *session) rotationNotice(m tailMsg) string {
 }
 
 func (r *session) finishHistory() {
-	limit := r.s.MaxHistory
-	if limit <= 0 {
-		limit = 50000
-	}
+	limit := r.s.limit()
 	head := r.q.Window.IsHead() && !r.q.Previous
 	entries, dropped, mutedBy := decodeHistory(r.history, limit, head)
-	r.muted.addAll(mutedBy)
+	r.countMuted(mutedBy)
 	muted := sum(mutedBy)
 	kept := fmt.Sprintf("%d lines kept (buffer size)", len(entries)+muted)
 	if muted > 0 {
@@ -518,13 +544,14 @@ func (r *session) finishHistory() {
 	}
 	r.history, r.historySent = nil, true
 	r.pending.HistoryDone = true
+	r.boundPending()
 }
 
 // commit moves live lines older than the reorder window to the pending
 // batch, in time order. Lines older than what is already committed are
 // committed at once (they cannot be placed before committed lines).
 func (r *session) commit(all bool) {
-	if !r.historySent || len(r.reorder) == 0 {
+	if !r.historySent || r.reorder.len() == 0 {
 		return
 	}
 	window := r.s.Reorder
@@ -532,30 +559,73 @@ func (r *session) commit(all bool) {
 		window = 250 * time.Millisecond
 	}
 	cutoff := r.s.Clock.Now().Add(-window)
-	slices.SortStableFunc(r.reorder, compareEntries)
-	n := 0
-	for n < len(r.reorder) && (all || !r.reorder[n].OrderTime().After(cutoff) || r.reorder[n].OrderTime().Before(r.committed)) {
-		n++
-	}
-	if n == 0 {
-		return
-	}
-	for _, e := range r.reorder[:n] {
-		// Older than what the view already has (a stream that recovered
-		// after an outage delivers what it missed): the view inserts it.
-		if e.OrderTime().Before(r.committed) {
-			r.pending.Late = append(r.pending.Late, e)
-			continue
+	for {
+		e, ok := r.reorder.oldest()
+		if !ok {
+			break
 		}
-		r.pending.Entries = append(r.pending.Entries, e)
+		due := all || !e.OrderTime().After(cutoff) || e.OrderTime().Before(r.committed)
+		if !due {
+			break
+		}
+		r.commitOne(r.reorder.pop())
 	}
-	if last := r.reorder[n-1].OrderTime(); last.After(r.committed) {
-		r.committed = last
-	}
-	r.reorder = slices.Delete(r.reorder, 0, n)
+	r.boundPending()
 }
 
-func compareEntries(a, b domain.LogEntry) int {
+// commitOne adds an entry to the pending batch. One older than what the
+// view already has (a stream that recovered after an outage delivers what
+// it missed) is late: the view inserts it.
+func (r *session) commitOne(e domain.LogEntry) {
+	t := e.OrderTime()
+	if t.Before(r.committed) {
+		r.pending.Late = append(r.pending.Late, e)
+		return
+	}
+	r.pending.Entries = append(r.pending.Entries, e)
+	r.committed = t
+}
+
+// boundReorder keeps at most limit entries waiting: past that, the oldest
+// are committed at once (dropped while the history loads: the view would
+// evict them anyway). The memory of a session then stays bounded whatever
+// the line rate.
+func (r *session) boundReorder() {
+	for r.reorder.len() > r.s.limit() {
+		e := r.reorder.pop()
+		if !r.historySent {
+			r.pending.Skipped++
+			continue
+		}
+		r.commitOne(e)
+	}
+	r.boundPending()
+}
+
+// boundPending keeps the newest limit entries of the pending batch (and of
+// its late entries): when the view cannot keep up, older ones would be
+// evicted from its buffer on arrival. They are counted as skipped.
+func (r *session) boundPending() {
+	limit := r.s.limit()
+	r.pending.Entries = keepNewest(r.pending.Entries, limit, &r.pending.Skipped)
+	r.pending.Late = keepNewest(r.pending.Late, limit, &r.pending.Skipped)
+}
+
+// keepNewest drops the oldest entries beyond limit, counting them.
+func keepNewest(es []domain.LogEntry, limit int, skipped *uint64) []domain.LogEntry {
+	over := len(es) - limit
+	if over <= 0 {
+		return es
+	}
+	clear(es[:over]) // release their strings
+	*skipped += uint64(over)
+	return es[over:]
+}
+
+func compareEntries(a, b domain.LogEntry) int { return compareEntryPtrs(&a, &b) }
+
+// compareEntryPtrs orders entries by time, then pod, without copying them.
+func compareEntryPtrs(a, b *domain.LogEntry) int {
 	if c := a.OrderTime().Compare(b.OrderTime()); c != 0 {
 		return c
 	}
