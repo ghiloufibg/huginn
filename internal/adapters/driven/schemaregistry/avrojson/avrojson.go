@@ -71,8 +71,15 @@ func (c *Codec) Name() string { return c.name }
 // schema. Errors wrap domain.ErrInvalidPayload and say where the data
 // stopped making sense. Bytes left after the value are ignored, as the
 // Java deserializer does.
-func (c *Codec) Decode(dst, data []byte) ([]byte, error) {
-	d := decoder{data: data, out: dst}
+func (c *Codec) Decode(dst, data []byte) ([]byte, error) { return c.DecodeLimit(dst, data, maxOut) }
+
+// DecodeLimit is Decode with at most maxJSON bytes of JSON (at most the
+// package's own bound): a larger value fails instead of growing on.
+func (c *Codec) DecodeLimit(dst, data []byte, maxJSON int) ([]byte, error) {
+	if maxJSON <= 0 || maxJSON > maxOut {
+		maxJSON = maxOut
+	}
+	d := decoder{data: data, out: dst, maxOut: len(dst) + maxJSON}
 	if err := d.value(c.schema, 0); err != nil {
 		return nil, fmt.Errorf("invalid avro at byte %d: %w: %w", d.pos, err, domain.ErrInvalidPayload)
 	}
@@ -87,10 +94,11 @@ var (
 )
 
 type decoder struct {
-	data  []byte
-	pos   int
-	out   []byte
-	items int
+	data   []byte
+	pos    int
+	out    []byte
+	items  int
+	maxOut int // len(out) beyond which the value is too large
 }
 
 func (d *decoder) left() int { return len(d.data) - d.pos }
@@ -145,7 +153,7 @@ func (d *decoder) value(s avro.Schema, depth int) error {
 	if depth > maxDepth {
 		return errDeep
 	}
-	if len(d.out) > maxOut {
+	if len(d.out) > d.maxOut {
 		return errTooBig
 	}
 	switch s := s.(type) {
@@ -201,7 +209,7 @@ func (d *decoder) value(s avro.Schema, depth int) error {
 			if err != nil {
 				return err
 			}
-			d.out = appendString(d.out, string(k))
+			d.out = appendBytes(d.out, k)
 			d.raw(":")
 			return d.value(s.Values(), depth+1)
 		})
@@ -333,7 +341,10 @@ func (d *decoder) primitive(s *avro.PrimitiveSchema) error {
 		if err != nil {
 			return err
 		}
-		d.out = appendString(d.out, string(b))
+		d.out = appendBytes(d.out, b)
+		if len(d.out) > d.maxOut { // one string can be the whole value
+			return errTooBig
+		}
 	default:
 		return fmt.Errorf("unsupported type %s", s.Type())
 	}
@@ -451,6 +462,13 @@ func branchName(s avro.Schema) string {
 
 // appendString appends s as a JSON string. Invalid UTF-8 becomes U+FFFD.
 func appendString(dst []byte, s string) []byte {
+	return appendJSONString(dst, s, utf8.DecodeRuneInString)
+}
+
+// appendBytes is appendString for bytes, without converting them.
+func appendBytes(dst, b []byte) []byte { return appendJSONString(dst, b, utf8.DecodeRune) }
+
+func appendJSONString[T string | []byte](dst []byte, s T, decode func(T) (rune, int)) []byte {
 	const hexDigits = "0123456789abcdef"
 	dst = append(dst, '"')
 	for i := 0; i < len(s); {
@@ -473,9 +491,9 @@ func appendString(dst []byte, s string) []byte {
 			i++
 			continue
 		}
-		r, size := utf8.DecodeRuneInString(s[i:])
+		r, size := decode(s[i:])
 		if r == utf8.RuneError && size == 1 {
-			dst = append(dst, `�`...)
+			dst = append(dst, "\uFFFD"...) // the replacement character, as UTF-8
 		} else {
 			dst = append(dst, s[i:i+size]...)
 		}

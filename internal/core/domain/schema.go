@@ -35,12 +35,15 @@ func (r SchemaRef) Decoded() bool { return r.ID != 0 && r.Err == "" && r.Format 
 const FramedHeader = 5
 
 // FramedSchemaID returns the schema id of bytes in the Schema Registry
-// framing, and false for other bytes.
+// framing, and false for other bytes. Registries number schemas from 1,
+// so bytes starting with five zeros (a small big-endian number) are not
+// framed.
 func FramedSchemaID(b []byte) (uint32, bool) {
 	if len(b) < FramedHeader || b[0] != 0 {
 		return 0, false
 	}
-	return binary.BigEndian.Uint32(b[1:FramedHeader]), true
+	id := binary.BigEndian.Uint32(b[1:FramedHeader])
+	return id, id != 0
 }
 
 // SchemaRegistryConn is everything needed to read a Schema Registry,

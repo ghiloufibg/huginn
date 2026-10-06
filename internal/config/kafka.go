@@ -120,7 +120,7 @@ type KafkaSchemaRegistry struct {
 	BasicAuth   KafkaBasicAuth `yaml:"basic_auth" doc:"Basic authentication (Java: basic.auth.user.info)."`
 	BearerToken string         `yaml:"bearer_token" doc:"Bearer token (Java: bearer.auth.token), instead of basic_auth."`
 	TLS         KafkaTLS       `yaml:"tls" doc:"Certificates trusted for the registry (https)."`
-	Decode      []string       `yaml:"decode" doc:"What to decode: key, value or both. Default both." enum:"key,value"`
+	Decode      []string       `yaml:"decode" doc:"What to decode: value (the default), key, or both. Keys only when listed: a big-endian number key also starts with 0." enum:"key,value"`
 	Timeout     string         `yaml:"timeout" doc:"Time allowed for one request to the registry, e.g. 10s. Default 10s."`
 }
 

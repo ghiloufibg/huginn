@@ -2,7 +2,6 @@ package domain
 
 import (
 	"bytes"
-	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -71,8 +70,9 @@ func PayloadPreview(b []byte, size int, maxRunes int) string {
 		return "∅"
 	case len(b) == 0:
 		return `""`
-	case b[0] == 0 && len(b) >= 5:
-		return fmt.Sprintf("schema %d, %s", binary.BigEndian.Uint32(b[1:5]), ByteSize(size))
+	}
+	if id, ok := FramedSchemaID(b); ok {
+		return fmt.Sprintf("schema %d, %s", id, ByteSize(size))
 	}
 	head := b
 	if len(head) > previewBytes {

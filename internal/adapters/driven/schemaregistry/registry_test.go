@@ -246,8 +246,17 @@ func TestReferences(t *testing.T) {
 	if err != nil || string(got) != `{"to":{"city":{"name":"Lyon"}}}` || ref.Name != "com.example.Order" {
 		t.Fatalf("%s %+v %v", got, ref, err)
 	}
-	delete(r.subjects, "city/1")
+	// A subject version is read once: another schema using it does not
+	// fetch it again.
 	r.ids[21] = r.ids[20]
+	if _, _, err := d.Decode(context.Background(), portstest.Framed(21, []byte{8, 'L', 'y', 'o', 'n'})); err != nil {
+		t.Fatal(err)
+	}
+	if n := r.hitsOf("/subjects/city/versions/1"); n != 1 {
+		t.Fatalf("a referenced version fetched %d times, want 1", n)
+	}
+	delete(r.subjects, "city/1")
+	d = open(t, &Factory{}, domain.SchemaRegistryConn{URL: serve(t, r)})
 	if _, _, err := d.Decode(context.Background(), portstest.Framed(21, []byte{0})); !errors.Is(err, domain.ErrNotFound) || !strings.Contains(err.Error(), "city version 1") {
 		t.Fatalf("missing reference: %v", err)
 	}
@@ -265,8 +274,10 @@ func TestCacheBounded(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if d.order.Len() != 4 || len(d.entries) != 4 {
-		t.Fatalf("%d schemas cached, want 4", d.order.Len())
+	cached := 0
+	d.schemas.Range(func(any, any) bool { cached++; return true })
+	if len(d.order) != 4 || cached != 4 {
+		t.Fatalf("%d schemas cached (%d in order), want 4", cached, len(d.order))
 	}
 	if _, _, err := d.Decode(context.Background(), portstest.Framed(109, []byte{0})); err != nil {
 		t.Fatal(err)
@@ -327,5 +338,141 @@ func BenchmarkDecodeCached(b *testing.B) {
 			b.Fatal(err)
 		}
 		i++
+	}
+}
+
+// BenchmarkDecodeCachedParallel is BenchmarkDecodeCached from every core,
+// as a large history is decoded: the cache must not serialize decoders.
+func BenchmarkDecodeCachedParallel(b *testing.B) {
+	r := newRegistry()
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+	d, err := (&Factory{}).Open(context.Background(), domain.SchemaRegistryConn{URL: srv.URL})
+	if err != nil {
+		b.Fatal(err)
+	}
+	rec := portstest.Framed(7, []byte{10, 'o', 'r', 'd', '-', '1', 6, 2, 8, 'g', 'i', 'f', 't'})
+	if _, _, err := d.Decode(context.Background(), rec); err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			if _, _, err := d.Decode(context.Background(), rec); err != nil {
+				b.Error(err)
+				return
+			}
+		}
+	})
+}
+
+// Sessions reading the same registry with the same credentials share one
+// decoder, its cache and connections; other credentials get their own.
+func TestDecodersShared(t *testing.T) {
+	r := newRegistry()
+	url := serve(t, r)
+	f := &Factory{}
+	conn := domain.SchemaRegistryConn{URL: url, Username: domain.NewSecret("me"), Password: domain.NewSecret("pw")}
+	for range 3 { // three screens opened in turn
+		if _, _, err := open(t, f, conn).Decode(context.Background(), order); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := r.hitsOf("/schemas/ids/7"); n != 1 {
+		t.Fatalf("schema fetched %d times across sessions, want 1", n)
+	}
+	conn.Password = domain.NewSecret("other")
+	if open(t, f, conn) == open(t, f, domain.SchemaRegistryConn{URL: url, Username: domain.NewSecret("me"), Password: domain.NewSecret("pw")}) {
+		t.Fatal("other credentials share a decoder")
+	}
+}
+
+// A registry that is down fails every new schema at once, not after a
+// timeout per schema, until FailureTTL.
+func TestRegistryDownFailsFast(t *testing.T) {
+	r := newRegistry()
+	r.status = http.StatusServiceUnavailable
+	now := time.Now()
+	d := open(t, &Factory{Now: func() time.Time { return now }}, domain.SchemaRegistryConn{URL: serve(t, r)})
+	for id := uint32(7); id < 12; id++ {
+		if _, _, err := d.Decode(context.Background(), portstest.Framed(id, []byte{0})); !errors.Is(err, domain.ErrUnreachable) {
+			t.Fatalf("id %d: %v", id, err)
+		}
+	}
+	r.mu.Lock()
+	requests := len(r.methods)
+	r.mu.Unlock()
+	if requests != 2 {
+		t.Fatalf("%d requests to a registry that is down, want 2 (one retry)", requests)
+	}
+	r.mu.Lock()
+	r.status = 0
+	r.mu.Unlock()
+	now = now.Add(DefaultFailureTTL + time.Second)
+	if _, _, err := d.Decode(context.Background(), order); err != nil {
+		t.Fatalf("after the TTL the registry is asked again: %v", err)
+	}
+}
+
+// Bytes that only look framed (a binary value starting with 0) carry a
+// new schema id each: after maxFailedIDs failures the registry is no
+// longer asked until FailureTTL.
+func TestUnknownIDsAreBounded(t *testing.T) {
+	r := newRegistry()
+	d := open(t, &Factory{}, domain.SchemaRegistryConn{URL: serve(t, r)})
+	var last error
+	for id := uint32(1000); id < 1100; id++ {
+		_, _, last = d.Decode(context.Background(), portstest.Framed(id, []byte{0}))
+	}
+	r.mu.Lock()
+	requests := len(r.methods)
+	r.mu.Unlock()
+	if requests != maxFailedIDs || !errors.Is(last, domain.ErrNotFound) || !strings.Contains(last.Error(), "asked again later") {
+		t.Fatalf("%d requests for 100 unknown ids (want %d); last error %v", requests, maxFailedIDs, last)
+	}
+	if _, _, err := d.Decode(context.Background(), order); err == nil {
+		t.Fatal("while paused, even a known id is not fetched")
+	}
+}
+
+func TestDecodedValuesBoundedAndExact(t *testing.T) {
+	r := newRegistry()
+	r.ids[30] = map[string]any{"schema": `"string"`}
+	d := open(t, &Factory{MaxDecodedBytes: 64}, domain.SchemaRegistryConn{URL: serve(t, r)})
+	long := append([]byte{200, 1}, strings.Repeat("x", 100)...) // a 100-byte string
+	if _, _, err := d.Decode(context.Background(), portstest.Framed(30, long)); !errors.Is(err, domain.ErrInvalidPayload) || !strings.Contains(err.Error(), "too large") {
+		t.Fatalf("a value over MaxDecodedBytes: %v", err)
+	}
+	got, _, err := d.Decode(context.Background(), order)
+	if err != nil || cap(got) > len(got)+16 { // beyond the allocator's size class
+		t.Fatalf("decoded values hold no slack: len %d cap %d (%v)", len(got), cap(got), err)
+	}
+}
+
+func TestLongRegistryMessagesCut(t *testing.T) {
+	err := statusError(http.StatusBadRequest, []byte(`{"message":"`+strings.Repeat("x", 5000)+`"}`))
+	if n := len([]rune(err.Error())); n > 300 {
+		t.Fatalf("message of %d runes", n)
+	}
+}
+
+// A transient failure is tried once more: a blip does not stop decoding.
+func TestTransientFailureRetried(t *testing.T) {
+	r := newRegistry()
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		r.mu.Lock()
+		calls++
+		first := calls == 1
+		r.mu.Unlock()
+		if first {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		r.ServeHTTP(w, req)
+	}))
+	t.Cleanup(srv.Close)
+	if _, _, err := open(t, &Factory{}, domain.SchemaRegistryConn{URL: srv.URL}).Decode(context.Background(), order); err != nil {
+		t.Fatalf("after one 503: %v", err)
 	}
 }

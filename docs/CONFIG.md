@@ -638,7 +638,7 @@ schema_registry:
   tls:
     ca: "{repo_dir}/src/main/resources/truststore.p12"
     ca_password: ${SR_TRUSTSTORE_PASSWORD}
-  decode: [key, value]
+  decode: [value]                      # the default; [key, value] for Avro keys too
   timeout: 10s
 ```
 
@@ -648,7 +648,7 @@ schema_registry:
 | `basic_auth.username`, `password` | string | | Basic authentication (Java: `basic.auth.user.info`). Both or neither. |
 | `bearer_token` | string | | Bearer token (Java: `bearer.auth.token`), instead of `basic_auth`. |
 | `tls.ca`, `tls.ca_password` | path, string | | Certificates trusted for the registry, as `connection.tls`. Without them, the system's certificates. |
-| `decode` | list | | `key`, `value` or both (the default). |
+| `decode` | list | | `value` (the default), `key`, or both. List `key` only when keys are written by a Schema Registry serializer (Java: a key deserializer): a key that is a big-endian number also starts with a 0 byte. |
 | `timeout` | duration | | Time allowed for one request to the registry. Default `10s`. |
 
 On the Kafka screens:
@@ -660,7 +660,7 @@ On the Kafka screens:
 
 From a shell, `huginn kafka read` prints decoded records too (`--raw | jq .` gets their JSON), `--no-decode` their bytes; `huginn kafka check` also checks the registry and its credentials, and fails when it cannot be used. With `--demo`, `examples/config/kafka/demo.yaml` names a registry answered in memory, so decoded Avro and JSON Schema records show.
 
-Schemas are read once per id and kept; a failed read is retried after 30 seconds at most. Protobuf schemas are not decoded yet: their records are shown as bytes.
+Schemas are read once per id and kept for the whole run: Kafka screens opened again, on any repository reading the same registry with the same credentials, ask for no schema twice; referenced schemas are read once too. A schema that cannot be read is asked again after 30 seconds. A registry that is unreachable (asked again after 10 seconds) or refuses the credentials (after 30) fails every record at once, instead of a timeout per schema; a network failure or a 502, 503 or 504 is tried once more first. When more than 32 schema ids cannot be read within 30 seconds, typically bytes that only look like a Schema Registry record, the registry is not asked for new ids until then. A decoded value is kept up to `kafka.max_value_bytes`, like any value. Protobuf schemas are not decoded yet: their records are shown as bytes.
 
 Values take placeholders, `${KEY}` references and `env:VAR`, as `connection` does. The Java settings that only matter when producing (`auto.register.schemas`, `use.latest.version`, subject name strategies) have no equivalent: Huginn never produces.
 

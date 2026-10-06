@@ -590,3 +590,14 @@ Records written by Confluent serializers (`0x00`, a 4-byte schema id, the payloa
 - **Measured.** A record using every Avro type decodes in about 4.5 µs (12 allocations); a typical record with its schema cached, through the adapter, in 0.44 µs (2 allocations).
 Status: accepted.
 
+## D-068 Schema Registry decoding hardened for production
+A review of D-067 for production use and resources. Measured with `BenchmarkDecodeCached*` (a typical record whose schema is cached).
+- **Values only by default.** `decode` defaults to `[value]`; keys are decoded only when listed. A key that is a big-endian number (Java's `LongSerializer`) starts with a 0 byte and looked framed: every key showed a decoding error. Java decodes keys only with a key deserializer, configured explicitly. Schema id 0 is not framed either: registries number schemas from 1, so five leading zeros are a number.
+- **The registry is protected from what only looks framed.** Each distinct id costs one request; a topic of binary values starting with 0 would cost one per record. Once 32 ids failed within the failure TTL (30 s), no new id is asked for until then, with a message saying why.
+- **Fail fast, retry once.** An unreachable registry (asked again after 10 s) or refused credentials (after 30 s) fail every record at once, instead of a timeout per schema id stalling the read. A network failure or a 502/503/504 is tried once more after 200 ms, so a blip does not stop decoding. Long registry messages are cut to 200 characters.
+- **One decoder per registry and credentials, for the whole run.** The factory shares decoders by a hash of the URL, credentials, timeout and certificates (secrets enter it hashed only): reopening a Kafka screen fetches no schema again and opens no new connection pool. At most 16 registries are kept. The transport holds at most 8 connections per registry and closes idle ones after 30 s. Referenced subject versions are cached too, so schemas sharing a type fetch it once.
+- **No lock on a cache hit.** Schemas are read from a `sync.Map`; the mutex only guards fetches and failures. From 4 cores, a cached decode went from 242 to 130 ns.
+- **Exact memory.** Avro is decoded into pooled buffers, then copied at its exact size (1 allocation and 64 B per typical record, from 2 and 144 B); a value larger than `max_value_bytes` is cut by copying, so the record does not keep the rest alive. The transcoder writes string fields without converting them (one allocation less each). One value decodes into at most 8 × `max_value_bytes` of JSON (between 1 and 16 MiB) instead of 64 MiB: the view keeps `max_value_bytes` of it.
+- **Diagnostics.** Each distinct decoding problem is written to the diagnostic log (debug), never a payload or a credential.
+Status: accepted.
+

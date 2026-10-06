@@ -77,6 +77,7 @@ func readTopic(t *testing.T, s *KafkaService, q ports.KafkaQuery) ([]domain.Kafk
 
 func TestKafkaRecordsDecodedWithTheRegistry(t *testing.T) {
 	s, _, reg := registryFixture(t)
+	s.Profiles[0].Registry.Decode = []string{"key", "value"}
 	recs, notices := readTopic(t, s, ports.KafkaQuery{})
 	if len(reg.conns) != 1 {
 		t.Fatalf("%d registries opened", len(reg.conns))
@@ -166,5 +167,29 @@ func TestKafkaSessionsWithoutRegistryDoNotDecode(t *testing.T) {
 	recs, _ := readTopic(t, s, ports.KafkaQuery{})
 	if recs[0].ValueSchema != (domain.SchemaRef{}) || len(reg.conns) != 0 {
 		t.Fatalf("decoded without a registry: %+v", recs[0].ValueSchema)
+	}
+}
+
+// Keys are decoded only when the profile asks: a big-endian number key
+// starts with 0 too, and Java decodes keys only with a key deserializer.
+func TestKafkaKeysNotDecodedByDefault(t *testing.T) {
+	s, _, _ := registryFixture(t)
+	recs, _ := readTopic(t, s, ports.KafkaQuery{})
+	if !recs[0].ValueSchema.Decoded() || recs[0].KeySchema != (domain.SchemaRef{}) || string(recs[0].Key) != string(portstest.Framed(8, []byte(`"k1"`))) {
+		t.Fatalf("value %+v, key %q %+v", recs[0].ValueSchema, recs[0].Key, recs[0].KeySchema)
+	}
+}
+
+// A decoded value larger than max_value_bytes is cut as the source cuts,
+// copied: the record keeps no more than the limit.
+func TestKafkaDecodedValuesCutAndCopied(t *testing.T) {
+	s, _, reg := registryFixture(t)
+	s.MaxValueBytes = 16
+	long := `{"orderId":"ord-1","quantity":3,"note":null}`
+	reg.Schemas[7].Payloads[string(avro("ord-1"))] = long
+	recs, _ := readTopic(t, s, ports.KafkaQuery{})
+	r := recs[0]
+	if string(r.Value) != long[:16] || r.ValueSize != len(long) || !r.Truncated() || cap(r.Value) > 16+16 || !r.ValueSchema.Decoded() {
+		t.Fatalf("value %q (cap %d) size %d %+v", r.Value, cap(r.Value), r.ValueSize, r.ValueSchema)
 	}
 }

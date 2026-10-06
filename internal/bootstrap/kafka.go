@@ -36,12 +36,14 @@ func clampInt32(n int64) int32 { return int32(min(n, 1<<31-1)) }
 
 // schemaRegistries lists the Schema Registry readers, selected like the
 // topic sources. A run without one leaves framed records undecoded.
-func schemaRegistries() *ports.Registry[func() ports.SchemaDecoderFactory] {
-	r := ports.NewRegistry[func() ports.SchemaDecoderFactory]("schema registry")
-	r.Register("kubernetes", func() ports.SchemaDecoderFactory { return &schemaregistry.Factory{} })
+func schemaRegistries() *ports.Registry[func(maxDecoded int) ports.SchemaDecoderFactory] {
+	r := ports.NewRegistry[func(maxDecoded int) ports.SchemaDecoderFactory]("schema registry")
+	r.Register("kubernetes", func(maxDecoded int) ports.SchemaDecoderFactory {
+		return &schemaregistry.Factory{MaxDecodedBytes: maxDecoded}
+	})
 	// The real client, answered in memory: --demo decodes as a real run.
-	r.Register("demo", func() ports.SchemaDecoderFactory {
-		return &schemaregistry.Factory{Transport: demo.RegistryTransport()}
+	r.Register("demo", func(maxDecoded int) ports.SchemaDecoderFactory {
+		return &schemaregistry.Factory{MaxDecodedBytes: maxDecoded, Transport: demo.RegistryTransport()}
 	})
 	return r
 }
@@ -61,7 +63,9 @@ func newKafka(c *config.Config, source string, clock ports.Clock, home string, g
 	l := c.Huginn.Kafka.Limits()
 	var registries ports.SchemaDecoderFactory
 	if newRegistry, err := schemaRegistries().Lookup(source); err == nil {
-		registries = newRegistry()
+		// The view keeps max_value_bytes of a value: decoding more than a
+		// few times that only costs memory and time.
+		registries = newRegistry(int(min(max(8*l.MaxValueBytes, 1<<20), 16<<20)))
 	}
 	return &app.KafkaService{
 		Registries: registries,

@@ -514,7 +514,9 @@ func (s *KafkaService) registry(ctx context.Context, a applied, keys map[string]
 	if err != nil {
 		return schemaDecoding{}, err
 	}
-	d := schemaDecoding{dec: dec, key: len(spec.Decode) == 0, value: len(spec.Decode) == 0}
+	// Values by default; keys only when asked, as Java decodes them only
+	// with a key deserializer: a big-endian number key starts with 0 too.
+	d := schemaDecoding{dec: dec, value: len(spec.Decode) == 0}
 	for _, what := range spec.Decode {
 		d.key = d.key || what == "key"
 		d.value = d.value || what == "value"
@@ -692,7 +694,7 @@ func (k *kafkaSession) forward(ctx context.Context, cancel context.CancelFunc, i
 	if raw {
 		decoding = schemaDecoding{}
 	}
-	notices := &decodeNotices{}
+	notices := &decodeNotices{log: k.s.debug}
 	if k.registryErr != nil && !raw {
 		notices.add("schema registry not used: " + k.registryErr.Error())
 	}

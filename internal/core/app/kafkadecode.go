@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"runtime"
@@ -22,8 +23,8 @@ type schemaDecoding struct {
 // by several goroutines.
 const decodeParallel = 256
 
-// decodeAll decodes recs in place, then cuts what was decoded to limit
-// bytes as the source cut the original. Records whose bytes cannot be
+// decodeAll decodes recs in place, cutting what was decoded to limit bytes
+// as the source cut the original. Records whose bytes cannot be
 // decoded keep them and say why in their SchemaRef; each distinct reason
 // becomes one notice.
 func (d schemaDecoding) decodeAll(ctx context.Context, recs []domain.KafkaRecord, limit int, notices *decodeNotices) {
@@ -49,16 +50,15 @@ func (d schemaDecoding) decodeAll(ctx context.Context, recs []domain.KafkaRecord
 
 func (d schemaDecoding) decode(ctx context.Context, r *domain.KafkaRecord, limit int, notices *decodeNotices) {
 	if d.key {
-		r.Key, r.KeySize, r.KeySchema = d.field(ctx, r.Key, r.KeySize, notices)
+		r.Key, r.KeySize, r.KeySchema = d.field(ctx, r.Key, r.KeySize, limit, notices)
 	}
 	if d.value {
-		r.Value, r.ValueSize, r.ValueSchema = d.field(ctx, r.Value, r.ValueSize, notices)
+		r.Value, r.ValueSize, r.ValueSchema = d.field(ctx, r.Value, r.ValueSize, limit, notices)
 	}
-	domain.TruncateRecord(r, limit)
 }
 
 // field decodes one framed key or value; other bytes are returned as is.
-func (d schemaDecoding) field(ctx context.Context, b []byte, size int, notices *decodeNotices) ([]byte, int, domain.SchemaRef) {
+func (d schemaDecoding) field(ctx context.Context, b []byte, size, limit int, notices *decodeNotices) ([]byte, int, domain.SchemaRef) {
 	id, ok := domain.FramedSchemaID(b)
 	if !ok {
 		return b, size, domain.SchemaRef{}
@@ -72,6 +72,11 @@ func (d schemaDecoding) field(ctx context.Context, b []byte, size int, notices *
 		notices.add(fmt.Sprintf("schema registry: %v", err))
 		return b, size, ref
 	}
+	if limit > 0 && len(out) > limit {
+		// Cut as the source cuts, copying: the record must not keep the
+		// rest of the JSON alive.
+		return bytes.Clone(out[:limit]), len(out), ref
+	}
 	return out, len(out), ref
 }
 
@@ -79,6 +84,7 @@ func (d schemaDecoding) field(ctx context.Context, b []byte, size int, notices *
 // use. At most maxDecodeNotices are reported per read: one per registry
 // problem, not one per record.
 type decodeNotices struct {
+	log     func(msg string, args ...any) // the diagnostic log, may be nil
 	mu      sync.Mutex
 	seen    map[string]bool
 	pending []string
@@ -97,6 +103,9 @@ func (n *decodeNotices) add(msg string) {
 	}
 	n.seen[msg] = true
 	n.pending = append(n.pending, msg)
+	if n.log != nil {
+		n.log("kafka record not decoded", "reason", msg)
+	}
 }
 
 // take returns the notices not reported yet.

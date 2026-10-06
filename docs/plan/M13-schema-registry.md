@@ -14,7 +14,7 @@ Records written by Confluent serializers start with `0x00` and a 4-byte schema i
 | Schema references: `GET /subjects/{s}/versions/{v}` | Same, recursively (depth ≤ 10, cycles refused) |
 | `schemaType` `AVRO` (default), `JSON`, `PROTOBUF` | Avro and JSON decoded; Protobuf shown as today, "not decoded" (§9) |
 | `specific.avro.reader` (generated classes, reader schema) | Not applicable: generic decoding with the writer schema |
-| `key.deserializer` / `value.deserializer` | `decode: [key, value]` (both by default) |
+| `key.deserializer` / `value.deserializer` | `decode: [key, value]` (values only by default since D-068) |
 | `basic.auth.user.info`, `bearer.auth.token`, `schema.registry.ssl.truststore.*` | `basic_auth`, `bearer_token`, `tls.ca` / `ca_password` (the Kafka truststore loader) |
 | Serializer: `auto.register.schemas`, `use.latest.version`, subject name strategies | Not applicable: Huginn never produces, and the registry client refuses any method but GET |
 
@@ -34,7 +34,7 @@ schema_registry:
   tls:                               # optional, as connection.tls
     ca: "{repo_dir}/src/main/resources/truststore.p12"
     ca_password: ${SR_TRUSTSTORE_PASSWORD}
-  decode: [key, value]               # default both
+  decode: [key, value]               # default [value] since D-068
   timeout: 10s                       # one registry request
 ```
 

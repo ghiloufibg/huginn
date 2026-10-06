@@ -157,7 +157,7 @@
                 "type": "string"
               },
               "decode": {
-                "description": "What to decode: key, value or both. Default both.",
+                "description": "What to decode: value (the default), key, or both. Keys only when listed: a big-endian number key also starts with 0.",
                 "items": {
                   "enum": [
                     "key",
@@ -365,7 +365,7 @@
           "type": "string"
         },
         "decode": {
-          "description": "What to decode: key, value or both. Default both.",
+          "description": "What to decode: value (the default), key, or both. Keys only when listed: a big-endian number key also starts with 0.",
           "items": {
             "enum": [
               "key",

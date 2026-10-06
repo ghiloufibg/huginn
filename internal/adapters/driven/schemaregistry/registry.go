@@ -13,8 +13,9 @@ package schemaregistry
 
 import (
 	"bytes"
-	"container/list"
+	"cmp"
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
@@ -35,29 +36,48 @@ import (
 
 // Defaults of a Factory.
 const (
-	DefaultTimeout     = 10 * time.Second
-	DefaultMaxSchemas  = 1000
-	DefaultFailureTTL  = 30 * time.Second
-	maxResponseBytes   = 1 << 20 // one schema, as the registry returns it
-	maxReferenceDepth  = 10
+	DefaultTimeout         = 10 * time.Second
+	DefaultMaxSchemas      = 1000
+	DefaultFailureTTL      = 30 * time.Second
+	DefaultMaxDecodedBytes = 16 << 20 // JSON of one value
+	maxResponseBytes       = 1 << 20  // one schema, as the registry returns it
+	maxReferenceDepth      = 10
+	maxRegistries          = 16 // registries (URL and credentials) kept by a Factory
+	// maxFailedIDs is how many schema ids may fail (unknown, invalid)
+	// within FailureTTL before the registry is no longer asked for new
+	// ones until then: bytes that only look framed (a binary value
+	// starting with 0) would otherwise cost one request per record.
+	maxFailedIDs       = 32
+	maxScratch         = 1 << 20 // decoding buffers kept for reuse up to this size
+	maxDownUnreachable = 10 * time.Second
+	retryAfter         = 200 * time.Millisecond // one retry of a transient failure
 	mediaTypeRegistry  = "application/vnd.schemaregistry.v1+json, application/json"
 	schemaTypeAvro     = "AVRO"
 	schemaTypeJSON     = "JSON"
 	schemaTypeProtobuf = "PROTOBUF"
 )
 
-// Factory opens decoders. Its zero value is ready to use.
+// Factory opens decoders. Its zero value is ready to use; it must not be
+// copied once used. Decoders are shared: every session reading the same
+// registry with the same credentials gets the same one, with its cache and
+// connections, so reopening a Kafka screen fetches no schema again.
 type Factory struct {
 	// MaxSchemas bounds the schemas kept per registry (DefaultMaxSchemas).
 	MaxSchemas int
 	// FailureTTL is how long a failed schema read is remembered
 	// (DefaultFailureTTL).
 	FailureTTL time.Duration
+	// MaxDecodedBytes bounds the JSON of one decoded value
+	// (DefaultMaxDecodedBytes); a larger one is reported, not decoded.
+	MaxDecodedBytes int
 	// Now is the clock (time.Now).
 	Now func() time.Time
-	// Transport replaces the HTTP transport, for tests; it is still
-	// wrapped by the read-only guard.
+	// Transport replaces the HTTP transport, for tests and the demo; it is
+	// still wrapped by the read-only guard.
 	Transport http.RoundTripper
+
+	mu         sync.Mutex
+	registries map[[sha256.Size]byte]*decoder
 }
 
 var _ ports.SchemaDecoderFactory = (*Factory)(nil)
@@ -69,9 +89,18 @@ func (f *Factory) Open(_ context.Context, conn domain.SchemaRegistryConn) (ports
 	if err != nil || (base.Scheme != "http" && base.Scheme != "https") || base.Host == "" {
 		return nil, fmt.Errorf("schema registry url %q is not an http or https URL: %w", conn.URL, domain.ErrConfig)
 	}
+	key := registryKey(conn)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if d, ok := f.registries[key]; ok {
+		return d, nil
+	}
 	transport := f.Transport
 	if transport == nil {
 		t := http.DefaultTransport.(*http.Transport).Clone()
+		// A registry answers schema reads: a few connections are plenty,
+		// and idle ones are closed soon.
+		t.MaxConnsPerHost, t.MaxIdleConnsPerHost, t.IdleConnTimeout = 8, 2, 30*time.Second
 		if len(conn.CACerts) > 0 {
 			pool := x509.NewCertPool()
 			for _, der := range conn.CACerts {
@@ -92,19 +121,34 @@ func (f *Factory) Open(_ context.Context, conn domain.SchemaRegistryConn) (ports
 	d := &decoder{
 		base: base, conn: conn,
 		client:     &http.Client{Transport: readOnly{transport}, Timeout: timeout},
-		maxSchemas: f.MaxSchemas, failureTTL: f.FailureTTL, now: f.Now,
-		entries: map[uint32]*list.Element{}, order: list.New(),
-	}
-	if d.maxSchemas <= 0 {
-		d.maxSchemas = DefaultMaxSchemas
-	}
-	if d.failureTTL <= 0 {
-		d.failureTTL = DefaultFailureTTL
+		maxSchemas: cmp.Or(f.MaxSchemas, DefaultMaxSchemas), failureTTL: cmp.Or(f.FailureTTL, DefaultFailureTTL),
+		maxDecoded: cmp.Or(f.MaxDecodedBytes, DefaultMaxDecodedBytes), now: f.Now,
+		pending: map[uint32]*entry{}, refs: map[string]registrySchema{},
 	}
 	if d.now == nil {
 		d.now = time.Now
 	}
+	if f.registries == nil || len(f.registries) >= maxRegistries {
+		f.registries = map[[sha256.Size]byte]*decoder{} // sessions keep theirs
+	}
+	f.registries[key] = d
 	return d, nil
+}
+
+// registryKey identifies a registry and the credentials it is read with;
+// secrets enter it hashed only.
+func registryKey(c domain.SchemaRegistryConn) [sha256.Size]byte {
+	h := sha256.New()
+	for _, s := range []string{c.URL, c.Username.Reveal(), c.Password.Reveal(), c.Token.Reveal(), c.Timeout.String()} {
+		fmt.Fprintf(h, "%d:%s", len(s), s)
+	}
+	for _, der := range c.CACerts {
+		fmt.Fprintf(h, "%d:", len(der))
+		h.Write(der)
+	}
+	var k [sha256.Size]byte
+	h.Sum(k[:0])
+	return k
 }
 
 // readOnly refuses every request that could change the registry.
@@ -124,10 +168,9 @@ type schema struct {
 	avro   *avrojson.Codec
 }
 
-// entry is a schema id in the cache: being fetched until ready closes,
-// then a schema or an error (remembered until expires).
+// entry is a schema id being fetched (until ready closes) or that failed
+// (remembered until expires).
 type entry struct {
-	id      uint32
 	ready   chan struct{}
 	schema  schema
 	err     error
@@ -140,12 +183,25 @@ type decoder struct {
 	client     *http.Client
 	maxSchemas int
 	failureTTL time.Duration
+	maxDecoded int
 	now        func() time.Time
 
+	// schemas holds the schemas read (uint32 → schema), read without a
+	// lock: decoding from every core does not contend on a cache hit.
+	schemas sync.Map
 	mu      sync.Mutex
-	entries map[uint32]*list.Element // of *entry
-	order   *list.List               // oldest first, for eviction
+	order   []uint32                  // ids of schemas, oldest first, for eviction
+	pending map[uint32]*entry         // being fetched, or failed
+	refs    map[string]registrySchema // referenced schemas by subject/version
+	// down, until downUntil, fails every fetch at once: the registry is
+	// unreachable or refuses the credentials, or too many ids failed.
+	down      error
+	downUntil time.Time
 }
+
+// scratch holds decoding buffers: a value is decoded into one, then copied
+// at its exact size, so records hold no slack.
+var scratch = sync.Pool{New: func() any { b := make([]byte, 0, 4096); return &b }}
 
 // Decode implements ports.SchemaDecoder.
 func (d *decoder) Decode(ctx context.Context, framed []byte) ([]byte, domain.SchemaRef, error) {
@@ -162,11 +218,18 @@ func (d *decoder) Decode(ctx context.Context, framed []byte) ([]byte, domain.Sch
 	payload := framed[domain.FramedHeader:]
 	switch s.format {
 	case domain.SchemaAvro:
-		out, err := s.avro.Decode(make([]byte, 0, 2*len(payload)+16), payload)
+		buf := scratch.Get().(*[]byte)
+		out, err := s.avro.DecodeLimit((*buf)[:0], payload, d.maxDecoded)
 		if err != nil {
+			scratch.Put(buf)
 			return nil, ref, fmt.Errorf("schema %d: %w", id, err)
 		}
-		return out, ref, nil
+		exact := bytes.Clone(out)
+		if cap(out) <= maxScratch {
+			*buf = out[:0]
+			scratch.Put(buf)
+		}
+		return exact, ref, nil
 	case domain.SchemaJSON:
 		if !json.Valid(payload) {
 			return nil, ref, fmt.Errorf("schema %d: payload is not JSON: %w", id, domain.ErrInvalidPayload)
@@ -183,20 +246,28 @@ func (d *decoder) Check(ctx context.Context) error {
 	return d.get(ctx, "/schemas/types", &types)
 }
 
-// schema returns the schema of id: cached, being fetched by another
-// caller (it waits), or fetched now.
+// schema returns the schema of id: cached (no lock), being fetched by
+// another caller (it waits, or gives up with its context), failed lately
+// (the same error, at once), or fetched now.
 func (d *decoder) schema(ctx context.Context, id uint32) (schema, error) {
+	if s, ok := d.schemas.Load(id); ok {
+		return s.(schema), nil
+	}
 	d.mu.Lock()
-	if el, ok := d.entries[id]; ok {
-		e := el.Value.(*entry)
+	now := d.now()
+	if d.down != nil && now.Before(d.downUntil) {
+		err := d.down
+		d.mu.Unlock()
+		return schema{}, err
+	}
+	if e, ok := d.pending[id]; ok {
 		select {
 		case <-e.ready:
-			if e.err == nil || d.now().Before(e.expires) {
+			if now.Before(e.expires) {
 				d.mu.Unlock()
-				return e.schema, e.err
+				return schema{}, e.err
 			}
-			d.order.Remove(el) // a failure that expired: try again
-			delete(d.entries, id)
+			delete(d.pending, id) // a failure that expired: try again
 		default:
 			d.mu.Unlock()
 			select {
@@ -207,27 +278,75 @@ func (d *decoder) schema(ctx context.Context, id uint32) (schema, error) {
 			}
 		}
 	}
-	e := &entry{id: id, ready: make(chan struct{})}
-	d.entries[id] = d.order.PushBack(e)
-	for d.order.Len() > d.maxSchemas {
-		oldest := d.order.Front()
-		if old := oldest.Value.(*entry); old != e {
-			d.order.Remove(oldest)
-			delete(d.entries, old.id)
-		}
+	if s, ok := d.schemas.Load(id); ok { // stored while we took the lock
+		d.mu.Unlock()
+		return s.(schema), nil
 	}
+	if failed := d.failed(now); failed >= maxFailedIDs {
+		d.down = fmt.Errorf("%d schema ids could not be read within %s; the registry is asked again later (are these records written by Schema Registry serializers?): %w",
+			failed, d.failureTTL, domain.ErrNotFound)
+		d.downUntil = now.Add(d.failureTTL)
+		err := d.down
+		d.mu.Unlock()
+		return schema{}, err
+	}
+	e := &entry{ready: make(chan struct{})}
+	d.pending[id] = e
 	d.mu.Unlock()
 
 	// Fetched without the caller's context: others may wait for it, and
 	// the client's timeout bounds it.
 	e.schema, e.err = d.fetch(context.WithoutCancel(ctx), id)
+
 	d.mu.Lock()
-	if e.err != nil {
+	defer d.mu.Unlock()
+	if e.err == nil {
+		d.schemas.Store(id, e.schema)
+		delete(d.pending, id)
+		d.order = append(d.order, id)
+		for len(d.order) > d.maxSchemas {
+			d.schemas.Delete(d.order[0])
+			d.order = d.order[1:]
+		}
+	} else {
 		e.expires = d.now().Add(d.failureTTL)
+		if registryWide(e.err) {
+			// Every other id would fail the same way: say so at once
+			// instead of waiting for a timeout per id. An unreachable
+			// registry is tried again sooner than refused credentials.
+			until := e.expires
+			if errors.Is(e.err, domain.ErrUnreachable) {
+				until = d.now().Add(min(d.failureTTL, maxDownUnreachable))
+			}
+			d.down, d.downUntil = e.err, until
+		}
 	}
 	close(e.ready)
-	d.mu.Unlock()
 	return e.schema, e.err
+}
+
+// failed counts the ids whose failure is remembered, forgetting expired
+// ones. d.mu is held.
+func (d *decoder) failed(now time.Time) int {
+	n := 0
+	for id, e := range d.pending {
+		select {
+		case <-e.ready:
+			if !now.Before(e.expires) {
+				delete(d.pending, id)
+				continue
+			}
+			n++
+		default:
+		}
+	}
+	return n
+}
+
+// registryWide reports failures of the registry itself rather than of one
+// schema id.
+func registryWide(err error) bool {
+	return errors.Is(err, domain.ErrUnreachable) || errors.Is(err, domain.ErrUnauthorized) || errors.Is(err, domain.ErrForbidden)
 }
 
 // registrySchema is a schema as the registry returns it.
@@ -263,11 +382,7 @@ func (d *decoder) fetch(ctx context.Context, id uint32) (schema, error) {
 			ID    string `json:"$id"`
 		}
 		_ = json.Unmarshal([]byte(rs.Schema), &doc) // the name is a nicety
-		name := doc.Title
-		if name == "" {
-			name = doc.ID
-		}
-		return schema{format: domain.SchemaJSON, name: name}, nil
+		return schema{format: domain.SchemaJSON, name: cmp.Or(doc.Title, doc.ID)}, nil
 	case schemaTypeProtobuf:
 		return schema{format: domain.SchemaProtobuf}, nil
 	}
@@ -275,7 +390,9 @@ func (d *decoder) fetch(ctx context.Context, id uint32) (schema, error) {
 }
 
 // references returns the schemas rs references, recursively, each after
-// the schemas it references itself, as avrojson.NewCodec takes them.
+// the schemas it references itself, as avrojson.NewCodec takes them. A
+// subject version is read once per registry: schemas sharing a type do not
+// fetch it again.
 func (d *decoder) references(ctx context.Context, rs registrySchema, seen map[string]bool, depth int) ([]string, error) {
 	if depth > maxReferenceDepth {
 		return nil, fmt.Errorf("references nested more than %d deep: %w", maxReferenceDepth, domain.ErrInvalidPayload)
@@ -287,9 +404,8 @@ func (d *decoder) references(ctx context.Context, rs registrySchema, seen map[st
 			continue // already included (shared, or a cycle)
 		}
 		seen[key] = true
-		var sub registrySchema
-		path := "/subjects/" + url.PathEscape(r.Subject) + "/versions/" + strconv.Itoa(r.Version)
-		if err := d.get(ctx, path, &sub); err != nil {
+		sub, err := d.reference(ctx, r.Subject, r.Version)
+		if err != nil {
 			return nil, fmt.Errorf("reference %s (%s version %d): %w", r.Name, r.Subject, r.Version, err)
 		}
 		deeper, err := d.references(ctx, sub, seen, depth+1)
@@ -302,9 +418,50 @@ func (d *decoder) references(ctx context.Context, rs registrySchema, seen map[st
 	return out, nil
 }
 
+// reference reads a subject version, cached: a version never changes.
+func (d *decoder) reference(ctx context.Context, subject string, version int) (registrySchema, error) {
+	key := subject + "/" + strconv.Itoa(version)
+	d.mu.Lock()
+	rs, ok := d.refs[key]
+	d.mu.Unlock()
+	if ok {
+		return rs, nil // never modified once stored
+	}
+	path := "/subjects/" + url.PathEscape(subject) + "/versions/" + strconv.Itoa(version)
+	if err := d.get(ctx, path, &rs); err != nil {
+		return rs, err
+	}
+	d.mu.Lock()
+	if len(d.refs) >= d.maxSchemas {
+		clear(d.refs) // rarely many: start over rather than track age
+	}
+	d.refs[key] = rs
+	d.mu.Unlock()
+	return rs, nil
+}
+
 // get reads one registry resource into v, mapping failures to domain
-// kinds. The registry's own message is kept: it says what is wrong.
+// kinds. The registry's own message is kept: it says what is wrong. A
+// transient failure (the network, 502, 503, 504) is tried once more.
 func (d *decoder) get(ctx context.Context, path string, v any) error {
+	err := d.getOnce(ctx, path, v)
+	var t transient
+	if errors.As(err, &t) {
+		select {
+		case <-time.After(retryAfter):
+			err = d.getOnce(ctx, path, v)
+		case <-ctx.Done():
+		}
+	}
+	return err
+}
+
+// transient marks a failure worth one more try.
+type transient struct{ error }
+
+func (t transient) Unwrap() error { return t.error }
+
+func (d *decoder) getOnce(ctx context.Context, path string, v any) error {
 	u := *d.base
 	u.Path += path
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
@@ -323,14 +480,18 @@ func (d *decoder) get(ctx context.Context, path string, v any) error {
 		if errors.Is(err, domain.ErrForbidden) {
 			return err
 		}
-		return fmt.Errorf("registry %s: %v: %w", d.base.Host, err, domain.ErrUnreachable)
+		return transient{fmt.Errorf("registry %s: %v: %w", d.base.Host, err, domain.ErrUnreachable)}
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
 	if err != nil {
-		return fmt.Errorf("registry %s: %v: %w", d.base.Host, err, domain.ErrUnreachable)
+		return transient{fmt.Errorf("registry %s: %v: %w", d.base.Host, err, domain.ErrUnreachable)}
 	}
-	if resp.StatusCode != http.StatusOK {
+	switch resp.StatusCode {
+	case http.StatusOK:
+	case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return transient{statusError(resp.StatusCode, body)}
+	default:
 		return statusError(resp.StatusCode, body)
 	}
 	if len(body) > maxResponseBytes {
@@ -349,9 +510,9 @@ func statusError(status int, body []byte) error {
 		Message string `json:"message"`
 	}
 	_ = json.Unmarshal(body, &e)
-	msg := e.Message
-	if msg == "" {
-		msg = http.StatusText(status)
+	msg := cmp.Or(e.Message, http.StatusText(status))
+	if r := []rune(msg); len(r) > 200 { // a message, not a page
+		msg = string(r[:200]) + "…"
 	}
 	var kind error
 	switch {
