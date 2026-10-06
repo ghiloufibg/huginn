@@ -62,6 +62,7 @@ These rules are enforced mechanically: `golangci-lint` `depguard` rules give edi
 | Secrets in Vault / GSM / another file | New `SecretsProvider` adapter | One package |
 | Another log backend (Cloud Logging, Loki, Elastic) | New `LogSource` adapter | One package |
 | Other sidecars to hide | Edit `containers.yaml` | No |
+| Noisy loggers to hide (pool state, snapshots) | `mute.loggers` in the format of `formats/` | No |
 | Different keys or theme | Edit `ui.yaml` | No |
 
 ## 4. Coding conventions

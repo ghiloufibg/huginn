@@ -174,6 +174,11 @@ Then, for each format:
 - Add `levels` spellings only for values that are not already understood (see
   `docs/CONFIG.md` §8), for example numeric levels.
 - Put noisy metadata in `hidden`.
+- Add `mute.loggers` only for loggers the user names as noise, or that the
+  code plainly logs on a timer (connection pool statistics, periodic
+  resource snapshots); list each with the file that shows it in the README.
+  Never mute a logger of the application's own business code, and never
+  guess a name: a pattern must match the logger as the lines write it.
 - **Order:** formats are tried in file-name order and the first whose `match`
   accepts the repository and container wins. Name the files `10-<name>.yaml`,
   `20-<name>.yaml`, … and end with one catch-all format without `match`, named

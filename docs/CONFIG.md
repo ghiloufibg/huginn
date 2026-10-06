@@ -477,6 +477,11 @@ huginn: the config folder ~/work/acme-huginn has 5 errors (see docs/CONFIG.md):
 | `unknown field` / `unknown filter` in a template | See [Templates](#templates). |
 | `key "p" is used by the columns picker` | Pick another letter; `p`, `z`, `r` and `f` are taken. |
 | `is already the name of` / `is already the key of` | Column names and keys must be unique in a line. |
+| `logger pattern "x" matches every logger` / `* is only allowed at the end` / `contains a space` | A `mute.loggers` pattern is a logger name or a prefix ending in `*`, such as `com.example.metrics.*`. |
+| `"x" is already mute.loggers[n]` | Remove the duplicate pattern. |
+| `muting loggers needs fields.logger` / `needs a group (?P<logger>…)` | Tell the format where the logger is, or remove `mute`. |
+| `the plain decoder reads no logger to mute` | `mute` needs a `json` or `regex` format. |
+| `keep needs mute.loggers` | `mute.keep` applies to muted loggers: list some, or remove `keep`. |
 
 ## 11. Your folder in 15 minutes
 
@@ -489,6 +494,7 @@ To have a coding agent (such as GitHub Copilot) draft the folder from your repos
 5. **Format**: copy one real line (`kubectl logs <pod> -c <container> --tail 1`).
    - If it is JSON, map each standard field to the key that holds it in `formats/<name>.yaml`. Put the metadata you never want on screen in `hidden`.
    - If it is text, write a `regex` format and test the pattern on your line.
+   - If some loggers only add noise (connection pool state, resource snapshots), list them under `mute.loggers` ([Muted loggers](#muted-loggers)). Open the logs and check that help (`?`) counts lines for each pattern: one that stays at 0 is likely misspelled.
 6. **Layout**: start from `layouts/spring.yaml` and adapt the columns, keeping only what helps you read. Name the layout in the format's `layout` key.
 7. **Check**: run `huginn --config ~/work/acme-huginn`. Fix what it reports; every problem is listed at once, with its line. Then open a repository and compare a few lines with `kubectl logs`.
 8. **Share**: commit the folder to a git repository for your team. Personal choices stay in `ui.yaml`, so each person can keep their own.
