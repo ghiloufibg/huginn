@@ -136,9 +136,10 @@ type logsScreen struct {
 	regex     bool
 	inputErr  string
 	editing   bool
-	before    string // input before editing, restored by esc
-	dirty     bool   // rows must be recomputed (debounced while typing)
-	pending   bool   // a debounce tick is scheduled
+	before    string      // input before editing, restored by esc
+	ctx       contextTail // context selection as entries are appended
+	dirty     bool        // rows must be recomputed (debounced while typing)
+	pending   bool        // a debounce tick is scheduled
 }
 
 // viewRow is one displayed entry.
@@ -176,6 +177,7 @@ func (l *logsScreen) open(m *Model) tea.Cmd {
 	l.rows, l.cursor, l.tail, l.paused, l.err, l.loading, l.notice = nil, 0, true, false, nil, true, ""
 	l.held, l.heldLate, l.heldLost = nil, nil, 0
 	l.lateWaiting, l.lateTick = nil, false
+	l.ctx = contextTail{last: -1}
 	l.formats = map[string]bool{}
 	l.levels, l.live, l.rate, l.muted, l.mutedBy, l.skipped = [domain.LevelError + 1]int{}, false, rateMeter{}, 0, nil, 0
 	if m.opts.Sessions == nil {
@@ -404,11 +406,11 @@ func (l *logsScreen) ingest(entries []domain.LogEntry) {
 		if !l.entryInScope(&e) || l.dirty {
 			continue
 		}
-		if l.needsFullSelect() {
-			l.dirty = true // context rows depend on neighbours
+		i, _ := l.buf.Index(seq)
+		if l.needsContext() {
+			added += l.appendContext(seq, l.buf.At(i))
 			continue
 		}
-		i, _ := l.buf.Index(seq)
 		if r, ok := l.rowFor(seq, l.buf.At(i)); ok {
 			l.rows = append(l.rows, r)
 			l.count(r, 1)
@@ -436,10 +438,14 @@ func (l *logsScreen) evict() {
 	if n == 0 {
 		return
 	}
+	n += l.orphanContext(n)
 	for _, r := range l.rows[:n] {
 		l.count(r, -1)
 	}
 	l.rows = l.rows[n:]
+	if len(l.rows) > 0 {
+		l.rows[0].gap = false // as a full selection would draw it
+	}
 	l.frozen = max(l.frozen-n, 0)
 	if !l.newestTop {
 		l.cursor, l.offset = max(l.cursor-n, 0), max(l.offset-n, 0)
@@ -535,6 +541,7 @@ func (l *logsScreen) rebuildFrom(keep uint64) {
 		l.rows = append(l.rows, row)
 		l.count(row, 1)
 	}
+	l.resetContext(idx, sel)
 	l.dirty, l.paused = false, false
 	if keep != 0 {
 		for i, r := range l.rows {

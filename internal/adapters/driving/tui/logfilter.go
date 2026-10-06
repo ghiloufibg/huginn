@@ -24,10 +24,122 @@ const (
 // contextSteps are the context sizes cycled by the context key.
 var contextSteps = []int{0, 1, 3, 5}
 
-// needsFullSelect reports whether appended entries cannot be filtered one
-// by one (context rows depend on neighbours).
-func (l *logsScreen) needsFullSelect() bool {
+// needsContext reports whether appended entries cannot be filtered one by
+// one: context rows depend on neighbours (appendContext).
+func (l *logsScreen) needsContext() bool {
 	return l.filter.Mode == domain.ModeFilter && l.filter.Active() && l.filter.Context > 0
+}
+
+// contextTail is what selecting context rows needs to go on as entries
+// are appended: the incremental form of domain.LogFilter.Select, so a
+// batch costs O(batch) instead of a selection over the whole buffer.
+// Positions count the entries in scope since the last full selection.
+type contextTail struct {
+	pos       int          // position of the next entry in scope
+	last      int          // position of the last row, -1 when none
+	afterLeft int          // entries still shown as context after the last match
+	waiting   []ctxWaiting // the last entries not shown, at most Context
+}
+
+type ctxWaiting struct {
+	seq uint64
+	pos int
+}
+
+// appendContext selects the rows of a new entry in scope, and of the
+// entries before it that become its context. It returns the rows added.
+func (l *logsScreen) appendContext(seq uint64, e *domain.LogEntry) int {
+	c, n := &l.ctx, l.filter.Context
+	p := c.pos
+	c.pos++
+	add := func(r viewRow, pos int) {
+		l.rows = append(l.rows, r)
+		l.count(r, 1)
+		c.last = pos
+	}
+	switch {
+	case l.filter.Match(e):
+		added := 0
+		for _, w := range c.waiting {
+			we, ok := l.entryBySeq(w.seq)
+			if !ok || w.pos < p-n || w.pos <= c.last {
+				continue // evicted, or out of reach
+			}
+			add(viewRow{seq: w.seq, level: we.Level, context: true, gap: added == 0 && c.last >= 0 && w.pos > c.last+1}, w.pos)
+			added++
+		}
+		c.waiting = c.waiting[:0]
+		add(viewRow{seq: seq, level: e.Level, match: true, gap: added == 0 && c.last >= 0 && p > c.last+1}, p)
+		c.afterLeft = n
+		return added + 1
+	case c.afterLeft > 0:
+		add(viewRow{seq: seq, level: e.Level, context: true}, p)
+		c.afterLeft--
+		return 1
+	}
+	if len(c.waiting) == n {
+		c.waiting = append(c.waiting[:0], c.waiting[1:]...)
+	}
+	c.waiting = append(c.waiting, ctxWaiting{seq: seq, pos: p})
+	return 0
+}
+
+// orphanContext returns how many rows after the first `from` are context
+// of matches that leave the buffer with those rows: a full selection would
+// not show them. Only the context rows right before the first match left
+// stay, at most Context of them, contiguous with it.
+func (l *logsScreen) orphanContext(from int) int {
+	if !l.needsContext() {
+		return 0
+	}
+	// Rows surround matches: the first match is within 2×Context+1 rows,
+	// unless the rows left are context of evicted matches only.
+	rows, size := l.rows[from:], l.filter.Context
+	match := 0
+	for match < len(rows) && match <= 2*size+1 && !rows[match].match {
+		match++
+	}
+	if match == len(rows) || !rows[match].match {
+		return match
+	}
+	k := match
+	for k > 0 && match-k < size && !rows[k].gap {
+		k--
+	}
+	return k
+}
+
+// resetContext sets the context state after a full selection of n entries
+// in scope (idx, positions in the buffer) whose rows are sel.
+func (l *logsScreen) resetContext(idx []int, sel []domain.Row) {
+	n, size := len(idx), l.filter.Context
+	c := contextTail{pos: n, last: -1, waiting: l.ctx.waiting[:0]}
+	if len(sel) > 0 {
+		c.last = sel[len(sel)-1].Index
+	}
+	lastMatch := -1
+	for i := len(sel) - 1; i >= 0; i-- {
+		if sel[i].Match {
+			lastMatch = sel[i].Index
+			break
+		}
+	}
+	if c.last == n-1 && lastMatch >= 0 {
+		c.afterLeft = max(0, lastMatch+size-(n-1))
+	}
+	for p := max(c.last+1, n-size); p < n; p++ {
+		c.waiting = append(c.waiting, ctxWaiting{seq: l.buf.At(idx[p]).Seq, pos: p})
+	}
+	l.ctx = c
+}
+
+// entryBySeq returns the entry with sequence seq if still in the buffer.
+func (l *logsScreen) entryBySeq(seq uint64) (*domain.LogEntry, bool) {
+	i, ok := l.buf.Index(seq)
+	if !ok {
+		return nil, false
+	}
+	return l.buf.At(i), true
 }
 
 // rowFor filters one new entry.

@@ -328,3 +328,7 @@ Status: accepted.
 Entries older than what the view shows (a stream recovering from an outage delivers what it missed) are placed by time, which re-sorts the buffer and rebuilds the view: O(buffer). A recovery delivers them over many batches, so merging per batch cost O(buffer) up to 30 times a second. The view now keeps them (at most a buffer's worth) and merges them once per 250 ms tick, scheduled only while some wait.
 Status: accepted.
 
+## D-044 Context lines selected as entries arrive
+With a text filter and context lines (`X`), every batch re-selected the whole buffer, since context rows depend on neighbours: 3.3 ms per batch at 50 000 lines, ten times that with a ten times larger buffer, 30 times a second. The view now keeps the state the selection needs at its end (the last entries not shown, at most Context; how many more entries are context of the last match; the position of the last row) and selects the rows of each new entry from it: O(batch), 0.57 ms per batch in `BenchmarkLogsIngestWithContext`, as without context. Evicting a match also evicts its after-context rows that are left first in the view, as a full selection would. A property test checks, over random levels, matches, batches and evictions, that the rows are those of a full selection. Filter, scope and level changes still select the whole buffer (debounced, D-026).
+Status: accepted.
+
