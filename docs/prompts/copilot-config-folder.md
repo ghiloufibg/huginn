@@ -199,6 +199,26 @@ Then, for each format:
   the dependencies (pom.xml, build.gradle, package.json, go.mod), so my own
   code stands out in stack traces.
 
+### `kafka/` (optional: Kafka screens)
+
+Only when my applications use Kafka and I asked for Kafka screens. Follow
+`docs/CONFIG.md` §10 and `examples/config/kafka/demo.yaml`.
+
+- Every broker address, user name, password and truststore password is a
+  `${KEY}` reference to a key of a dotenv file listed in `sources` (rule 2):
+  never a value.
+- **Schema Registry:** when the applications use Confluent serializers
+  (`KafkaAvroSerializer`, `KafkaJsonSchemaSerializer`, or
+  `schema.registry.url` in `application*.yml`, `spring.kafka.properties.*` or
+  the env files), add `schema_registry` with `url` and, when they use them,
+  `basic_auth` (`basic.auth.user.info`) or `bearer_token`
+  (`bearer.auth.token`) and `tls`, all as references. Add `decode: [key, value]`
+  only when a key serializer is a Schema Registry one too. Huginn only reads
+  the registry; producer settings (`auto.register.schemas`, subject
+  strategies) have no equivalent.
+- Check with `huginn --config <OUTPUT_DIR> kafka check <repo>`: it reads the
+  brokers and the registry (`GET` only) and fails when either cannot be used.
+
 ### `ui.yaml`
 
 Optional. Personal preferences; skip it unless I asked for something.
@@ -258,6 +278,7 @@ In `<OUTPUT_DIR>`:
 
 - The config folder: `huginn.yaml`, `environments.yaml`, `services.yaml`,
   `containers.yaml` (when sidecars exist), `formats/*.yaml`, `layouts/*.yaml`,
+  `kafka/*.yaml` (when asked for),
   each commented with where its values came from (`# from payments-api/k8s/overlays/rec/kustomization.yaml`).
 - `README.md` with:
   - **Sources:** a table of repositories scanned → logging style, format and
