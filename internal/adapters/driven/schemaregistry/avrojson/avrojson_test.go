@@ -69,14 +69,26 @@ func everyValue() map[string]any {
 
 // everyJSON is what everyValue decodes to: Avro's JSON encoding (fields in
 // order, unions wrapped, null plain) with readable logical types.
-const everyJSON = `{"id":"ord-1 \"quoted\"\n","quantity":3,"total":-9007199254740993,"price":1.5,"ratio":0.25,` +
-	`"paid":true,"blob":"0x0001fe","status":"PAID","tags":["a","b"],"counts":{"x":1},` +
-	`"note":{"string":"gift"},"address":{"city":"Lyon","zip":null},` +
-	`"billing":{"com.example.Address":{"city":"Paris","zip":{"int":75001}}},` +
-	`"amount":"-12.50","fee":"0.500",` +
-	`"at":"2026-10-06T19:14:02.113Z","atMicros":"2026-10-06T19:14:02.113456Z","localAt":"2026-10-06T19:14:02.113",` +
-	`"day":"2026-10-06","timeOfDay":"19:14:02.113","timeMicros":"01:00:00.000005",` +
-	`"uid":"8f91a2d4-1c2b-4e5f-9a0b-7fd28c90e24a","wait":{"months":1,"days":2,"millis":3},"hash":"0xdeadbeef"}`
+//
+// localAt is built from at.In(time.Local), not a hardcoded UTC string:
+// hamba/avro's own local-timestamp Encode (used by encode(), below) converts
+// through time.Local when writing the test's input bytes, same as a real
+// local-timestamp producer would through its own host's zone. The decoder
+// under test (avrojson.go) is already zone-independent -- it only reports
+// whatever wall-clock reading the bytes encode, via UTC as a neutral
+// calendar -- so hardcoding a UTC string here made the test depend on
+// which zone happened to run it, not on the decoder's own correctness.
+func everyJSON() string {
+	local := at.In(time.Local).Format("2006-01-02T15:04:05.000")
+	return `{"id":"ord-1 \"quoted\"\n","quantity":3,"total":-9007199254740993,"price":1.5,"ratio":0.25,` +
+		`"paid":true,"blob":"0x0001fe","status":"PAID","tags":["a","b"],"counts":{"x":1},` +
+		`"note":{"string":"gift"},"address":{"city":"Lyon","zip":null},` +
+		`"billing":{"com.example.Address":{"city":"Paris","zip":{"int":75001}}},` +
+		`"amount":"-12.50","fee":"0.500",` +
+		`"at":"2026-10-06T19:14:02.113Z","atMicros":"2026-10-06T19:14:02.113456Z","localAt":"` + local + `",` +
+		`"day":"2026-10-06","timeOfDay":"19:14:02.113","timeMicros":"01:00:00.000005",` +
+		`"uid":"8f91a2d4-1c2b-4e5f-9a0b-7fd28c90e24a","wait":{"months":1,"days":2,"millis":3},"hash":"0xdeadbeef"}`
+}
 
 func encode(t testing.TB, schema string, v any) []byte {
 	t.Helper()
@@ -99,8 +111,9 @@ func TestDecodeEveryType(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(got) != everyJSON {
-		t.Fatalf("got\n%s\nwant\n%s", got, everyJSON)
+	want := everyJSON()
+	if string(got) != want {
+		t.Fatalf("got\n%s\nwant\n%s", got, want)
 	}
 	if !json.Valid(got) {
 		t.Fatal("not valid JSON")
