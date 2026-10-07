@@ -9,7 +9,7 @@ match:
   repos: [orders]
 
 sources:
-  - file: "/mnt/c/Users/PC/IdeaProjects/huginn/deploy/gke-qa/kafka-secrets/kafka-tier2.env.sops"
+  - file: "../kafka-secrets/kafka-tier2.env.sops"
     sops: true
 
 connection:
@@ -20,7 +20,7 @@ connection:
     username: ${KAFKA_USER}
     password: ${KAFKA_PASSWORD}
   tls:
-    ca: "/mnt/c/Users/PC/IdeaProjects/huginn/deploy/gke-qa/kafka-secrets/client.truststore.p12"
+    ca: "../kafka-secrets/client.truststore.p12"
     ca_password: ${KAFKA_TRUSTSTORE_PASSWORD}
 
 topics:

@@ -58,6 +58,7 @@ spec:
             - { containerPort: 9092, name: plaintext }
             - { containerPort: 9093, name: controller }
             - { containerPort: 9094, name: sasl-ssl }
+            - { containerPort: 9095, name: internal }
           resources:
             requests: { cpu: 500m, memory: 1536Mi }
             limits: { memory: 2Gi }
@@ -83,3 +84,4 @@ spec:
   ports:
     - { name: plaintext, port: 9092, targetPort: 9092 }
     - { name: sasl-ssl, port: 9094, targetPort: 9094 }
+    - { name: internal, port: 9095, targetPort: 9095 }

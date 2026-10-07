@@ -29,4 +29,11 @@ hidden:                        # never on the stream; shown in zoom metadata
   - stream
   - logtag
 
+mute:
+  # Confirmed from a real catalog-indexer crash loop (M14-gke-qa.md §5):
+  # com.zaxxer.hikari.pool.HikariPool never logs here -- the failure is
+  # reported at the HikariDataSource level before the pool itself logs.
+  loggers: ["com.zaxxer.hikari.HikariDataSource"]
+  keep: [error]
+
 layout: spring

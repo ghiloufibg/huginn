@@ -1,0 +1,46 @@
+# Same name, two real namespaces: the real-world shape D-061's pod-key fix
+# targets (a StatefulSet's deterministic pod name, not a Deployment's
+# random suffix). M14-gke-qa.md §3.2.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: named-pod-fixture
+  namespace: qa-rec
+  labels:
+    app.kubernetes.io/part-of: named-pod-fixture
+spec:
+  serviceName: named-pod-fixture
+  replicas: 1
+  selector:
+    matchLabels: {app: named-pod-fixture}
+  template:
+    metadata:
+      labels: {app: named-pod-fixture, app.kubernetes.io/part-of: named-pod-fixture}
+    spec:
+      containers:
+        - name: named-pod-fixture
+          image: busybox:1.36
+          command: ["sh", "-c", "while true; do echo '{\"level\":\"info\",\"message\":\"from qa-rec\"}'; sleep 5; done"]
+          resources: {requests: {cpu: 10m, memory: 16Mi}}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: named-pod-fixture
+  namespace: qa-restricted
+  labels:
+    app.kubernetes.io/part-of: named-pod-fixture
+spec:
+  serviceName: named-pod-fixture
+  replicas: 1
+  selector:
+    matchLabels: {app: named-pod-fixture}
+  template:
+    metadata:
+      labels: {app: named-pod-fixture, app.kubernetes.io/part-of: named-pod-fixture}
+    spec:
+      containers:
+        - name: named-pod-fixture
+          image: busybox:1.36
+          command: ["sh", "-c", "while true; do echo '{\"level\":\"info\",\"message\":\"from qa-restricted\"}'; sleep 5; done"]
+          resources: {requests: {cpu: 10m, memory: 16Mi}}

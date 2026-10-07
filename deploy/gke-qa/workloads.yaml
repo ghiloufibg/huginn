@@ -37,7 +37,7 @@ spec:
           command: ["sh", "-c", "echo istio-init: pretending to install iptables rules && sleep 1"]
       containers:
         - name: payment-service
-          image: us-central1-docker.pkg.dev/huginn-kube-tui/huginn-qa/payment-service:1.0
+          image: us-east1-docker.pkg.dev/huginn-kube-tui/huginn-qa/payment-service:1.0
           ports:
             - containerPort: 8080
           resources:
@@ -102,7 +102,7 @@ spec:
     spec:
       containers:
         - name: catalog-indexer
-          image: us-central1-docker.pkg.dev/huginn-kube-tui/huginn-qa/catalog-indexer:1.0
+          image: us-east1-docker.pkg.dev/huginn-kube-tui/huginn-qa/catalog-indexer:1.0
           resources:
             requests:
               cpu: 100m
@@ -134,7 +134,7 @@ spec:
     spec:
       containers:
         - name: order-orchestrator
-          image: us-central1-docker.pkg.dev/huginn-kube-tui/huginn-qa/order-orchestrator:1.0
+          image: us-east1-docker.pkg.dev/huginn-kube-tui/huginn-qa/order-orchestrator:1.0
           ports:
             - containerPort: 8080
           resources:
@@ -186,7 +186,7 @@ spec:
     spec:
       containers:
         - name: payment-service-loadgen
-          image: us-central1-docker.pkg.dev/huginn-kube-tui/huginn-qa/payment-service:1.0
+          image: us-east1-docker.pkg.dev/huginn-kube-tui/huginn-qa/payment-service:1.0
           env:
             - name: PAYMENT_PROCESSING_INTERVAL_MS
               value: "150"
