@@ -613,3 +613,11 @@ Status: accepted.
 - **NFR**: one real but modest data point (42→72 MiB RSS, 8→17s CPU over ~4 minutes with the trio, loadgen, and fixtures live); not a load test at D-063/D-064's own benchmark rates.
 Status: accepted.
 
+## D-070 Three real, unpatched hamba/avro CVEs: mitigated and tracked, not blocked on
+`govulncheck` started failing CI (GO-2026-5046, -5047, -5048: CPU exhaustion, an integer-overflow panic, and unbounded map allocation, all decoding untrusted Avro bytes). All three are in `github.com/hamba/avro/v2`, published 2026-07-27, confirmed against the live vulnerability database: **no fixed version exists** (checked every release up to the latest, v2.31.0; the only patched fork, `iskorotkov/avro/v2`, is a different module).
+- **Investigated the real call paths, not just the module name.** Every trace `govulncheck -json` reports from Huginn's code goes through `avrojson.go`'s calls into hamba/avro's schema-metadata and parsing accessors (`Type`, `Items`, `Fields`, `Values`, `Symbols`, `Freeze`, `ParseWithCache`) — never hamba's own value-decoding codec internals (`codec_native.go`'s map/array `Decode` methods) where these three vulnerabilities actually live. Consistent with D-067's own design: `avrojson` walks the parsed schema and decodes bytes itself, using hamba/avro only to parse and introspect schemas, not to decode values.
+- **Added panic recovery around the registry's `Decode` call regardless** (`schemaDecoding.decodeRecovered`, `internal/core/app/kafkadecode.go`), extending D-061's own reasoning for the Kafka poll goroutine to this path: a panic from any third-party decoder, through any call path, is now reported as a normal decode error (the record keeps its bytes and says why) instead of crashing the process. `TestKafkaSchemaDecodePanicRecovered` forces one via a test double.
+- **`govulncheck` has no built-in per-id ignore list** (checked v1.8.0's `-h`). `scripts/govulncheck-allowlist.sh` runs the real scan and fails on anything not already triaged and listed, with why, right there in the script — never a silent skip, and a new finding still fails CI immediately.
+- **Revisit when hamba/avro ships a fix** for any of the three ids, or if a future code change makes `avrojson.go` call its value-decoding codec path directly (re-audit the traces then, don't assume the mitigation still holds).
+Status: accepted.
+

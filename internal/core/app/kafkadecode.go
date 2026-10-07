@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"runtime"
+	"runtime/debug"
 	"sync"
 
 	"github.com/ghiloufibg/huginn/internal/core/domain"
@@ -69,7 +70,7 @@ func (d schemaDecoding) field(ctx context.Context, b []byte, size, limit int, no
 	if len(b) < size {
 		return b, size, domain.SchemaRef{ID: id, Err: "not decoded: cut at kafka.max_value_bytes"}
 	}
-	out, ref, err := d.dec.Decode(ctx, b)
+	out, ref, err := d.decodeRecovered(ctx, b, notices)
 	if err != nil {
 		ref.ID, ref.Err = id, err.Error()
 		notices.add(fmt.Sprintf("schema registry: %v", err))
@@ -81,6 +82,22 @@ func (d schemaDecoding) field(ctx context.Context, b []byte, size, limit int, no
 		return bytes.Clone(out[:limit]), len(out), ref
 	}
 	return out, len(out), ref
+}
+
+// decodeRecovered calls the registry's own Decode, recovering a panic --
+// e.g. an edge case in a third-party Avro/JSON Schema library hitting a
+// malformed or adversarial payload or schema -- so one bad record cannot
+// crash the whole process, same reasoning as the Kafka poll goroutine's own
+// recover (D-061). A recovered panic is reported exactly like any other
+// decode error: the record keeps its bytes and says why.
+func (d schemaDecoding) decodeRecovered(ctx context.Context, b []byte, notices *decodeNotices) (out []byte, ref domain.SchemaRef, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			notices.logPanic(r)
+			err = fmt.Errorf("internal error (see the diagnostic log): %v", r)
+		}
+	}()
+	return d.dec.Decode(ctx, b)
 }
 
 // decodeNotices collects distinct decoding failures, safe for concurrent
@@ -108,6 +125,14 @@ func (n *decodeNotices) add(msg string) {
 	n.pending = append(n.pending, msg)
 	if n.log != nil {
 		n.log("kafka record not decoded", "reason", msg)
+	}
+}
+
+// logPanic writes a recovered panic and its stack to the diagnostic log
+// only -- never shown on screen, same as any other internal error.
+func (n *decodeNotices) logPanic(r any) {
+	if n.log != nil {
+		n.log("internal error recovered", "in", "schema registry decode", "panic", fmt.Sprint(r), "stack", string(debug.Stack()))
 	}
 }
 

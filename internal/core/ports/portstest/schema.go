@@ -19,11 +19,15 @@ type FakeSchema struct {
 
 // FakeSchemaRegistry is a ports.SchemaDecoderFactory and SchemaDecoder
 // serving fixed schemas by id. Err, when set, fails every decode as an
-// unreachable registry would. It counts the decodes.
+// unreachable registry would. Panic, when set, panics every decode instead
+// -- simulating an edge case in a real Avro/JSON Schema library hitting a
+// malformed or adversarial payload, which Decode cannot return as a normal
+// error. It counts the decodes.
 type FakeSchemaRegistry struct {
 	mu      sync.Mutex
 	Schemas map[uint32]FakeSchema
 	Err     error
+	Panic   any
 	decodes int
 }
 
@@ -42,6 +46,9 @@ func (f *FakeSchemaRegistry) Decode(_ context.Context, framed []byte) ([]byte, d
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.decodes++
+	if f.Panic != nil {
+		panic(f.Panic)
+	}
 	id, ok := domain.FramedSchemaID(framed)
 	if !ok {
 		return nil, domain.SchemaRef{}, fmt.Errorf("not in the Schema Registry framing: %w", domain.ErrInvalidPayload)

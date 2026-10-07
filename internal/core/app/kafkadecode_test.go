@@ -161,6 +161,26 @@ func TestKafkaRegistryProblemsAreNotices(t *testing.T) {
 	}
 }
 
+// A panic from the registry's own Decode (an edge case in a real
+// Avro/JSON Schema library hitting a malformed or adversarial payload)
+// must not crash the whole process: it is recovered and reported exactly
+// like any other decode error (GO-2026-5047/5046, D-061's own reasoning
+// extended to the Schema Registry decode path).
+func TestKafkaSchemaDecodePanicRecovered(t *testing.T) {
+	s, _, reg := registryFixture(t)
+	reg.Panic = "simulated avro decoder panic"
+	recs, notices := readTopic(t, s, ports.KafkaQuery{})
+	if recs[0].ValueSchema.Err == "" || !strings.Contains(recs[0].ValueSchema.Err, "internal error") {
+		t.Fatalf("panic not reported as a decode error: %+v", recs[0].ValueSchema)
+	}
+	if string(recs[0].Value) != string(portstest.Framed(7, avro("ord-1"))) {
+		t.Fatalf("panicked record did not keep its bytes: %q", recs[0].Value)
+	}
+	if len(notices) == 0 {
+		t.Fatalf("no notice for the recovered panic")
+	}
+}
+
 func TestKafkaSessionsWithoutRegistryDoNotDecode(t *testing.T) {
 	s, _, reg := registryFixture(t)
 	s.Profiles[0].Registry = KafkaRegistrySpec{}
