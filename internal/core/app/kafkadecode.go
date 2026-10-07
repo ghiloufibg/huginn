@@ -31,10 +31,13 @@ func (d schemaDecoding) decodeAll(ctx context.Context, recs []domain.KafkaRecord
 	if d.dec == nil || len(recs) == 0 {
 		return
 	}
-	workers := 1
-	if len(recs) >= decodeParallel {
-		workers = min(runtime.GOMAXPROCS(0), len(recs)/decodeParallel+1)
+	if len(recs) < decodeParallel { // most live batches: no goroutine
+		for i := range recs {
+			d.decode(ctx, &recs[i], limit, notices)
+		}
+		return
 	}
+	workers := min(runtime.GOMAXPROCS(0), len(recs)/decodeParallel+1)
 	chunk := (len(recs) + workers - 1) / workers
 	var wg sync.WaitGroup
 	for lo := 0; lo < len(recs); lo += chunk {

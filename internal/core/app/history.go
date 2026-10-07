@@ -257,21 +257,22 @@ const decodeChunk = 4096
 
 // decodeKept decodes history lines (in time order) from the side that is
 // kept, the newest or, for a head, the oldest, in parallel chunks, until
-// limit entries are kept: lines past that are never decoded. It returns
-// the entries in time order, the lines left out and the muted lines per
-// pattern.
+// limit entries are kept: lines past that are never decoded, and each round
+// decodes only the chunks still needed. It returns the entries in time
+// order, the lines left out and the muted lines per pattern.
 func decodeKept(items []histItem, limit int, oldest bool) (entries []domain.LogEntry, dropped int, muted map[string]int) {
 	type job struct {
 		items []histItem
 		out   []domain.LogEntry
 		muted map[string]int
 	}
-	var chunks [][]domain.LogEntry // in decoding order
+	var chunks [][]domain.LogEntry // in decoding order: from the side kept
 	kept, done := 0, 0
 	workers := runtime.GOMAXPROCS(0)
 	for kept < limit && done < len(items) {
+		needed := (limit - kept + decodeChunk - 1) / decodeChunk // if nothing is muted
 		var jobs []*job
-		for range workers {
+		for range min(workers, needed) {
 			if done == len(items) {
 				break
 			}
@@ -299,22 +300,24 @@ func decodeKept(items []histItem, limit int, oldest bool) (entries []domain.LogE
 			}
 		}
 	}
-	if !oldest {
-		slices.Reverse(chunks) // decoded newest first
+	// Keep the limit entries nearest the side kept, copied once into a
+	// slice of their exact size, in time order.
+	extra := max(kept-limit, 0)
+	entries = make([]domain.LogEntry, 0, kept-extra)
+	if oldest {
+		for _, c := range chunks {
+			entries = append(entries, c[:min(len(c), limit-len(entries))]...)
+		}
+	} else {
+		skip := extra // the oldest decoded, in the last chunk decoded
+		for i := len(chunks) - 1; i >= 0; i-- {
+			c := chunks[i]
+			n := min(skip, len(c))
+			skip -= n
+			entries = append(entries, c[n:]...)
+		}
 	}
-	entries = make([]domain.LogEntry, 0, min(kept, limit))
-	for _, c := range chunks {
-		entries = append(entries, c...)
-	}
-	extra := len(entries) - limit
-	switch {
-	case extra > 0 && oldest:
-		entries = entries[:limit]
-	case extra > 0:
-		entries = entries[extra:]
-	}
-	dropped = len(items) - done + max(extra, 0)
-	return entries, dropped, muted
+	return entries, len(items) - done + extra, muted
 }
 
 // decodeItems decodes history lines, leaving out those of muted loggers;

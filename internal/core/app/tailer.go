@@ -98,10 +98,7 @@ func (t *tailer) send(ctx context.Context, m tailMsg) bool {
 }
 
 func (t *tailer) request() ports.LogRequest {
-	limit := t.s.MaxHistory
-	if limit <= 0 {
-		limit = 50000
-	}
+	limit := t.s.limit()
 	req := ports.LogRequest{Scope: t.scope, Namespace: t.ns, Pod: t.name, Container: t.container, Window: t.q.Window, Previous: t.q.Previous}
 	if w := t.q.Window; w.IsHead() { // the first lines, of the previous instance too
 		req.Window.Head = min(w.Head, limit)

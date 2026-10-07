@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -28,7 +29,9 @@ func demoCatalog(t *testing.T) (<-chan ports.CatalogSnapshot, *portstest.FakeClo
 	return ch, clock
 }
 
-func waitFor(t *testing.T, ch <-chan ports.CatalogSnapshot, clock *portstest.FakeClock, step time.Duration, ok func(ports.CatalogSnapshot) bool) ports.CatalogSnapshot {
+// waitFor advances the clock until a snapshot satisfies ok; on timeout
+// it fails with what the optional describe says about the last one.
+func waitFor(t *testing.T, ch <-chan ports.CatalogSnapshot, clock *portstest.FakeClock, step time.Duration, ok func(ports.CatalogSnapshot) bool, describe ...func() string) ports.CatalogSnapshot {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
@@ -41,8 +44,19 @@ func waitFor(t *testing.T, ch <-chan ports.CatalogSnapshot, clock *portstest.Fak
 		case <-time.After(2 * time.Millisecond):
 		}
 	}
+	for _, d := range describe {
+		t.Log(d())
+	}
 	t.Fatal("condition not reached")
 	return ports.CatalogSnapshot{}
+}
+
+func statuses(rows map[string]domain.ServiceSummary) map[string]domain.ServiceStatus {
+	out := make(map[string]domain.ServiceStatus, len(rows))
+	for repo, r := range rows {
+		out[repo] = r.Status
+	}
+	return out
 }
 
 func byRepo(s ports.CatalogSnapshot) map[string]domain.ServiceSummary {
@@ -55,19 +69,28 @@ func byRepo(s ports.CatalogSnapshot) map[string]domain.ServiceSummary {
 
 func TestDemoCatalogMatchesMockup(t *testing.T) {
 	ch, clock := demoCatalog(t)
-	s := waitFor(t, ch, clock, 100*time.Millisecond, func(s ports.CatalogSnapshot) bool { return s.Synced && len(s.Services) == 15 })
-	rows := byRepo(s)
 	want := map[string]domain.ServiceStatus{
 		"catalog-indexer": domain.StatusCrashLoopBackOff, "order-orchestrator": domain.StatusOOMKilled,
 		"document-renderer": domain.StatusImagePullBackOff, "billing-gateway": domain.StatusDegraded,
 		"email-dispatcher": domain.StatusPending, "notification-worker": domain.StatusProgressing,
 		"ledger-writer": domain.StatusProgressing, "payment-service": domain.StatusHealthy, "user-api": domain.StatusHealthy,
 	}
-	for repo, st := range want {
-		if rows[repo].Status != st {
-			t.Errorf("%s: %v, want %v", repo, rows[repo].Status, st)
+	// Synced means every namespace is watched; pods may come in a later
+	// snapshot, so wait for the statuses rather than the first synced one.
+	var last map[string]domain.ServiceSummary
+	s := waitFor(t, ch, clock, 100*time.Millisecond, func(s ports.CatalogSnapshot) bool {
+		last = byRepo(s)
+		if !s.Synced || len(s.Services) != 15 {
+			return false
 		}
-	}
+		for repo, st := range want {
+			if last[repo].Status != st {
+				return false
+			}
+		}
+		return true
+	}, func() string { return fmt.Sprintf("statuses %v", statuses(last)) })
+	rows := byRepo(s)
 	p := rows["payment-service"]
 	if p.Workloads != 2 || p.Restarts != 1 || p.Version != "v2.14.3" || p.ReadyPods != 4 || p.DesiredPods != 4 {
 		t.Errorf("payment-service: %+v", p)
