@@ -155,3 +155,21 @@ func TestPreviewDeployedTimeZone(t *testing.T) {
 		t.Fatalf("19:14 UTC minus 3h is 16:14 UTC, 01:14 the next day in JST:\n%s", out)
 	}
 }
+
+// Scaling a Deployment makes the watched Progressing flag true for the seconds
+// the controller's counts lag; the preview must keep showing when it was
+// deployed, not "rolling out since" the age of the old pods.
+func TestPreviewDeployedIsNotARolloutWhileScaling(t *testing.T) {
+	ws := []domain.Workload{workload("catalog-indexer", func(w *domain.Workload) {
+		w.RolloutDone = t0.Add(-3 * time.Hour)
+		w.Progressing, w.DesiredReplicas, w.UpdatedReplicas = true, 3, 2 // scaled 2 -> 3, the third pod not counted yet
+	})}
+	pods := []domain.Pod{revPod("catalog-indexer", "catalog-indexer-a", "h1", 4*time.Hour), revPod("catalog-indexer", "catalog-indexer-b", "h1", 4*time.Hour)}
+	out := previewOf(t, 160, 34, ws, pods)
+	if !strings.Contains(out, "DEPLOYED   catalog-indexer  Sep 26 16:14  3h ago") {
+		t.Fatalf("a scale-up must keep the deployment time:\n%s", out)
+	}
+	if strings.Contains(out, "rolling out") {
+		t.Fatalf("a scale-up is not a rollout:\n%s", out)
+	}
+}
