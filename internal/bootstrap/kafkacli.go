@@ -147,32 +147,63 @@ func kafkaRead(ctx context.Context, o cli.KafkaOptions, e Env, log *slog.Logger,
 		}
 		window = tw
 	}
+	if o.From != "" { // an absolute range, typed in the machine's time zone
+		tw, err := domain.ParseTimeRange(o.From, o.To, clock.New().Now(), time.Local)
+		if err != nil {
+			return fmt.Errorf("--from/--to: %w", err)
+		}
+		window = tw
+	}
 	sess, err := r.kafka.Open(ctx, r.env, o.Repo)
 	if err != nil {
 		return err
 	}
 	defer sess.Close()
-	ch, err := sess.Read(ctx, ports.KafkaQuery{Topic: o.Topic, Window: window, Follow: o.Follow, ReadCommitted: o.Committed, Raw: o.NoDecode})
-	if err != nil {
-		return err
+	return kafkaReadAll(ctx, sess, ports.KafkaQuery{Topic: o.Topic, Window: window, Follow: o.Follow, ReadCommitted: o.Committed, Raw: o.NoDecode}, o.Raw, terminal, w, errw)
+}
+
+// kafkaReadAll prints what q asks for. A range larger than a page is printed
+// page after page, each in time order: unlike the screen, a shell has no
+// buffer to fill.
+func kafkaReadAll(ctx context.Context, sess ports.KafkaSession, q ports.KafkaQuery, raw, terminal bool, w, errw io.Writer) error {
+	for {
+		next, err := kafkaReadPage(ctx, sess, q, raw, terminal, w, errw)
+		if err != nil || next == nil {
+			return err
+		}
+		q.After = next
 	}
+}
+
+// kafkaReadPage prints the records one read delivers and returns where the
+// next page of a range starts, nil when there is none (the history is
+// printed, or the follow was interrupted).
+func kafkaReadPage(ctx context.Context, sess ports.KafkaSession, q ports.KafkaQuery, raw, terminal bool, w, errw io.Writer) (map[int32]int64, error) {
+	ch, err := sess.Read(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	var next map[int32]int64
 	for b := range ch {
 		for _, n := range b.Notices {
 			fmt.Fprintln(errw, "huginn:", n)
 		}
 		for i := range b.Records {
-			if _, err := io.WriteString(w, recordLine(&b.Records[i], o.Raw, terminal)); err != nil {
+			if _, err := io.WriteString(w, recordLine(&b.Records[i], raw, terminal)); err != nil {
 				if errors.Is(err, syscall.EPIPE) {
-					return nil // the reader is gone (| head): not an error
+					return nil, nil // the reader is gone (| head): not an error
 				}
-				return err
+				return nil, err
 			}
 		}
 		if b.Err != nil {
-			return b.Err
+			return nil, b.Err
+		}
+		if b.HistoryDone {
+			next = b.Next
 		}
 	}
-	return nil // the history is printed, or the follow was interrupted
+	return next, nil
 }
 
 // recordLine is a record as printed: time, partition, offset, key and the

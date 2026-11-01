@@ -86,3 +86,46 @@ func TestKafkaSubcommands(t *testing.T) {
 		t.Fatalf("an environment argument still opens the TUI: %v %s", err, which)
 	}
 }
+
+func TestRangeFlags(t *testing.T) {
+	o, _, err := run(t, "--from", "2026-11-01 14:30", "--to", "now-5m")
+	if err != nil || o.From != "2026-11-01 14:30" || o.To != "now-5m" {
+		t.Fatalf("got %+v, %v", o, err)
+	}
+	if o, _, err = run(t, "--from", "now-1h"); err != nil || o.From != "now-1h" || o.To != "" {
+		t.Fatalf("a range with an open end: %+v, %v", o, err)
+	}
+	for _, args := range [][]string{
+		{"--since", "1h", "--from", "now-1h"},
+		{"--since", "1h", "--to", "now"},
+		{"--to", "now"},
+	} {
+		if _, _, err := run(t, args...); err == nil {
+			t.Errorf("%v must be rejected", args)
+		}
+	}
+}
+
+func TestKafkaReadRangeFlags(t *testing.T) {
+	var got KafkaOptions
+	h := Handlers{KafkaRead: func(_ context.Context, o KafkaOptions, _ io.Writer) error { got = o; return nil }}
+	exec := func(args ...string) error {
+		cmd := NewRootCommand(h, "v1")
+		cmd.SetArgs(args)
+		cmd.SetOut(io.Discard)
+		cmd.SetErr(io.Discard)
+		return cmd.ExecuteContext(context.Background())
+	}
+	if err := exec("kafka", "read", "orders", "t", "--from", "14:30", "--to", "15:00"); err != nil || got.From != "14:30" || got.To != "15:00" {
+		t.Fatalf("%+v, %v", got, err)
+	}
+	for _, args := range [][]string{
+		{"kafka", "read", "orders", "t", "--from", "14:30", "--tail", "5"},
+		{"kafka", "read", "orders", "t", "--from", "14:30", "--since", "1h"},
+		{"kafka", "read", "orders", "t", "--to", "15:00"},
+	} {
+		if err := exec(args...); err == nil {
+			t.Errorf("%v must be rejected", args)
+		}
+	}
+}

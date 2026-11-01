@@ -38,7 +38,7 @@ func helpActions(s screen) (string, []Action) {
 	case *kafkaRecordsScreen:
 		return "Kafka records", []Action{
 			ActUp, ActDown, ActPageUp, ActPageDown, ActTop, ActBottom, ActOpen, ActFilter,
-			ActWindow1, ActWindow2, ActWindow3, ActWindow4, ActWindow5, ActWindow6, ActWindow7, ActWindowTail,
+			ActWindow1, ActWindow2, ActWindow3, ActWindow4, ActWindow5, ActWindow6, ActWindow7, ActWindowTail, ActWindowRange, ActPageNext, ActPagePrev,
 			ActFollow, ActPause, ActIsolation, ActRawRecords, ActRefresh, ActOrder, ActCopy,
 		}
 	case *kafkaZoomScreen:
@@ -46,7 +46,7 @@ func helpActions(s screen) (string, []Action) {
 	case *logsScreen:
 		return "Logs", []Action{
 			ActUp, ActDown, ActPageUp, ActPageDown, ActTop, ActBottom, ActNextError, ActPrevError,
-			ActFollow, ActPause, ActPreviousLogs, ActWindowNext, ActWindowPick, ActWindow1, ActWindow2, ActWindow3, ActWindow4, ActWindow5, ActWindow6, ActWindow7, ActWindowTail, ActWindowHead,
+			ActFollow, ActPause, ActPreviousLogs, ActWindowNext, ActWindowPick, ActWindow1, ActWindow2, ActWindow3, ActWindow4, ActWindow5, ActWindow6, ActWindow7, ActWindowTail, ActWindowHead, ActWindowRange, ActPageNext, ActPagePrev,
 			ActFilter, ActFilterMode, ActRegex, ActAddFilter, ActContext, ActNextMatch, ActPrevMatch, ActLevels, ActErrorsOnly, ActWarnAndError, ActAllLevels,
 			ActOpen, ActViewTrace, ActSelect, ActMark, ActCopy, ActCopyRaw, ActSave, ActPodScope, ActPodSelector, ActAllContainers, ActShowMuted,
 			ActOrder, ActCycleColumns, ActTimestamps, ActPodID, ActColumns, ActFocus, ActResetDisplay, ActWrap, ActPanLeft, ActPanRight, ActPanLeftHalf, ActPanRightHalf, ActFullscreen,

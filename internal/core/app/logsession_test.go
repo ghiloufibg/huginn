@@ -79,7 +79,8 @@ type reader struct {
 	muted   uint64
 	mutedBy map[string]uint64
 	skipped uint64
-	largest int // most entries in one batch
+	largest int                // most entries in one batch
+	more    *domain.PageCursor // where the page ended, when a range has more
 }
 
 func (r *reader) until(step time.Duration, ok func() bool) {
@@ -104,6 +105,9 @@ func (r *reader) until(step time.Duration, ok func() bool) {
 				r.notices = append(r.notices, n.Text)
 			}
 			r.history = r.history || b.HistoryDone
+			if b.More != nil {
+				r.more = b.More
+			}
 			r.muted += b.Muted
 			r.skipped += b.Skipped
 			r.largest = max(r.largest, len(b.Entries))

@@ -3,6 +3,7 @@ package demo
 import (
 	"context"
 	"fmt"
+	"maps"
 	"math/rand/v2"
 	"slices"
 	"strconv"
@@ -82,11 +83,30 @@ func (s kafkaSource) Read(ctx context.Context, q ports.TopicRead) (<-chan ports.
 	parts := k.partitions(q.Topic)
 	next := map[int32]int64{}
 	var hist []domain.KafkaRecord
+	more := false
 	for p := range int32(parts) {
 		if len(q.Partitions) > 0 && !slices.Contains(q.Partitions, p) {
 			continue
 		}
 		end := k.end(q.Topic, p, now)
+		if !q.From.IsZero() { // a range: its first records, a page at a time
+			start, stop := k.offsetAt(q.Topic, p, q.From), end
+			if !q.To.IsZero() {
+				stop = min(end, k.offsetAt(q.Topic, p, q.To))
+			}
+			if after, ok := q.After[p]; ok {
+				start = max(start, after)
+			}
+			stop = max(stop, start)
+			if q.Limit > 0 && stop-start > int64(q.Limit) {
+				stop, more = start+int64(q.Limit), true
+			}
+			for off := start; off < stop; off++ {
+				hist = append(hist, k.record(q.Topic, p, off))
+			}
+			next[p] = stop
+			continue
+		}
 		start := max(end-int64(q.Tail), 0)
 		if q.Since > 0 {
 			start = k.offsetAt(q.Topic, p, now.Add(-q.Since))
@@ -99,15 +119,19 @@ func (s kafkaSource) Read(ctx context.Context, q ports.TopicRead) (<-chan ports.
 		}
 		next[p] = end
 	}
+	var resume map[int32]int64 // where each partition of a range resumes
+	if !q.From.IsZero() {
+		resume = maps.Clone(next)
+	}
 	out := make(chan ports.RecordBatch, 4)
 	go func() {
 		defer close(out)
 		select {
-		case out <- ports.RecordBatch{Records: hist, HistoryDone: true}:
+		case out <- ports.RecordBatch{Records: hist, HistoryDone: true, Next: resume, More: more}:
 		case <-ctx.Done():
 			return
 		}
-		if !q.Follow {
+		if !q.Follow || more { // a page with a successor is not live
 			return
 		}
 		tick := k.Clock.NewTicker(500 * time.Millisecond)

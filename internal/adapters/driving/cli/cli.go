@@ -18,11 +18,14 @@ type Options struct {
 	EnvArg, EnvFlag string
 	Repo            string
 	Since           string
-	Containers      string
-	ConfigPath      string
-	Demo            bool
-	Theme           string
-	LogLevel        string
+	// From and To are the bounds of an absolute range (--from, --to); To
+	// empty is an open end.
+	From, To   string
+	Containers string
+	ConfigPath string
+	Demo       bool
+	Theme      string
+	LogLevel   string
 }
 
 // KafkaOptions are the options of the kafka subcommands.
@@ -31,7 +34,9 @@ type KafkaOptions struct {
 	Repo, Topic string
 	// Since is a window such as 15m; Tail the records per partition
 	// otherwise (0: the kafka.tail_records of huginn.yaml).
-	Since     string
+	Since string
+	// From and To are the bounds of an absolute range (--from, --to).
+	From, To  string
 	Tail      int
 	Follow    bool
 	Committed bool
@@ -72,6 +77,9 @@ func NewRootCommand(h Handlers, version string) *cobra.Command {
 			if len(args) == 1 {
 				o.EnvArg = args[0]
 			}
+			if err := checkRangeFlags(cmd, o.Since != "", o.From, o.To); err != nil {
+				return err
+			}
 			return h.Run(cmd.Context(), o)
 		},
 	}
@@ -79,6 +87,8 @@ func NewRootCommand(h Handlers, version string) *cobra.Command {
 	f.StringVarP(&o.EnvFlag, "env", "e", "", "environment to open: a name of environments.yaml")
 	f.StringVar(&o.Repo, "repo", "", "open the logs of this repository directly")
 	f.StringVar(&o.Since, "since", "", "initial time window, e.g. 15m, 1h, 2d, tail (last lines) or head (first lines); tail:N and head:N set the size")
+	f.StringVar(&o.From, "from", "", "start of an absolute time range, e.g. \"2026-11-01 14:30\", 14:30 or now-90m (local time; an RFC 3339 time keeps its zone); with --to or alone")
+	f.StringVar(&o.To, "to", "", "end of the range (exclusive); without it the range runs to now and follows")
 	f.StringVar(&o.Containers, "containers", "", "containers the logs open on: app (application) or all (sidecars too); default from containers.yaml")
 	f.StringVar(&o.ConfigPath, "config", "", "config folder (default: $HUGINN_CONFIG, else <user config dir>/huginn); see docs/CONFIG.md")
 	f.BoolVar(&o.Demo, "demo", false, "use a synthetic in-memory cluster and, without --config, the embedded example folder")
@@ -127,11 +137,19 @@ func kafkaCommand(h Handlers) *cobra.Command {
 			if o.Since != "" && cmd.Flags().Changed("tail") {
 				return fmt.Errorf("--since and --tail: give one of them")
 			}
+			if o.From != "" && cmd.Flags().Changed("tail") {
+				return fmt.Errorf("--from and --tail: give one of them")
+			}
+			if err := checkRangeFlags(cmd, o.Since != "", o.From, o.To); err != nil {
+				return err
+			}
 			return h.KafkaRead(cmd.Context(), o, cmd.OutOrStdout())
 		},
 	}
 	rf := read.Flags()
 	rf.StringVar(&o.Since, "since", "", "records since this long ago, e.g. 15m, 1h, 2d")
+	rf.StringVar(&o.From, "from", "", "records from this time, e.g. \"2026-11-01 14:30\", 14:30 or now-90m (local time)")
+	rf.StringVar(&o.To, "to", "", "records before this time; without it, up to now")
 	rf.IntVar(&o.Tail, "tail", 0, "last records of each partition (default: kafka.tail_records)")
 	rf.BoolVarP(&o.Follow, "follow", "f", false, "keep printing new records until interrupted")
 	rf.BoolVar(&o.Committed, "committed", false, "committed records only (read_committed isolation)")
@@ -139,4 +157,18 @@ func kafkaCommand(h Handlers) *cobra.Command {
 	rf.BoolVar(&o.NoDecode, "no-decode", false, "leave records written by Schema Registry serializers as their bytes, even when the profile has schema_registry")
 	k.AddCommand(check, read)
 	return k
+}
+
+// checkRangeFlags rejects the combinations of --since, --from and --to that
+// mean nothing: a window and a range together, or an end without a start.
+func checkRangeFlags(cmd *cobra.Command, since bool, from, to string) error {
+	switch {
+	case since && from != "":
+		return fmt.Errorf("--since and --from: give one of them")
+	case since && to != "":
+		return fmt.Errorf("--since and --to: give one of them (--from and --to make a range)")
+	case from == "" && to != "":
+		return fmt.Errorf("--to needs --from: the range has no start")
+	}
+	return nil
 }

@@ -45,8 +45,15 @@ type ServiceCatalog interface {
 type LogQuery struct {
 	Env  domain.Env
 	Repo string
-	// Window is what history to load; a head window never follows.
+	// Window is what history to load; a head window and a closed range never
+	// follow. A range larger than the view's buffer is read in pages: the
+	// first page holds the oldest lines, and LogBatch.More says where it
+	// ended.
 	Window domain.TimeWindow
+	// Page, when set, starts a later page of a range: Window.From is the
+	// cursor's time, and the lines the previous page already delivered at
+	// that instant are skipped.
+	Page   *domain.PageCursor
 	Follow bool
 	// Containers says which containers of the pods are followed:
 	// application containers (default) or all of them.
@@ -95,6 +102,10 @@ type LogBatch struct {
 	// HistoryDone is set on the batch carrying the end of the window's
 	// history; later entries are live.
 	HistoryDone bool
+	// More, set with HistoryDone, says the range holds lines after the last
+	// entry delivered: it is the cursor to open the next page with. The page
+	// is then not live: the session does not follow, however Follow is set.
+	More *domain.PageCursor
 	// Muted is the number of lines hidden by the muted loggers of the
 	// log formats since the previous batch.
 	Muted uint64

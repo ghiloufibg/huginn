@@ -17,6 +17,10 @@ type FakeLogSource struct {
 	// SecondPrecision honors SinceTime to the second, as the Kubernetes
 	// API does.
 	SecondPrecision bool
+	// NoUpperBound makes a range window ignore its end and return every
+	// line from its start, as the Kubernetes API does (it has no end to
+	// ask for). With SecondPrecision, a range also starts at the second.
+	NoUpperBound bool
 
 	mu       sync.Mutex
 	clock    ports.Clock
@@ -91,7 +95,16 @@ func (s *FakeLogSource) Stream(ctx context.Context, req ports.LogRequest) (ports
 		s.mu.Unlock()
 		return nil, fmt.Errorf("logs of %s: %w", k, domain.ErrNotFound)
 	}
-	hist := domain.SelectWindow(src, req.Window, s.clock.Now())
+	w := req.Window
+	if w.IsRange() {
+		if s.SecondPrecision {
+			w.From = w.From.Truncate(time.Second)
+		}
+		if s.NoUpperBound {
+			w.To = time.Time{}
+		}
+	}
+	hist := domain.SelectWindow(src, w, s.clock.Now())
 	if !req.SinceTime.IsZero() {
 		since := req.SinceTime
 		if s.SecondPrecision {

@@ -3,6 +3,8 @@ package portstest
 import (
 	"context"
 	"errors"
+	"fmt"
+	"slices"
 	"testing"
 	"time"
 
@@ -101,6 +103,102 @@ func RunTopicSourceContract(t *testing.T, newFixture func(t *testing.T) TopicFix
 					break
 				}
 			}
+		}
+	})
+
+	t.Run("a range reads [from, to) and pages by offset", func(t *testing.T) {
+		f, src := open(t)
+		ch, err := src.Read(context.Background(), ports.TopicRead{Topic: f.Topic, Tail: 1000, Limit: 1000})
+		if err != nil {
+			t.Fatal(err)
+		}
+		all, _ := collect(t, ch)
+		if len(all) < 8 {
+			t.Skip("fixture has fewer than eight records")
+		}
+		slices.SortFunc(all, func(a, b domain.KafkaRecord) int { return a.Time.Compare(b.Time) })
+		from, to := all[len(all)/4].Time, all[3*len(all)/4].Time
+		if !to.After(from) {
+			t.Skip("fixture records share one time")
+		}
+		key := func(r domain.KafkaRecord) string { return fmt.Sprintf("%d/%d", r.Partition, r.Offset) }
+		want := map[string]bool{}
+		for _, r := range all {
+			if !r.Time.Before(from) && r.Time.Before(to) {
+				want[key(r)] = true
+			}
+		}
+
+		// The whole range in one read: exactly its records, then the end.
+		ch, err = src.Read(context.Background(), ports.TopicRead{Topic: f.Topic, From: from, To: to, Limit: 1000})
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, done := collect(t, ch)
+		if !done {
+			t.Error("HistoryDone never set")
+		}
+		have := map[string]bool{}
+		for _, r := range got {
+			have[key(r)] = true
+		}
+		if len(got) != len(want) || len(have) != len(want) {
+			t.Fatalf("range returned %d records (%d distinct), want %d", len(got), len(have), len(want))
+		}
+		for k := range want {
+			if !have[k] {
+				t.Fatalf("record %s of the range is missing", k)
+			}
+		}
+
+		// The same range one record per partition at a time: pages that
+		// follow each other, no record twice, none missing.
+		paged := map[string]bool{}
+		var after map[int32]int64
+		for range len(all) + 2 {
+			ch, err = src.Read(context.Background(), ports.TopicRead{Topic: f.Topic, From: from, To: to, Limit: 1, After: after})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var more bool
+			var next map[int32]int64
+			var recs []domain.KafkaRecord
+			timeout := time.After(30 * time.Second)
+		read:
+			for {
+				select {
+				case b, ok := <-ch:
+					if !ok {
+						break read
+					}
+					if b.Err != nil {
+						t.Fatalf("read failed: %v", b.Err)
+					}
+					recs = append(recs, b.Records...)
+					if b.HistoryDone {
+						more, next = b.More, b.Next
+						break read
+					}
+				case <-timeout:
+					t.Fatal("page did not end")
+				}
+			}
+			for _, r := range recs {
+				if paged[key(r)] {
+					t.Fatalf("record %s came on two pages", key(r))
+				}
+				paged[key(r)] = true
+			}
+			if !more {
+				break
+			}
+			if len(next) == 0 {
+				t.Fatal("a page with More must say where the next one starts")
+			}
+			after = next
+		}
+		if len(paged) != len(want) {
+			t.Fatalf("pages gave %d records, want %d", len(paged), len(want))
 		}
 	})
 

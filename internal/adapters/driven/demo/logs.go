@@ -133,6 +133,15 @@ func (c *Cluster) history(g generator, pc podContext, ctr domain.Container, inst
 	if !req.SinceTime.IsZero() {
 		return c.lines(g, pc, ctr, inst, latest(lower, req.SinceTime), to, true)
 	}
+	if w.IsRange() {
+		// [From, To): the start is honored exactly, the end only as far as
+		// the instance lived (a node has no end to ask for either).
+		end := to
+		if !w.To.IsZero() {
+			end = earliest(to, w.To)
+		}
+		return c.lines(g, pc, ctr, inst, latest(lower, w.From), end, true)
+	}
 	if w.IsHead() {
 		// From the start of what "the node" keeps: generate a span that
 		// should hold the head, longer until it does or reaches the end.

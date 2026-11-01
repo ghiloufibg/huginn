@@ -65,12 +65,12 @@ func (s *LogSessions) Open(ctx context.Context, q ports.LogQuery) (<-chan ports.
 	if err != nil {
 		return nil, err
 	}
-	if q.Previous || q.Window.IsHead() { // history only: a head never follows
+	if q.Previous || q.Window.IsHead() || q.Window.Closed() { // history only: a head or a closed range never follows
 		q.Follow = false
 	}
 	run := &session{
 		s: s, q: q, scope: scope, workloads: workloads, opened: s.Clock.Now(),
-		hist: newHistoryCollector(s.limit(), q.Window.IsHead() && !q.Previous),
+		hist: newHistoryCollector(s.limit(), q.Window.FromStart() && !q.Previous),
 		pods: map[podKey]*podState{}, msgs: make(chan tailMsg, tailQueue), out: make(chan ports.LogBatch, 1),
 	}
 	go run.loop(ctx, pods)
@@ -276,6 +276,8 @@ type session struct {
 	hist        *historyCollector
 	histSkipped int // history lines tailers could not keep
 	historySent bool
+	histMore    bool // a tailer stopped reading a range: its page is full
+	paged       bool // the history is one page of a range: nothing live follows it
 	reorder     reorderBuffer
 	committed   time.Time
 	pending     ports.LogBatch
@@ -316,7 +318,7 @@ func (r *session) loop(ctx context.Context, initial []domain.Pod) {
 	for _, p := range initial {
 		r.addPod(ctx, p, false)
 	}
-	if !r.q.Previous { // a previous instance is history: no pod changes
+	if !r.q.Previous && !r.q.Window.Closed() { // history only: no pod changes
 		r.watchPods(ctx)
 	}
 	if r.awaiting == 0 {
@@ -467,6 +469,9 @@ func (r *session) watchPods(ctx context.Context) {
 }
 
 func (r *session) handle(ctx context.Context, m tailMsg) {
+	if r.paged && (m.podEvent != nil || m.live != nil || m.muted != nil) {
+		return // a page ends the session's stream: later lines belong to later pages
+	}
 	switch {
 	case m.podEvent != nil:
 		r.handlePod(ctx, *m.podEvent)
@@ -533,6 +538,7 @@ func (r *session) handleHistory(m tailMsg) {
 		return
 	}
 	r.histSkipped += h.skipped
+	r.histMore = r.histMore || h.more
 	if n := r.retentionNotice(m); n != "" {
 		r.pending.Notices = append(r.pending.Notices, ports.LogNotice{Pod: m.pod, Text: n})
 	}
@@ -556,10 +562,21 @@ func (r *session) retentionNotice(m tailMsg) string {
 	if m.capped && !r.q.Window.IsTail() {
 		return fmt.Sprintf("%s: older lines of the window not loaded (limit %d lines per container)", m.pod, m.history.read)
 	}
-	if r.q.Window.IsTail() || r.q.Window.Since <= 0 || m.history.read == 0 {
+	w := r.q.Window
+	if w.IsTail() || m.history.read == 0 || (w.Since <= 0 && !w.IsRange()) {
 		return ""
 	}
-	start := r.opened.Add(-r.q.Window.Since)
+	start, span := r.opened.Add(-w.Since), w.Since
+	if w.IsRange() {
+		if r.q.Page != nil { // a later page starts inside the range
+			return ""
+		}
+		end := r.opened
+		if w.Closed() {
+			end = w.To
+		}
+		start, span = w.From, end.Sub(w.From)
+	}
 	p := r.pods[podKey{m.namespace, m.pod}]
 	if p == nil || p.Pod.Started.IsZero() || !p.Pod.Started.Before(start) {
 		return ""
@@ -568,7 +585,7 @@ func (r *session) retentionNotice(m tailMsg) string {
 	if first.IsZero() {
 		return ""
 	}
-	if gap := first.Sub(start); gap <= 5*time.Minute || gap <= r.q.Window.Since/10 {
+	if gap := first.Sub(start); gap <= 5*time.Minute || gap <= span/10 {
 		return ""
 	}
 	return fmt.Sprintf("logs of %s available from %s only", m.pod, first.In(time.Local).Format("Jan 2 15:04"))
@@ -602,11 +619,19 @@ func (r *session) rotationNotice(m tailMsg) string {
 // collector are decoded, from the side shown, until the buffer is full.
 func (r *session) finishHistory() {
 	head := r.q.Window.IsHead() && !r.q.Previous
+	paged := r.q.Window.IsRange() && !r.q.Previous
 	items, evicted := r.hist.close()
-	entries, notDecoded, muted := decodeKept(items, r.s.limit(), head)
+	entries, notDecoded, muted, used := decodeKeptAt(items, r.s.limit(), head || paged)
 	r.countMuted(muted)
 	dropped := r.histSkipped + evicted + notDecoded
 	switch {
+	case paged:
+		// A range is read in pages: what is left is not lost, the view
+		// offers the next page from the cursor.
+		if c := pageCursor(items[:used], r.q.Page); c != nil && (dropped > 0 || r.histMore) {
+			r.pending.More = c
+			r.endPage()
+		}
 	case dropped > 0 && head:
 		r.pending.Notices = append(r.pending.Notices, ports.LogNotice{
 			Text: fmt.Sprintf("newer lines of the heads not loaded: %d lines kept (buffer size), %d newer skipped", len(entries), dropped),
@@ -713,4 +738,40 @@ func compareEntryPtrs(a, b *domain.LogEntry) int {
 		return c
 	}
 	return strings.Compare(a.Pod, b.Pod)
+}
+
+// pageCursor returns where a page ended, given the history items it was
+// cut from (in time order) and the cursor the page started at, if any: the
+// time of the last item, and how many lines at that instant each container
+// delivered so far. A page that ends at the instant it started at continues
+// the counts of its start, since the lines it skipped there were delivered
+// by earlier pages. It is nil when the last item has no time: such a page
+// cannot be continued.
+func pageCursor(items []histItem, start *domain.PageCursor) *domain.PageCursor {
+	if len(items) == 0 {
+		return nil
+	}
+	last := items[len(items)-1].line.Time
+	if last.IsZero() {
+		return nil
+	}
+	c := &domain.PageCursor{Time: last, Skip: map[string]int{}}
+	if start != nil && start.Time.Equal(last) {
+		maps.Copy(c.Skip, start.Skip)
+	}
+	for i := len(items) - 1; i >= 0 && items[i].line.Time.Equal(last); i-- {
+		c.Skip[domain.SkipKey(items[i].line.Pod, items[i].line.Container)]++
+	}
+	return c
+}
+
+// endPage makes the history a page of a range: the stream does not go on
+// after it (live lines would land after lines of later pages that are not
+// shown), so the tailers stop and what they would still deliver is dropped.
+func (r *session) endPage() {
+	r.paged = true
+	for _, p := range r.pods {
+		p.cancel()
+	}
+	r.reorder = reorderBuffer{}
 }

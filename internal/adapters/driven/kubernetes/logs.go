@@ -56,6 +56,15 @@ func logOptions(req ports.LogRequest) *corev1.PodLogOptions {
 	case !req.SinceTime.IsZero():
 		t := metav1.NewTime(req.SinceTime)
 		o.SinceTime = &t
+	case req.Window.IsRange():
+		// The API has a start (to the second) and no end: the stream stops
+		// at the end of the range (see stream.read), and no tailLines is
+		// sent, which would keep the newest lines of the file instead of
+		// the oldest of the range.
+		t := metav1.NewTime(req.Window.From)
+		o.SinceTime = &t
+		o.Follow = req.Follow && !req.Window.Closed()
+		return o
 	case req.Window.IsTail():
 		n := int64(req.Window.Tail)
 		o.TailLines = &n
@@ -94,6 +103,11 @@ func (s *stream) read(ctx context.Context, rc io.ReadCloser, req ports.LogReques
 				// The kubelet answers 200 with this text when the
 				// container's log file is gone (container removed).
 				s.err = fmt.Errorf("%s/%s: logs no longer on the node (%s): %w", req.Pod, req.Container, l.Text, domain.ErrNotFound)
+				return
+			}
+			if req.Window.Closed() && !l.Time.IsZero() && !l.Time.Before(req.Window.To) {
+				// Past the range: lines are in time order, so return,
+				// which closes the body and ends the kubelet's read.
 				return
 			}
 			l.Pod, l.Container = req.Pod, req.Container

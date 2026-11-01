@@ -11,10 +11,10 @@
  m8q7v 19:13:32.000 ERROR i.g.p.card.CardContro│  7  2d                 │suer orderId=ord_72bf10 retryable=false        
  x4k2p 19:13:42.000  INFO i.g.p.HealthReporter │  0  tail 500 lines     │omponents=db,redis,gateway                     
                                                │  9  head 500 lines     │                                               
+                                               │  b  from/to range…     │                                               
                                                │                        │                                               
                                                │ enter load  esc cancel │                                               
                                                └────────────────────────┘                                               
                                                                                                                         
-                                                                                                                        
  sort name   LIVE   2 errors · 1 warning  ·  15m  ·  all pods  ·  levels all  ·  cols pod time level class msg  ·  old… 
- j/k move  1…0 9 pick  enter load  esc cancel                                                                           
+ j/k move  1…0 9 pick  b range  enter load  esc cancel                                                                  

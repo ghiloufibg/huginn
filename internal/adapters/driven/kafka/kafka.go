@@ -224,8 +224,30 @@ func (s *source) Describe(ctx context.Context, topics []string) ([]ports.TopicIn
 	return out, nil
 }
 
-// partitionRange is where the history of a partition starts and ends.
-type partitionRange struct{ start, end int64 }
+// partitionRange is where the history of a partition starts and ends. more
+// says a range has records after end, left for the next page.
+type partitionRange struct {
+	start, end int64
+	more       bool
+}
+
+// page is what a range read knows beyond its offsets: strict bounds (a
+// fetch can return records past the end offset asked for, which a range
+// must not deliver) and where each partition resumes.
+type page struct {
+	bounds map[int32]int64 // end offset by partition, nil when records past it are welcome
+	next   map[int32]int64 // where each partition resumes
+	more   bool            // some partition has records left in the range
+}
+
+func (p *page) nextOffsets() map[int32]int64 {
+	if p == nil {
+		return nil
+	}
+	return p.next
+}
+
+func (p *page) hasMore() bool { return p != nil && p.more }
 
 // offsets lists the partitions of a topic with the range to read: from
 // the tail or the window's start, bounded by Limit, up to the end offset
@@ -282,7 +304,7 @@ func (s *source) offsets(ctx context.Context, q ports.TopicRead) (map[int32]part
 		err     error
 	}
 	var wg sync.WaitGroup
-	var endsRes, earliestRes, sinceRes listResult
+	var endsRes, earliestRes, sinceRes, fromRes, toRes listResult
 	wg.Add(2)
 	go func() { defer wg.Done(); endsRes.offsets, endsRes.err = list(-1) }()         // latest
 	go func() { defer wg.Done(); earliestRes.offsets, earliestRes.err = list(-2) }() // earliest
@@ -293,9 +315,23 @@ func (s *source) offsets(ctx context.Context, q ports.TopicRead) (map[int32]part
 			sinceRes.offsets, sinceRes.err = list(time.Now().Add(-q.Since).UnixMilli())
 		}()
 	}
+	if !q.From.IsZero() { // a range: where its start and its end are
+		wg.Add(1)
+		go func() { defer wg.Done(); fromRes.offsets, fromRes.err = list(q.From.UnixMilli()) }()
+		if !q.To.IsZero() {
+			wg.Add(1)
+			go func() { defer wg.Done(); toRes.offsets, toRes.err = list(q.To.UnixMilli()) }()
+		}
+	}
 	wg.Wait()
 	if endsRes.err != nil {
 		return nil, endsRes.err
+	}
+	if fromRes.err != nil {
+		return nil, fromRes.err
+	}
+	if toRes.err != nil {
+		return nil, toRes.err
 	}
 	if earliestRes.err != nil {
 		return nil, earliestRes.err
@@ -307,6 +343,10 @@ func (s *source) offsets(ctx context.Context, q ports.TopicRead) (map[int32]part
 	out := map[int32]partitionRange{}
 	for _, p := range parts {
 		end := ends[p]
+		if !q.From.IsZero() {
+			out[p] = rangeOf(q, p, end, earliest[p], fromRes.offsets[p], toRes.offsets[p])
+			continue
+		}
 		start := max(end-int64(q.Tail), earliest[p])
 		if q.Since > 0 {
 			start = since[p]
@@ -322,6 +362,32 @@ func (s *source) offsets(ctx context.Context, q ports.TopicRead) (map[int32]part
 	return out, nil
 }
 
+// rangeOf is where a partition's part of a range starts and ends. The
+// brokers answer "the first offset at or after this time" and -1 when there
+// is none (the range then starts, or ends, at the end offset); timestamps are
+// set by producers and may be out of order, so this is approximate at the
+// edges and the caller filters records by time. A page of a range takes at
+// most Limit records, from the start or from where the page before ended.
+func rangeOf(q ports.TopicRead, p int32, end, earliest, fromOff, toOff int64) partitionRange {
+	start := fromOff
+	if start < 0 {
+		start = end
+	}
+	if !q.To.IsZero() && toOff >= 0 && toOff < end {
+		end = toOff
+	}
+	if after, ok := q.After[p]; ok {
+		start = max(start, after)
+	}
+	start = max(start, earliest)
+	end = max(end, start)
+	r := partitionRange{start: start, end: end}
+	if q.Limit > 0 && end-start > int64(q.Limit) {
+		r.end, r.more = start+int64(q.Limit), true
+	}
+	return r
+}
+
 // Read implements ports.TopicSource: a client of its own consumes the
 // partitions directly (no group), from the computed offsets.
 func (s *source) Read(ctx context.Context, q ports.TopicRead) (<-chan ports.RecordBatch, error) {
@@ -331,6 +397,17 @@ func (s *source) Read(ctx context.Context, q ports.TopicRead) (<-chan ports.Reco
 	ranges, err := s.offsets(ctx, q)
 	if err != nil {
 		return nil, err
+	}
+	var pg *page
+	if !q.From.IsZero() {
+		pg = &page{next: map[int32]int64{}}
+		for p, r := range ranges {
+			pg.next[p], pg.more = r.end, pg.more || r.more
+		}
+		q.Follow = q.Follow && !pg.more // a page with a successor is not live
+		if !q.Follow {
+			pg.bounds = pg.next
+		}
 	}
 	pending := map[int32]int64{} // partitions whose history is not read yet → end offset
 	assign := map[int32]kgo.Offset{}
@@ -344,7 +421,7 @@ func (s *source) Read(ctx context.Context, q ports.TopicRead) (<-chan ports.Reco
 	}
 	out := make(chan ports.RecordBatch, 4)
 	if len(assign) == 0 { // nothing to read and not following
-		out <- ports.RecordBatch{HistoryDone: true}
+		out <- ports.RecordBatch{HistoryDone: true, Next: pg.nextOffsets(), More: pg.hasMore()}
 		close(out)
 		return out, nil
 	}
@@ -369,13 +446,13 @@ func (s *source) Read(ctx context.Context, q ports.TopicRead) (<-chan ports.Reco
 		return nil, fmt.Errorf("kafka client: %v: %w", err, domain.ErrConfig)
 	}
 	s.debug("kafka read", "topic", q.Topic, "partitions", len(assign), "history_partitions", len(pending), "follow", q.Follow, "read_committed", q.ReadCommitted)
-	go s.poll(ctx, cl, h, q, pending, out)
+	go s.poll(ctx, cl, h, q, pending, pg, out)
 	return out, nil
 }
 
 // poll delivers fetched records until the history is read (then stops,
 // unless following) or ctx ends.
-func (s *source) poll(ctx context.Context, cl *kgo.Client, h *health, q ports.TopicRead, pending map[int32]int64, out chan<- ports.RecordBatch) {
+func (s *source) poll(ctx context.Context, cl *kgo.Client, h *health, q ports.TopicRead, pending map[int32]int64, pg *page, out chan<- ports.RecordBatch) {
 	defer close(out)
 	defer cl.Close()
 	// A panic here (e.g. an edge case in franz-go's decoding of a
@@ -405,7 +482,7 @@ func (s *source) poll(ctx context.Context, cl *kgo.Client, h *health, q ports.To
 			return false
 		}
 	}
-	if historyDone && !send(ports.RecordBatch{HistoryDone: true}) {
+	if historyDone && !send(ports.RecordBatch{HistoryDone: true, Next: pg.nextOffsets(), More: pg.hasMore()}) {
 		return
 	}
 	started := time.Now()
@@ -440,11 +517,16 @@ func (s *source) poll(ctx context.Context, cl *kgo.Client, h *health, q ports.To
 		}
 		var recs []domain.KafkaRecord
 		fetches.EachRecord(func(r *kgo.Record) {
-			recs = append(recs, toDomain(r, s.opts.MaxValueBytes))
 			seen[r.Partition] = true
 			if end, ok := pending[r.Partition]; ok && r.Offset+1 >= end {
 				delete(pending, r.Partition)
 			}
+			if pg != nil && pg.bounds != nil {
+				if end, ok := pg.bounds[r.Partition]; ok && r.Offset >= end {
+					return // a fetch is not cut at the end of the range
+				}
+			}
+			recs = append(recs, toDomain(r, s.opts.MaxValueBytes))
 		})
 		if idlePolls >= 2 {
 			patient := time.Since(started) > s.opts.ConnectTimeout+s.opts.RequestTimeout
@@ -460,6 +542,7 @@ func (s *source) poll(ctx context.Context, cl *kgo.Client, h *health, q ports.To
 		}
 		if !historyDone && len(pending) == 0 {
 			historyDone, b.HistoryDone = true, true
+			b.Next, b.More = pg.nextOffsets(), pg.hasMore()
 		}
 		if (len(b.Records) > 0 || b.HistoryDone || len(b.Notices) > 0) && !send(b) {
 			return

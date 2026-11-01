@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime/pprof"
 	"syscall"
+	"time"
 
 	"github.com/ghiloufibg/huginn/examples"
 	"github.com/ghiloufibg/huginn/internal/adapters/driven/clipboard"
@@ -168,6 +169,11 @@ func Build(o cli.Options, e Env, log *slog.Logger) (*App, error) {
 		return nil, err
 	}
 	clk := clock.New()
+	if o.From != "" { // an absolute range: typed in the machine's time zone
+		if window, err = domain.ParseTimeRange(o.From, o.To, clk.Now(), time.Local); err != nil {
+			return nil, fmt.Errorf("--from/--to: %w", err)
+		}
+	}
 	cluster, err := factory(c, clk, log)
 	if err != nil {
 		return nil, err

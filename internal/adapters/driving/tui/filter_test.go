@@ -205,9 +205,9 @@ func TestHelpOnLogsFollowsKeymap(t *testing.T) {
 	}
 	m.opts.Keys = km
 	m.handleKey(keyMsgF1())
-	out := render(m, 120, 80)
+	out := render(m, 120, 84)
 	if !strings.Contains(out, "ctrl+l") || !strings.Contains(out, "IN THE FILTER PROMPT") || !strings.Contains(out, "follow on/off") {
 		t.Fatalf("logs help:\n%s", out)
 	}
-	golden(t, "help_logs_120x80", out)
+	golden(t, "help_logs_120x84", out)
 }

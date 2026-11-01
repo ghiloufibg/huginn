@@ -18,6 +18,14 @@ type LogRequest struct {
 	// with Previous; Follow must then be false, and SinceTime and Limit do
 	// not apply. A source may stop after Head lines; consumers ignore any
 	// extra lines.
+	//
+	// A range window (Window.From, Window.To) asks for the lines in
+	// [From, To), oldest first; Limit does not apply (a source has no way to
+	// bound the newest end of a range, so it must not cut from the old end),
+	// and Follow is set only for an open end. A source may stop reading at
+	// the first line at or after To, and may return lines up to a second
+	// before From (the Kubernetes API honors the start to the second);
+	// consumers drop both.
 	Window domain.TimeWindow
 	// SinceTime, when set, replaces Window: lines at or after this time
 	// (used to resume a stream without reloading its history). Sources may

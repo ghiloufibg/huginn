@@ -58,6 +58,9 @@ type Options struct {
 	Repo string
 	// Now returns the current time (injected for deterministic tests).
 	Now func() time.Time
+	// Location is the time zone ranges are typed and shown in; nil means
+	// the machine's (time.Local), which Go reads from TZ or the system.
+	Location *time.Location
 	// Context bounds every watch started by the UI.
 	Context context.Context
 	// KeyBar is the initial key bar size ("compact", "full", "hidden").

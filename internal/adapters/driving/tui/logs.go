@@ -59,6 +59,11 @@ type logsScreen struct {
 	repo   string
 	window domain.TimeWindow
 	follow bool
+	// A range larger than the buffer is read in pages. pages holds where
+	// each page after the first starts (empty: on the first page); more is
+	// where the page on screen ended, nil when it is the last one.
+	pages []*domain.PageCursor
+	more  *domain.PageCursor
 	// previous shows the previous instance of the restarted containers
 	// (what explains a crash) instead of the current ones.
 	previous bool
@@ -196,10 +201,15 @@ func (l *logsScreen) open(m *Model) tea.Cmd {
 	ctx, cancel := context.WithCancel(m.opts.Context)
 	l.cancel = cancel
 	gen, sessions := l.gen, m.opts.Sessions
-	if l.window.IsHead() {
-		l.tail = false // a head is read from its first line, set once loaded
+	if l.window.FromStart() {
+		l.tail = false // a head or a range is read from its first line, set once loaded
 	}
-	q := ports.LogQuery{Env: domain.Env(m.env.Name), Repo: l.repo, Window: l.window, Follow: l.follow && !l.window.IsHead(), Previous: l.previous, Containers: l.containerMode, NoMute: l.showMuted}
+	win, page := l.window, l.pageStart()
+	if page != nil { // a later page of a range starts where the one before ended
+		win.From = page.Time
+	}
+	l.more = nil
+	q := ports.LogQuery{Env: domain.Env(m.env.Name), Repo: l.repo, Window: win, Page: page, Follow: l.follow && !l.window.IsHead() && !l.window.Closed(), Previous: l.previous, Containers: l.containerMode, NoMute: l.showMuted}
 	return func() tea.Msg {
 		ch, err := sessions.Open(ctx, q)
 		return logStartedMsg{screen: l, gen: gen, ch: ch, err: err}
@@ -314,12 +324,15 @@ func (l *logsScreen) apply(b ports.LogBatch, now time.Time) {
 	if len(b.Notices) > 0 {
 		l.notice = b.Notices[len(b.Notices)-1].Text
 	}
+	if b.More != nil {
+		l.more = b.More
+	}
 	if b.HistoryDone {
 		l.loading, l.live = false, true
 		releaseMemory()
 	}
 	l.evict()
-	if b.HistoryDone && l.window.IsHead() {
+	if b.HistoryDone && l.window.FromStart() {
 		l.toOldest()
 	}
 }
@@ -708,10 +721,11 @@ func (l *logsScreen) key(m *Model, k tea.KeyPressMsg) (bool, tea.Cmd) {
 		l.setLevels(m, warnAndError())
 	case keys.Is(key, ActAllLevels):
 		l.setLevels(m, domain.AllLevels())
-	case keys.Is(key, ActFollow) && l.window.IsHead():
-		// A head does not follow: following goes back to the default
-		// window, so no gap is left between the head and now.
+	case keys.Is(key, ActFollow) && (l.window.IsHead() || l.window.Closed()):
+		// A head or a closed range does not follow: following goes back to
+		// the default window, so no gap is left between it and now.
 		l.window, l.follow = l.followWindow(m), true
+		l.pages = nil
 		m.flash("follow: back to " + l.window.Label())
 		return true, l.open(m)
 	case keys.Is(key, ActFollow):
@@ -754,6 +768,12 @@ func (l *logsScreen) key(m *Model, k tea.KeyPressMsg) (bool, tea.Cmd) {
 		return true, l.setWindow(m, domain.NextWindow(m.opts.Windows, l.window))
 	case keys.Is(key, ActWindowPick):
 		m.popup = newWindowPicker(m, l)
+	case keys.Is(key, ActWindowRange):
+		m.popup = newRangePicker(m, l)
+	case keys.Is(key, ActPageNext):
+		return true, l.nextPage(m)
+	case keys.Is(key, ActPagePrev):
+		return true, l.prevPage(m)
 	case keys.Is(key, ActOrder):
 		l.newestTop = !l.newestTop
 		l.cursor = l.shown() - 1 - l.displayCursor()
@@ -862,10 +882,11 @@ func findWindow(ws []domain.TimeWindow, is func(domain.TimeWindow) bool) (domain
 	return domain.TimeWindow{}, false
 }
 
-// followWindow is the window f goes back to from a head: the default one,
-// or the tail when the default is a head.
+// followWindow is the window f goes back to from a head or a closed range:
+// the default one, or the tail when the default is a head or a range
+// (--from).
 func (l *logsScreen) followWindow(m *Model) domain.TimeWindow {
-	if !m.opts.Window.IsHead() {
+	if !m.opts.Window.FromStart() {
 		return m.opts.Window
 	}
 	if w, ok := findWindow(m.opts.Windows, domain.TimeWindow.IsTail); ok {
@@ -875,11 +896,60 @@ func (l *logsScreen) followWindow(m *Model) domain.TimeWindow {
 }
 
 func (l *logsScreen) setWindow(m *Model, w domain.TimeWindow) tea.Cmd {
-	if w == l.window {
+	if w.Equal(l.window) {
 		return nil
 	}
-	l.window = w
+	l.window, l.pages = w, nil
 	return l.open(m)
+}
+
+// currentWindow and applyWindow let the range popup drive this screen.
+func (l *logsScreen) currentWindow() domain.TimeWindow { return l.window }
+
+func (l *logsScreen) applyWindow(m *Model, w domain.TimeWindow) tea.Cmd {
+	return l.setWindow(m, w)
+}
+
+// pageStart is where the page on screen starts, nil on the first page.
+func (l *logsScreen) pageStart() *domain.PageCursor {
+	if len(l.pages) == 0 {
+		return nil
+	}
+	return l.pages[len(l.pages)-1]
+}
+
+// nextPage loads the page after the one on screen.
+func (l *logsScreen) nextPage(m *Model) tea.Cmd {
+	if l.more == nil {
+		m.flash(map[bool]string{true: "last page", false: "no next page: the window fits one page"}[len(l.pages) > 0])
+		return nil
+	}
+	l.pages = append(l.pages, l.more)
+	m.flash(fmt.Sprintf("page %d", len(l.pages)+1))
+	return l.open(m)
+}
+
+// prevPage loads the page before the one on screen.
+func (l *logsScreen) prevPage(m *Model) tea.Cmd {
+	if len(l.pages) == 0 {
+		m.flash("first page")
+		return nil
+	}
+	l.pages = l.pages[:len(l.pages)-1]
+	m.flash(fmt.Sprintf("page %d", len(l.pages)+1))
+	return l.open(m)
+}
+
+// pageLabel says which page of a range is on screen and where it ended
+// ("" when the window fits one page).
+func (l *logsScreen) pageLabel(m *Model) string {
+	switch {
+	case l.more != nil:
+		return fmt.Sprintf("page %d · more after %s", len(l.pages)+1, l.more.Time.In(m.location()).Format("15:04:05"))
+	case len(l.pages) > 0:
+		return fmt.Sprintf("page %d (last)", len(l.pages)+1)
+	}
+	return ""
 }
 
 // cycleScope goes all pods → first pod → … → last pod → all pods.
@@ -958,6 +1028,10 @@ func (l *logsScreen) emptyMessage(m *Model) string {
 	case l.muted > 0:
 		return t.Dim.Render(fmt.Sprintf("all %s are from muted loggers (mute in formats/)", plural(int(l.muted), "line"))) + "\n\n" +
 			l.keyHint(m, ActShowMuted, "show them", ActWindowNext, "longer window", ActBack, "back")
+	case l.window.IsRange():
+		return t.Dim.Render("no line "+rangeBounds(l.window, m.location())) + "\n" +
+			t.Dim.Render("pods that no longer exist and logs rotated away on the node are not available") + "\n\n" +
+			l.keyHint(m, ActWindowRange, "other range", ActWindowTail, "last lines", ActBack, "back")
 	case l.window.IsHead():
 		return t.Dim.Render("no log line in "+l.repo+"'s containers yet") + "\n\n" + l.keyHint(m, ActWindowTail, "last lines", ActBack, "back")
 	case l.window.Tail > 0:
@@ -1331,6 +1405,10 @@ func (l *logsScreen) statusLeft(m *Model) string {
 		chip = t.ChipPaused.Render(waiting)
 	case l.window.IsHead():
 		chip = t.Chip.Render("HEAD")
+	case l.window.Closed():
+		chip = t.Chip.Render("RANGE")
+	case l.more != nil:
+		chip = t.Chip.Render("PAGE")
 	case !l.follow:
 		chip = t.Chip.Render("STOPPED")
 	case !l.tail && !l.newestTop:
@@ -1355,6 +1433,11 @@ func (l *logsScreen) statusLeft(m *Model) string {
 		window = "whole instance" // the window does not apply
 	case l.window.IsHead():
 		window = l.window.String()
+	case l.window.IsRange():
+		window = rangeBounds(l.window, m.location())
+	}
+	if p := l.pageLabel(m); p != "" && !l.previous {
+		window += "  ·  " + p
 	}
 	fields := []string{window, scope, "levels " + levelsLabel(l.filter.Levels)}
 	if c := l.containersLabel(m); c != "" {
@@ -1420,11 +1503,15 @@ func (l *logsScreen) hints(m *Model) []hint {
 			m.h(ActViewTrace, "trace of this line"), m.h(ActWindowNext, "window"), m.h(ActHelp, "help"),
 		}
 	}
-	return []hint{
+	hints := []hint{
 		m.h(ActFilter, "filter"), m.h(ActLevels, "levels"), m.h(ActFilterMode, "mode"), m.pair(ActNextMatch, ActPrevMatch, "match"),
 		m.h(ActFollow, "follow"), m.h(ActPause, "pause"), m.h(ActWindowNext, "window"), m.h(ActPodScope, "pods"),
 		m.h(ActCycleColumns, "cols"), m.h(ActColumns, "columns"), m.h(ActFocus, "focus"), m.h(ActOpen, "zoom"), m.h(ActHelp, "help"),
 	}
+	if l.more != nil || len(l.pages) > 0 { // a range in pages: say how to turn them
+		hints = append([]hint{m.pair(ActPagePrev, ActPageNext, "page")}, hints...)
+	}
+	return hints
 }
 
 func (l *logsScreen) fullHints(m *Model) []hint {

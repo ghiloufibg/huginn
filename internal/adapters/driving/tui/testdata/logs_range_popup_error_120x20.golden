@@ -1,0 +1,20 @@
+ huginn  REC  gke_acme_europe-west1_main / app…   services / payment-service / logs   demo · watching · synced 19:14:02 
+ pods  all 3    m8q7v Healthy 1 restart v2.14.3   x4k2p Healthy v2.14.3   p3w1n Healthy v2.14.4 new                     
+ x4k2p 19:13:02.000  INFO i.g.p.PaymentController : request completed POST /v1/payments status=201 duration=96ms        
+ m8q7v 19:13:04.000 DEB┌───────────────────────────────────────────────────────────────────────┐ve=12, idle=28, waiting…
+ x4k2p 19:13:07.000  WA│ Time range  UTC                                                       │=adyen p95=842ms        
+ m8q7v 19:13:12.000 ERR│                                                                       │ traceId=7fd28c90       
+    io.gimle.payment.Pa│ From  now-15m                                                         │pen]                    
+ x4k2p 19:13:17.000  IN│ To    soon_                                                           │ status=200 duration=14…
+ p3w1n 19:13:18.000  ::│                                                                       │                        
+ p3w1n 19:13:22.000  IN│ to: "soon": want 2026-11-01 14:30, 14:30, now-90m or an RFC 3339 time │                        
+ m8q7v 19:13:32.000 ERR│                                                                       │ retryable=false        
+ x4k2p 19:13:42.000  IN│ 2026-11-01 14:30 · 14:30 · now-90m · 2026-11-01T14:30:00Z             │way                     
+                       │ tab field  enter load  ctrl+u clear  esc cancel                       │                        
+                       └───────────────────────────────────────────────────────────────────────┘                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+ sort name   LIVE   2 errors · 1 warning  ·  15m  ·  all pods  ·  levels all  ·  cols pod time level class msg  ·  old… 
+ / filter  l levels  x mode  n/N match  f follow  space pause  t window  tab pods  c cols  C columns  z focus  ? help   

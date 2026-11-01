@@ -107,6 +107,11 @@ func (t *tailer) request() ports.LogRequest {
 		}
 		return req
 	}
+	if t.q.Window.IsRange() && !t.q.Previous {
+		// Oldest first, and bounded by the history collector, not by the
+		// source: tailLines would cut from the old end of the range.
+		return req
+	}
 	req.Limit = limit
 	if t.logFormat().Mute != nil { // muted lines must not use up the room
 		req.Limit *= muteBudget
@@ -130,7 +135,8 @@ func (t *tailer) run(ctx context.Context) {
 	}
 	capped := req.Limit > 0 && h.read >= req.Limit
 	msg := tailMsg{historyDone: true, historyErr: err, capped: capped, history: h}
-	if !t.send(ctx, msg) || !t.q.Follow {
+	// A container whose page was cut does not follow: the page is not live.
+	if !t.send(ctx, msg) || !t.q.Follow || h.more {
 		return
 	}
 	last, seen := h.last, h.seen
@@ -193,6 +199,7 @@ type historyResult struct {
 	first   time.Time       // source time of the first line read
 	read    int             // lines read
 	skipped int             // lines that could not be kept (beyond the window's cut)
+	more    bool            // a range has lines after the ones read (the page is full)
 	own     []domain.LogEntry
 	muted   map[string]int // lines of muted loggers decoded while read
 }
@@ -226,7 +233,13 @@ func (t *tailer) history(ctx context.Context) (historyResult, error) {
 	}
 	own := hc.isClosed()
 	q := hc.newQueue()
-	shown := 0 // lines kept by a head
+	rng := t.q.Window.IsRange() && !t.q.Previous
+	from, to, skip := t.q.Window.From, t.q.Window.To, 0
+	if rng {
+		skip = t.q.Page.SkipFor(t.name, t.container)
+	}
+	stopped := false // the loop ended on purpose: no error to report
+	shown := 0       // lines kept by a head
 	var batch []histItem
 	flush := func() {
 		if len(batch) > 0 && !own && !hc.offer(q, batch, f.Mute != nil) {
@@ -240,6 +253,22 @@ func (t *tailer) history(ctx context.Context) (historyResult, error) {
 		batch = batch[:0]
 	}
 	for l := range st.Lines() {
+		if rng && !l.Time.IsZero() {
+			// The range is enforced here, whatever the source did: it may
+			// return lines up to a second before From (the start is honored
+			// to the second), and has no end at all.
+			if l.Time.Before(from) {
+				continue
+			}
+			if !to.IsZero() && !l.Time.Before(to) {
+				stopped = true
+				break // lines are in time order: the rest is past the range
+			}
+			if skip > 0 && l.Time.Equal(from) {
+				skip-- // delivered by the previous page
+				continue
+			}
+		}
 		if res.read == 0 {
 			res.first = l.Time
 		}
@@ -250,6 +279,13 @@ func (t *tailer) history(ctx context.Context) (historyResult, error) {
 		}
 		res.seen[l.Text] = true
 		if !own && !hc.admits(l.Time) {
+			if rng {
+				// The page is full and this container's lines are in time
+				// order: nothing it has left can enter. Stop reading, which
+				// closes the stream and ends the node's read of the file.
+				res.more, stopped = true, true
+				break
+			}
 			res.skipped++
 			continue
 		}
@@ -275,7 +311,7 @@ func (t *tailer) history(ctx context.Context) (historyResult, error) {
 		}
 	}
 	flush()
-	if head > 0 && shown >= head {
+	if stopped || (head > 0 && shown >= head) {
 		return res, nil
 	}
 	return res, st.Err()

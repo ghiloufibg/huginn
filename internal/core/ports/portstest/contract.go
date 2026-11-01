@@ -178,6 +178,73 @@ func RunLogSourceContract(t *testing.T, newFixture func(t *testing.T) LogFixture
 		}
 	})
 
+	t.Run("range returns the lines in [from, to)", func(t *testing.T) {
+		f := newFixture(t)
+		req := f.Request
+		req.Window = domain.TimeWindow{Since: 48 * time.Hour}
+		all := collect(t, ctx, f.Source, req)
+		if len(all) < 3 {
+			t.Skip("fixture has fewer than three lines")
+		}
+		// From the second line up to, excluding, the last one.
+		from, to := all[1].Time, all[len(all)-1].Time
+		if !to.After(from) {
+			t.Skip("fixture lines share one time")
+		}
+		w, err := domain.NewRange(from, to)
+		if err != nil {
+			t.Skip("fixture lines too close for a range:", err)
+		}
+		req.Window = w
+		got := collect(t, ctx, f.Source, req)
+		inRange := func(l domain.RawLine) bool { return !l.Time.Before(from) && l.Time.Before(to) }
+		want := 0
+		for _, l := range all {
+			if inRange(l) {
+				want++
+			}
+		}
+		have := 0
+		for i, l := range got {
+			if l.Time.Before(from.Truncate(time.Second)) { // the start may be honored to the second
+				t.Errorf("line %d at %v is before the range start %v", i, l.Time, from)
+			}
+			if i > 0 && l.Time.Before(got[i-1].Time) {
+				t.Errorf("line %d out of order", i)
+			}
+			if inRange(l) {
+				have++
+			}
+		}
+		// A source may return lines past To (it has no end to ask for), and
+		// consumers drop them; it must not miss one inside the range.
+		if have != want {
+			t.Fatalf("range returned %d lines inside [%v, %v), want %d", have, from, to, want)
+		}
+	})
+
+	t.Run("closed range ends and open range follows", func(t *testing.T) {
+		f := newFixture(t)
+		req := f.Request
+		req.Window = domain.TimeWindow{Since: 48 * time.Hour}
+		all := collect(t, ctx, f.Source, req)
+		if len(all) == 0 {
+			t.Skip("fixture has no line")
+		}
+		open, err := domain.NewRange(all[0].Time, time.Time{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Window, req.Follow = open, true
+		sctx, cancel := context.WithCancel(ctx)
+		st, err := f.Source.Stream(sctx, req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cancel()
+		drainUntilClosed(t, st.Lines())
+	})
+
 	t.Run("unknown pod is not found", func(t *testing.T) {
 		f := newFixture(t)
 		req := f.Request

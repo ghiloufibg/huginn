@@ -237,3 +237,39 @@ func TestTransformsCarryEverySetting(t *testing.T) {
 		t.Error("no pair_pattern: the default syntax")
 	}
 }
+
+// TestDemoLogsOfARange runs the real session over the demo cluster: a closed
+// range returns the application lines between its bounds, and only those.
+func TestDemoLogsOfARange(t *testing.T) {
+	from, to := t0.Add(-30*time.Minute), t0.Add(-20*time.Minute)
+	w, err := domain.NewRange(from, to)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := openDemoLogs(t, ports.LogQuery{Window: w, Follow: true})
+	r.until(10*time.Millisecond, func() bool { return r.history })
+	if len(r.entries) < 100 {
+		t.Fatalf("only %d entries in 10 minutes of the demo", len(r.entries))
+	}
+	for i, e := range r.entries {
+		if e.OrderTime().Before(from) || !e.OrderTime().Before(to) {
+			t.Fatalf("entry %d at %v is outside [%v, %v)", i, e.OrderTime(), from, to)
+		}
+		if i > 0 && e.OrderTime().Before(r.entries[i-1].OrderTime()) {
+			t.Fatalf("entry %d out of order", i)
+		}
+	}
+	// A closed range is history only: nothing live arrives however long we wait.
+	n := len(r.entries)
+	for range 200 {
+		select {
+		case b := <-r.ch:
+			r.entries = append(r.entries, b.Entries...)
+		case <-time.After(time.Millisecond):
+			r.clock.Advance(500 * time.Millisecond)
+		}
+	}
+	if len(r.entries) != n {
+		t.Fatalf("a closed range must not follow: %d live entries", len(r.entries)-n)
+	}
+}

@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/ghiloufibg/huginn/internal/core/domain"
 	"github.com/ghiloufibg/huginn/internal/core/ports"
@@ -227,8 +228,30 @@ func (s *fakeTopicSource) Read(ctx context.Context, q ports.TopicRead) (<-chan p
 		return nil, fmt.Errorf("topic %s: %w", q.Topic, domain.ErrNotFound)
 	}
 	var hist []domain.KafkaRecord
+	var next map[int32]int64
+	more := false
+	if !q.From.IsZero() {
+		next = map[int32]int64{}
+	}
 	for p, recs := range parts {
 		if len(q.Partitions) > 0 && !slices.Contains(q.Partitions, int32(p)) {
+			continue
+		}
+		if !q.From.IsZero() { // a range: the first records from its start, a page at a time
+			start := firstAtOrAfter(recs, q.From)
+			end := len(recs)
+			if !q.To.IsZero() {
+				end = firstAtOrAfter(recs, q.To)
+			}
+			if a, ok := q.After[int32(p)]; ok {
+				start = max(start, int(a))
+			}
+			end = max(end, start)
+			if q.Limit > 0 && end-start > q.Limit {
+				end, more = start+q.Limit, true
+			}
+			next[int32(p)] = int64(end)
+			hist = append(hist, slices.Clone(recs[start:end])...)
 			continue
 		}
 		start := max(len(recs)-q.Tail, 0)
@@ -245,7 +268,7 @@ func (s *fakeTopicSource) Read(ctx context.Context, q ports.TopicRead) (<-chan p
 		hist = append(hist, slices.Clone(recs[start:])...)
 	}
 	var live chan domain.KafkaRecord
-	if q.Follow {
+	if q.Follow && !more { // a page with a successor is not live
 		live = make(chan domain.KafkaRecord, 1024)
 		k.live[q.Topic] = append(k.live[q.Topic], live)
 	}
@@ -254,7 +277,7 @@ func (s *fakeTopicSource) Read(ctx context.Context, q ports.TopicRead) (<-chan p
 	out := make(chan ports.RecordBatch, 4)
 	go func() {
 		defer close(out)
-		out <- ports.RecordBatch{Records: hist, HistoryDone: true}
+		out <- ports.RecordBatch{Records: hist, HistoryDone: true, Next: next, More: more}
 		if live == nil {
 			return
 		}
@@ -279,4 +302,15 @@ func (s *fakeTopicSource) unsubscribe(topic string, ch chan domain.KafkaRecord) 
 	s.k.mu.Lock()
 	defer s.k.mu.Unlock()
 	s.k.live[topic] = slices.DeleteFunc(s.k.live[topic], func(c chan domain.KafkaRecord) bool { return c == ch })
+}
+
+// firstAtOrAfter is the index of the first record stamped at or after t, as
+// a broker's time index answers (len when none): the records need not be in
+// time order, and the first one that is late is the one found.
+func firstAtOrAfter(recs []domain.KafkaRecord, t time.Time) int {
+	i := slices.IndexFunc(recs, func(r domain.KafkaRecord) bool { return !r.Time.Before(t) })
+	if i < 0 {
+		return len(recs)
+	}
+	return i
 }

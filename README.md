@@ -51,12 +51,15 @@ huginn [env] [flags]
   huginn --config ~/work/acme-huginn     default environment of the folder
   huginn prd             or: huginn -e prd / huginn --env prd
   huginn --repo payment-service --since 1h
+  huginn --repo payment-service --from "2026-11-01 14:30" --to "2026-11-01 14:35"
   huginn --demo          synthetic cluster + the embedded example folder
 
 Flags
   -e, --env string        environment: a name of environments.yaml
       --repo string       open this repository's logs directly
       --since string      initial window: a duration (15m, 1h, 2d), tail or head (tail:N, head:N)
+      --from string       start of an absolute range: "2026-11-01 14:30", 14:30, now-90m, or an RFC 3339 time (local time unless it has a zone)
+      --to string         end of the range, exclusive; without it the range runs to now and follows
       --containers string containers the logs open on: app or all
       --config string     config folder (default: $HUGINN_CONFIG, else <user config dir>/huginn)
       --demo              synthetic cluster
@@ -73,6 +76,7 @@ Kafka from a shell (with a `kafka/` folder; no TUI, no Kubernetes needed, read o
 huginn kafka check <repo> [-e env]                 profile that applies, each topic's partitions or why it cannot be read
 huginn kafka read <repo> <topic> [-e env]          last records of each partition (kafka.tail_records)
       --tail N | --since 1h                        how far back
+      --from T [--to T]                            a range of absolute times, printed page after page in full
       -f, --follow                                 then new records until ctrl+c
       --committed                                  committed records only
       --raw                                        values only, one per line (for jq)
@@ -106,6 +110,10 @@ Pods that no known workload owns are listed too, grouped by owner: a bare pod sh
 
 ## Logs screen
 
+**Range** (`b`, `--from` / `--to`): the lines between two dates and times, like the time picker of an observability tool. `b` (or the last row of `T`) opens a popup with two fields, **From** and **To**, filled with the window you were on so you edit rather than type from scratch. Each field takes `2026-11-01 14:30` (also with seconds, or a date alone), `14:30` (the latest such time, today or yesterday), `now`, `now-90m` / `now-2h` / `now-1d`, or an RFC 3339 time such as `2026-11-01T14:30:00Z`. Times are read in your machine's time zone (Go takes it from `TZ`, else the operating system) unless they carry their own; the popup shows what the fields resolve to, with the zone, and says why a value is refused. `To` is exclusive; leave it empty for a range that runs to now and **follows**. A range with an end is read once and does not follow (`f` goes back to the default window, following). It opens on its first line.
+
+A range with more lines than the buffer (`logs.buffer_lines`) can keep in memory is read in **pages**: the first page is the oldest lines, the status bar says `page 1 · more after 14:32:10`, `]` loads the next page and `[` the previous one. Pages follow each other exactly: no line is lost and none is shown twice, even when several lines share the same instant. Only one page is in memory, and the read from the node stops once the page is full. (How much a page far into a very long log costs on a real cluster has not been measured yet.) This is not a log store: pods that no longer exist and logs the node rotated away are not available, and the view says so when a range comes back empty.
+
 **Head** (`9`, `--since head`): the first `windows.head_lines` lines (500) of each container, merged by time, read from the start of what the node keeps; the view opens on the first line and does not follow (`f` goes back to the default window, following). Nodes rotate container logs, so for a chatty container the start may be gone: the status bar then says `first line at 14:02, the container started at 09:10 (older lines rotated away on the node)`. With `P`, the head of the previous instance shows how the crashed instance started. A pod started during the session loads its own head.
 
 The pod strip shows each pod's state: a container that is not running says `waiting: CrashLoopBackOff` (its logs come back when it restarts), an init container that keeps failing says `waiting: init migrate …` and its output is shown, and pods read `terminating` or `completed` when so. When a pod runs several application containers, the pod column names the container (`9d5px/worker`). Lines recovered after a network outage are placed by time; lines are ordered by when the cluster received them, and a line dated another day shows its date. The status bar shows the stream at a glance: `LIVE 42/s` (live lines per second; `PAUSED +n`, `NO PODS`, `REMOVED` when the repository is gone, `NOT LOADED` after an error, `HEAD` for a head), then the errors and warnings of the current view (`>` / `<` jump to them), the window, pod scope and filters, and `muted N` when loggers muted in the config folder hid lines (`M` shows them, `?` counts them per pattern). When a view is empty it says why and which key helps; after a read error, `r` reloads the logs.
@@ -126,6 +134,8 @@ The pod strip shows each pod's state: a container that is not running says `wait
 | `space` | pause / resume (the screen keeps its lines; new ones wait, up to the buffer size, and the lines dropped beyond are counted) |
 | `P` | previous instance of the restarted containers (why it crashed, OOM, exit); again for the current logs |
 | `t` / `T` / `1`…`7` / `0` / `9` | next window / window picker / 15m 30m 40m 45m 1h 1d 2d / tail / head (AZERTY: `&é"'(-è` / `à` / `ç`) |
+| `b` | from/to range: a popup to type two dates and times (`tab` switches field, `enter` loads) |
+| `]` / `[` | next / previous page of a range larger than the buffer |
 | `tab` / `S` | cycle pod scope / choose pods and containers (the two lists combine: one container of every pod, or one pod's container) |
 | `A` | all containers (sidecars and init) or application containers only (default: `default_mode` of `containers.yaml`) |
 | `M` | show or hide the lines of the loggers muted in `formats/` (`mute`; reloads the logs) |
@@ -150,7 +160,7 @@ Every key can be remapped with `ui.keymap` in the configuration.
 
 ## Kafka screens
 
-Optional: only when the config folder has a `kafka/` folder ([`docs/CONFIG.md`](docs/CONFIG.md#10-kafkanameyaml)). Repositories a Kafka profile applies to are marked `K` on the services screen; `M` lists their topics, grouped as consumed, produced and others, with their partition count or why they cannot be read. `enter` shows the records of a topic, oldest first, merged across partitions by timestamp: time (with the date when the window reaches another day), partition (one colour each), offset, key and a one-line value (compact JSON, text, `binary N B`, `tombstone`; records written by Schema Registry serializers read `avro 7 · {…}` or `json 9 · {…}` when the profile names its `schema_registry`, [`docs/CONFIG.md`](docs/CONFIG.md#schema-registry), else `schema <id>`). While following, the status bar shows the live rate (`LIVE 12/s`) and, when the cursor is not on the newest record, how many newer records are off screen. `enter` on a record shows it in full: headers, timestamp type, the value indented (JSON keys coloured) or as a hex dump.
+Optional: only when the config folder has a `kafka/` folder ([`docs/CONFIG.md`](docs/CONFIG.md#10-kafkanameyaml)). Repositories a Kafka profile applies to are marked `K` on the services screen; `M` lists their topics, grouped as consumed, produced and others, with their partition count or why they cannot be read. `enter` shows the records of a topic, oldest first, merged across partitions by timestamp: time (with the date when the window reaches another day), partition (one colour each), offset, key and a one-line value (compact JSON, text, `binary N B`, `tombstone`; records written by Schema Registry serializers read `avro 7 · {…}` or `json 9 · {…}` when the profile names its `schema_registry`, [`docs/CONFIG.md`](docs/CONFIG.md#schema-registry), else `schema <id>`). `b` reads a range of timestamps here too (`--from` / `--to` with `huginn kafka read`): each partition is read from the first record at or after the start to the first at or after the end, a page of at most `kafka.max_records` records at a time (`]` / `[`; records of a page are in time order, a page takes the same number of records of every partition). Timestamps are set by producers and can be out of order, so the brokers' lookup is approximate at the edges and records outside the range by their own timestamp are left out. While following, the status bar shows the live rate (`LIVE 12/s`) and, when the cursor is not on the newest record, how many newer records are off screen. `enter` on a record shows it in full: headers, timestamp type, the value indented (JSON keys coloured) or as a hex dump.
 
 To check a profile without the TUI or a Kubernetes cluster, use `huginn kafka check <repo>` (see Usage).
 

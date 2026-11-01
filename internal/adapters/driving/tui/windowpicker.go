@@ -7,7 +7,8 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
-// windowPicker is the time-window popup (T).
+// windowPicker is the time-window popup (T): the presets, then a last row
+// that opens the range popup.
 type windowPicker struct {
 	logs   *logsScreen
 	cursor int
@@ -16,9 +17,12 @@ type windowPicker struct {
 func newWindowPicker(m *Model, l *logsScreen) *windowPicker {
 	p := &windowPicker{logs: l}
 	for i, w := range m.opts.Windows {
-		if w == l.window {
+		if w.Equal(l.window) {
 			p.cursor = i
 		}
+	}
+	if l.window.IsRange() {
+		p.cursor = len(m.opts.Windows)
 	}
 	return p
 }
@@ -30,10 +34,14 @@ func (p *windowPicker) update(m *Model, k tea.KeyPressMsg) tea.Cmd {
 		return p.logs.setWindow(m, w)
 	}
 	switch {
+	case keys.Is(key, ActWindowRange):
+		m.popup = newRangePicker(m, p.logs)
 	case keys.Is(key, ActDown):
-		p.cursor = min(p.cursor+1, len(m.opts.Windows)-1)
+		p.cursor = min(p.cursor+1, len(m.opts.Windows)) // the last row is the range
 	case keys.Is(key, ActUp):
 		p.cursor = max(p.cursor-1, 0)
+	case keys.Is(key, ActOpen) && p.cursor == len(m.opts.Windows):
+		m.popup = newRangePicker(m, p.logs)
 	case keys.Is(key, ActOpen):
 		m.popup = nil
 		return p.logs.setWindow(m, m.opts.Windows[p.cursor])
@@ -60,7 +68,7 @@ func (p *windowPicker) view(m *Model) string {
 			key, label = " ", w.Label()
 		}
 		line := " " + t.Key.Render(key) + "  " + label
-		if w == p.logs.window {
+		if w.Equal(p.logs.window) {
 			line += t.Dim.Render("  (current)")
 		}
 		if i == p.cursor {
@@ -68,6 +76,15 @@ func (p *windowPicker) view(m *Model) string {
 		}
 		lines = append(lines, line)
 	}
+	rangeKey, rangeLabel := m.label(ActWindowRange), "from/to range…"
+	line := " " + t.Key.Render(rangeKey) + "  " + rangeLabel
+	if p.logs.window.IsRange() {
+		line += t.Dim.Render("  (current)")
+	}
+	if p.cursor == len(m.opts.Windows) {
+		line = t.Selected.Render(" " + rangeKey + "  " + rangeLabel + " ")
+	}
+	lines = append(lines, line)
 	w := 0
 	for _, l := range lines {
 		w = max(w, lipgloss.Width(l))
@@ -80,5 +97,5 @@ func (p *windowPicker) view(m *Model) string {
 }
 
 func (p *windowPicker) hints(m *Model) []hint {
-	return []hint{m.pair(ActDown, ActUp, "move"), {m.label(ActWindow1) + "…" + m.label(ActWindowTail) + " " + m.label(ActWindowHead), "pick"}, m.h(ActOpen, "load"), m.h(ActBack, "cancel")}
+	return []hint{m.pair(ActDown, ActUp, "move"), {m.label(ActWindow1) + "…" + m.label(ActWindowTail) + " " + m.label(ActWindowHead), "pick"}, m.h(ActWindowRange, "range"), m.h(ActOpen, "load"), m.h(ActBack, "cancel")}
 }

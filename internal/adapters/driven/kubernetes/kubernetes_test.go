@@ -434,6 +434,8 @@ func TestReadOnly(t *testing.T) {
 
 func TestLogOptions(t *testing.T) {
 	since := t0.Add(1500 * time.Millisecond)
+	closedRange, _ := domain.NewRange(t0, t0.Add(5*time.Minute))
+	openRange, _ := domain.NewRange(t0, time.Time{})
 	cases := []struct {
 		req  ports.LogRequest
 		want string
@@ -447,6 +449,12 @@ func TestLogOptions(t *testing.T) {
 		{ports.LogRequest{Previous: true}, "previous"},
 		{ports.LogRequest{Window: domain.TimeWindow{Head: 500}, Limit: 5000, Follow: true}, ""},
 		{ports.LogRequest{Window: domain.TimeWindow{Head: 500}, Previous: true}, "previous"},
+		// A range has a start and no tailLines (which would cut from the old
+		// end of the range), and follows only with an open end.
+		{ports.LogRequest{Window: closedRange, Limit: 5000, Follow: true}, "sinceTime"},
+		{ports.LogRequest{Window: openRange, Limit: 5000, Follow: true}, "sinceTime follow"},
+		{ports.LogRequest{Window: openRange, Limit: 5000}, "sinceTime"},
+		{ports.LogRequest{Window: openRange, SinceTime: since, Follow: true}, "sinceTime follow"},
 	}
 	for _, c := range cases {
 		o := logOptions(c.req)
@@ -586,6 +594,30 @@ func TestHeadStopsAfterItsLines(t *testing.T) {
 	}
 	if n != 3 || st.Err() != nil || !body.closed {
 		t.Fatalf("%d lines, err %v, closed %v", n, st.Err(), body.closed)
+	}
+}
+
+func TestClosedRangeStopsAtItsEnd(t *testing.T) {
+	st := &stream{ch: make(chan domain.RawLine, 16)}
+	var b strings.Builder
+	for i := range 10 { // one line a second
+		fmt.Fprintf(&b, "2026-09-27T10:00:%02dZ line %d\n", i, i)
+	}
+	body := &closeCounter{Reader: strings.NewReader(b.String())}
+	rng, err := domain.NewRange(time.Date(2026, 9, 27, 10, 0, 2, 0, time.UTC), time.Date(2026, 9, 27, 10, 0, 5, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.read(context.Background(), body, ports.LogRequest{Pod: "p", Container: "c", Window: rng})
+	var got []string
+	for l := range st.Lines() {
+		got = append(got, l.Text)
+	}
+	// The source returns what it is given from the start it was asked; it
+	// stops at the end, which is exclusive. Dropping lines before the start
+	// is the consumer's job (the API honors the start to the second).
+	if want := "line 0,line 1,line 2,line 3,line 4"; strings.Join(got, ",") != want || st.Err() != nil || !body.closed {
+		t.Fatalf("got %v, err %v, closed %v; want %s", got, st.Err(), body.closed, want)
 	}
 }
 

@@ -9,4 +9,4 @@
                                                                                                                                                                 
                                                                                                                                                                 
  STOPPED   last 100 per partition  ·  2 records  ·  uncommitted                                                                                                 
- enter zoom  / filter  1-7 window  0 tail  f follow  space pause  i isolation  D bytes  y copy  esc back                                                        
+ enter zoom  / filter  1-7 window  0 tail  b range  f follow  space pause  i isolation  D bytes  y copy  esc back                                               

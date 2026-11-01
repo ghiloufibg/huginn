@@ -10,7 +10,7 @@
      >                next ERROR line                                                                                   
      <                previous ERROR line                                                                               
    Time and stream                                                                                                      
-     ctrl+l           follow on/off (in a head: back to the default window, following)                                  
+     ctrl+l           follow on/off (in a head or a closed range: back to the default window, following)                
      space            pause / resume (keeps buffering)                                                                  
      P                previous instance of the restarted containers (why it crashed), again for the current logs        
      t                next time window                                                                                  
@@ -24,6 +24,9 @@
      7  è             window 2d                                                                                         
      0  à             tail (last lines)                                                                                 
      9  ç             head (first lines of each container; does not follow)                                             
+     b                from/to: a range between two dates and times (empty end: until now, following)                    
+     ]                next page of a range that holds more lines than the buffer                                        
+     [                previous page of a range                                                                          
    Filter                                                                                                               
      /  ctrl+f        filter as you type                                                                                
      x                filter (hide) or highlight (keep all)                                                             
@@ -76,5 +79,6 @@
  IN THE FILTER PROMPT                                                                                                   
      ctrl+r           regex on/off                                                                                      
      ctrl+x           filter or highlight                                                                               
+     !                invert (as first character; \! for a literal !)                                                   
  sort name   HELP   keys follow keymap in ui.yaml                                                                       
  j/k scroll  / search  esc close                                                                                        

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ghiloufibg/huginn/internal/adapters/driving/cli"
 	"github.com/ghiloufibg/huginn/internal/config"
@@ -99,6 +100,27 @@ func TestBuildRejectsBadSince(t *testing.T) {
 	_, err := Build(cli.Options{Demo: true, Since: "soon"}, noFiles(), diag.Discard())
 	if err == nil || !strings.Contains(err.Error(), "--since") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestBuildRange(t *testing.T) {
+	app, err := Build(cli.Options{Demo: true, From: "2026-01-02 03:04", To: "2026-01-02 03:09"}, noFiles(), diag.Discard())
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := app.UI.Window
+	if !w.Closed() || w.To.Sub(w.From) != 5*time.Minute {
+		t.Fatalf("--from/--to must open a closed range of 5m: %+v", w)
+	}
+	app, err = Build(cli.Options{Demo: true, From: "now-30m"}, noFiles(), diag.Discard())
+	if err != nil || !app.UI.Window.IsRange() || app.UI.Window.Closed() {
+		t.Fatalf("--from alone is an open range: %+v, %v", app.UI.Window, err)
+	}
+	for _, o := range []cli.Options{{From: "soon"}, {From: "now-1h", To: "later"}, {From: "2099-01-01"}} {
+		o.Demo = true
+		if _, err := Build(o, noFiles(), diag.Discard()); err == nil || !strings.Contains(err.Error(), "--from/--to") {
+			t.Errorf("%+v: err = %v", o, err)
+		}
 	}
 }
 

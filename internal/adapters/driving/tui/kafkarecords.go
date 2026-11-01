@@ -34,10 +34,15 @@ type (
 // reads only when asked: the tail when it opens, a window (1…7), or live
 // records while following (f).
 type kafkaRecordsScreen struct {
-	topics        *kafkaTopicsScreen
-	topic         ports.KafkaTopicState
-	window        domain.TimeWindow
-	follow        bool
+	topics *kafkaTopicsScreen
+	topic  ports.KafkaTopicState
+	window domain.TimeWindow
+	follow bool
+	// A range larger than the buffer is read in pages: pages holds where
+	// each page after the first starts (offsets by partition; empty: the
+	// first page), next where the page on screen ends, nil on the last.
+	pages         []map[int32]int64
+	next          map[int32]int64
 	readCommitted bool
 	// raw shows framed records as their bytes instead of decoding them
 	// with the profile's Schema Registry (D switches, reading again).
@@ -98,6 +103,10 @@ func (r *kafkaRecordsScreen) open(m *Model) tea.Cmd {
 	r.rows, r.previews, r.cursor, r.offset, r.tail = nil, map[uint64]string{}, 0, 0, true
 	r.err, r.loading, r.live, r.ended, r.notice, r.paused, r.held, r.heldBytes, r.lost = nil, true, false, false, "", false, nil, 0, 0
 	r.stalled, r.rate = nil, rateMeter{}
+	r.next = nil
+	if r.window.IsRange() {
+		r.tail = false // a range is read from its first record
+	}
 	sess := r.topics.session
 	if sess == nil {
 		r.err, r.loading = fmt.Errorf("the Kafka session is closed: %w", domain.ErrUnreachable), false
@@ -106,7 +115,7 @@ func (r *kafkaRecordsScreen) open(m *Model) tea.Cmd {
 	ctx, cancel := context.WithCancel(m.opts.Context)
 	r.cancel = cancel
 	gen := r.gen
-	q := ports.KafkaQuery{Topic: r.topic.Name, Window: r.window, Follow: r.follow, ReadCommitted: r.readCommitted, Raw: r.raw}
+	q := ports.KafkaQuery{Topic: r.topic.Name, Window: r.window, After: r.pageStart(), Follow: r.follow, ReadCommitted: r.readCommitted, Raw: r.raw}
 	return func() tea.Msg {
 		ch, err := sess.Read(ctx, q)
 		return kafkaStartedMsg{screen: r, gen: gen, ch: ch, err: err}
@@ -185,6 +194,9 @@ func (r *kafkaRecordsScreen) apply(b ports.KafkaBatch) {
 	}
 	if b.Err != nil {
 		r.err = b.Err
+	}
+	if b.Next != nil {
+		r.next = b.Next
 	}
 	if b.HistoryDone {
 		r.loading, r.live = false, true
@@ -310,8 +322,8 @@ func (r *kafkaRecordsScreen) key(m *Model, msg tea.KeyPressMsg) (bool, tea.Cmd) 
 	keys, key := m.opts.Keys, msg.String()
 	page := max(r.height-1, 1)
 	if w, ok := r.windowKey(m, key); ok {
-		r.window = w
-		m.flash("window " + r.windowLabel())
+		r.window, r.pages = w, nil
+		m.flash("window " + r.windowLabel(m))
 		return true, r.open(m)
 	}
 	switch {
@@ -338,6 +350,14 @@ func (r *kafkaRecordsScreen) key(m *Model, msg tea.KeyPressMsg) (bool, tea.Cmd) 
 		if rec, ok := r.at(r.cursor); ok {
 			return true, m.push(newKafkaZoomScreen(r, rec.Seq))
 		}
+	case keys.Is(key, ActWindowRange):
+		m.popup = newRangePicker(m, r)
+	case keys.Is(key, ActPageNext):
+		return true, r.nextPage(m)
+	case keys.Is(key, ActPagePrev):
+		return true, r.prevPage(m)
+	case keys.Is(key, ActFollow) && r.window.Closed():
+		m.flash("a closed range does not follow: clear its end (b) or pick a window")
 	case keys.Is(key, ActFollow):
 		r.follow = !r.follow
 		m.flash(map[bool]string{true: "follow: live records", false: "follow off"}[r.follow])
@@ -425,11 +445,69 @@ func (r *kafkaRecordsScreen) isolation() string {
 	return "uncommitted"
 }
 
-func (r *kafkaRecordsScreen) windowLabel() string {
-	if r.window.IsTail() {
+func (r *kafkaRecordsScreen) windowLabel(m *Model) string {
+	switch {
+	case r.window.IsTail():
 		return fmt.Sprintf("last %d per partition", r.window.Tail)
+	case r.window.IsRange():
+		label := rangeBounds(r.window, m.location())
+		if p := r.pageLabel(); p != "" {
+			label += "  ·  " + p
+		}
+		return label
 	}
 	return "since " + r.window.Label()
+}
+
+// currentWindow and applyWindow let the range popup drive this screen.
+func (r *kafkaRecordsScreen) currentWindow() domain.TimeWindow { return r.window }
+
+func (r *kafkaRecordsScreen) applyWindow(m *Model, w domain.TimeWindow) tea.Cmd {
+	if w.Equal(r.window) {
+		return nil
+	}
+	r.window, r.pages = w, nil
+	m.flash("window " + r.windowLabel(m))
+	return r.open(m)
+}
+
+// pageStart is where the page on screen starts, nil on the first page.
+func (r *kafkaRecordsScreen) pageStart() map[int32]int64 {
+	if len(r.pages) == 0 {
+		return nil
+	}
+	return r.pages[len(r.pages)-1]
+}
+
+func (r *kafkaRecordsScreen) nextPage(m *Model) tea.Cmd {
+	if r.next == nil {
+		m.flash(map[bool]string{true: "last page", false: "no next page: the window fits one page"}[len(r.pages) > 0])
+		return nil
+	}
+	r.pages = append(r.pages, r.next)
+	m.flash(fmt.Sprintf("page %d", len(r.pages)+1))
+	return r.open(m)
+}
+
+func (r *kafkaRecordsScreen) prevPage(m *Model) tea.Cmd {
+	if len(r.pages) == 0 {
+		m.flash("first page")
+		return nil
+	}
+	r.pages = r.pages[:len(r.pages)-1]
+	m.flash(fmt.Sprintf("page %d", len(r.pages)+1))
+	return r.open(m)
+}
+
+// pageLabel says which page of a range is on screen ("" when it fits one).
+func (r *kafkaRecordsScreen) pageLabel() string {
+	switch {
+	case r.next != nil:
+		return fmt.Sprintf("page %d · more", len(r.pages)+1)
+	case len(r.pages) > 0:
+		return fmt.Sprintf("page %d (last)", len(r.pages)+1)
+	}
+	return ""
 }
 
 // --- rendering ---
@@ -441,9 +519,9 @@ func (r *kafkaRecordsScreen) view(m *Model, w, h int) string {
 	case r.err != nil && len(r.rows) == 0:
 		return errorPanel(t, "Cannot read "+r.topic.Name+": "+errKind(r.err), r.err, kafkaErrFix(r.err), kafkaRetry(m), w, h)
 	case r.loading && len(r.rows) == 0:
-		return centered(t.Key.Render(m.spinner())+t.Dim.Render(" reading "+r.topic.Name+", "+r.windowLabel()), w, h)
+		return centered(t.Key.Render(m.spinner())+t.Dim.Render(" reading "+r.topic.Name+", "+r.windowLabel(m)), w, h)
 	case len(r.rows) == 0:
-		msg := "no record in " + r.topic.Name + ", " + r.windowLabel()
+		msg := "no record in " + r.topic.Name + ", " + r.windowLabel(m)
 		if !r.filter.Empty() {
 			msg = "no record matches the filter"
 		}
@@ -590,7 +668,7 @@ func (r *kafkaRecordsScreen) statusLeft(m *Model) string {
 			chip += " " + rate
 		}
 	}
-	parts := []string{r.windowLabel(), fmt.Sprintf("%d records", len(r.rows)), r.isolation()}
+	parts := []string{r.windowLabel(m), fmt.Sprintf("%d records", len(r.rows)), r.isolation()}
 	if r.decodes() && r.raw {
 		parts = append(parts, "not decoded")
 	}
@@ -628,8 +706,11 @@ func (r *kafkaRecordsScreen) hints(m *Model) []hint {
 	hs := []hint{
 		m.h(ActOpen, "zoom"), m.h(ActFilter, "filter"),
 		{"1-7", "window"},
-		m.h(ActWindowTail, "tail"),
+		m.h(ActWindowTail, "tail"), m.h(ActWindowRange, "range"),
 		m.h(ActFollow, "follow"), m.h(ActPause, "pause"), m.h(ActIsolation, "isolation"),
+	}
+	if r.next != nil || len(r.pages) > 0 { // a range in pages: say how to turn them
+		hs = append([]hint{m.pair(ActPagePrev, ActPageNext, "page")}, hs...)
 	}
 	if r.decodes() {
 		hs = append(hs, m.h(ActRawRecords, map[bool]string{true: "decode", false: "bytes"}[r.raw]))

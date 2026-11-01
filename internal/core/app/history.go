@@ -261,12 +261,22 @@ const decodeChunk = 4096
 // decodes only the chunks still needed. It returns the entries in time
 // order, the lines left out and the muted lines per pattern.
 func decodeKept(items []histItem, limit int, oldest bool) (entries []domain.LogEntry, dropped int, muted map[string]int) {
+	entries, dropped, muted, _ = decodeKeptAt(items, limit, oldest)
+	return entries, dropped, muted
+}
+
+// decodeKeptAt is decodeKept that also returns, when oldest, how many of the
+// first items the entries kept came from (the last entry kept is the one of
+// items[used-1]): where the next page of a range starts.
+func decodeKeptAt(items []histItem, limit int, oldest bool) (entries []domain.LogEntry, dropped int, muted map[string]int, used int) {
 	type job struct {
+		lo    int // index of its first item in items
 		items []histItem
 		out   []domain.LogEntry
+		src   []int32 // index in items of the item each entry of out came from
 		muted map[string]int
 	}
-	var chunks [][]domain.LogEntry // in decoding order: from the side kept
+	var chunks []*job // in decoding order: from the side kept
 	kept, done := 0, 0
 	workers := runtime.GOMAXPROCS(0)
 	for kept < limit && done < len(items) {
@@ -281,16 +291,16 @@ func decodeKept(items []histItem, limit int, oldest bool) (entries []domain.LogE
 			if !oldest {
 				lo, hi = len(items)-done-n, len(items)-done
 			}
-			jobs = append(jobs, &job{items: items[lo:hi]})
+			jobs = append(jobs, &job{lo: lo, items: items[lo:hi]})
 			done += n
 		}
 		var wg sync.WaitGroup
 		for _, j := range jobs {
-			wg.Go(func() { j.out, j.muted = decodeItems(j.items) })
+			wg.Go(func() { j.out, j.src, j.muted = decodeItems(j.items) })
 		}
 		wg.Wait()
 		for _, j := range jobs {
-			chunks = append(chunks, j.out)
+			chunks = append(chunks, j)
 			kept += len(j.out)
 			for p, n := range j.muted {
 				if muted == nil {
@@ -306,28 +316,40 @@ func decodeKept(items []histItem, limit int, oldest bool) (entries []domain.LogE
 	entries = make([]domain.LogEntry, 0, kept-extra)
 	if oldest {
 		for _, c := range chunks {
-			entries = append(entries, c[:min(len(c), limit-len(entries))]...)
+			if len(entries) >= limit {
+				break
+			}
+			take := min(len(c.out), limit-len(entries))
+			entries = append(entries, c.out[:take]...)
+			if take < len(c.out) { // the limit was reached inside this chunk
+				used = c.lo + int(c.src[take-1]) + 1
+				break
+			}
+			used = c.lo + len(c.items)
 		}
 	} else {
 		skip := extra // the oldest decoded, in the last chunk decoded
 		for i := len(chunks) - 1; i >= 0; i-- {
-			c := chunks[i]
+			c := chunks[i].out
 			n := min(skip, len(c))
 			skip -= n
 			entries = append(entries, c[n:]...)
 		}
 	}
-	return entries, len(items) - done + extra, muted
+	return entries, len(items) - done + extra, muted, used
 }
 
-// decodeItems decodes history lines, leaving out those of muted loggers;
-// it returns their number per pattern (nil when none).
-func decodeItems(items []histItem) (out []domain.LogEntry, muted map[string]int) {
+// decodeItems decodes history lines, leaving out those of muted loggers; it
+// returns, for each entry, the index of its item, and the number of muted
+// lines per pattern (nil when none).
+func decodeItems(items []histItem) (out []domain.LogEntry, src []int32, muted map[string]int) {
 	out = make([]domain.LogEntry, 0, len(items))
+	src = make([]int32, 0, len(items))
 	for i := range items {
 		it := &items[i]
 		if it.entry != nil { // decoded and checked while read
 			out = append(out, *it.entry)
+			src = append(src, int32(i))
 			continue
 		}
 		e := safeDecode(it.format.Decoder, it.line)
@@ -339,6 +361,7 @@ func decodeItems(items []histItem) (out []domain.LogEntry, muted map[string]int)
 			continue
 		}
 		out = append(out, e)
+		src = append(src, int32(i))
 	}
-	return out, muted
+	return out, src, muted
 }

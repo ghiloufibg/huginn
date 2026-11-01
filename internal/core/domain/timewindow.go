@@ -8,13 +8,19 @@ import (
 )
 
 // TimeWindow selects which past logs to load before (optionally) following.
-// Exactly one of Since, Tail and Head is set: Since for a relative window
-// such as 15m, Tail for "the last N lines", Head for "the first N lines"
-// (of what the source keeps; a head never follows).
+// Exactly one of Since, Tail, Head and From is set: Since for a relative
+// window such as 15m, Tail for "the last N lines", Head for "the first N
+// lines" (of what the source keeps; a head never follows), From for an
+// absolute range (see timerange.go).
 type TimeWindow struct {
 	Since time.Duration
 	Tail  int
 	Head  int
+	// From and To select an absolute range [From, To): From is inclusive and
+	// To exclusive, so adjacent ranges never share a line. To zero is an
+	// open end: the range then runs to now and follows. Both are UTC without
+	// a monotonic reading (NewRange), so windows compare with ==.
+	From, To time.Time
 }
 
 // DefaultTailLines is the tail size used when "tail" is given without N.
@@ -29,9 +35,34 @@ func (w TimeWindow) IsTail() bool { return w.Tail > 0 }
 // IsHead reports whether the window is the first lines.
 func (w TimeWindow) IsHead() bool { return w.Head > 0 }
 
-// String renders the window as accepted by ParseTimeWindow.
+// IsRange reports whether the window is an absolute range.
+func (w TimeWindow) IsRange() bool { return !w.From.IsZero() }
+
+// Closed reports whether the window is a range with an end: it is read once
+// and never follows.
+func (w TimeWindow) Closed() bool { return w.IsRange() && !w.To.IsZero() }
+
+// FromStart reports whether the window is read forward from its first line
+// and keeps the oldest lines when there are more than the view holds: a
+// head or a range.
+func (w TimeWindow) FromStart() bool { return w.IsHead() || w.IsRange() }
+
+// Equal reports whether two windows select the same lines.
+func (w TimeWindow) Equal(o TimeWindow) bool {
+	return w.Since == o.Since && w.Tail == o.Tail && w.Head == o.Head &&
+		w.From.Equal(o.From) && w.To.Equal(o.To)
+}
+
+// String renders the window: as accepted by ParseTimeWindow, or for a range
+// "<from>..<to>" in RFC 3339 UTC, the end empty when it is open.
 func (w TimeWindow) String() string {
 	switch {
+	case w.IsRange():
+		to := ""
+		if !w.To.IsZero() {
+			to = w.To.Format(time.RFC3339Nano)
+		}
+		return w.From.Format(time.RFC3339Nano) + ".." + to
 	case w.IsTail():
 		return "tail " + strconv.Itoa(w.Tail)
 	case w.IsHead():
@@ -40,9 +71,12 @@ func (w TimeWindow) String() string {
 	return formatDuration(w.Since)
 }
 
-// Label is the short form shown in the status bar ("15m", "tail", "head").
+// Label is the short form shown in the status bar ("15m", "tail", "head",
+// "range"; the screen formats the bounds of a range in its time zone).
 func (w TimeWindow) Label() string {
 	switch {
+	case w.IsRange():
+		return "range"
 	case w.IsTail():
 		return "tail"
 	case w.IsHead():
@@ -156,9 +190,13 @@ func NextWindow(presets []TimeWindow, current TimeWindow) TimeWindow {
 
 // SelectWindow returns the part of lines (ordered by time) that falls in w:
 // the last w.Tail lines for a tail window, the first w.Head lines for a
-// head window, else the lines at or after now-w.Since. Lines without a
-// timestamp are kept for Since windows.
+// head window, the lines in [From, To) for a range, else the lines at or
+// after now-w.Since. Lines without a timestamp are kept for Since windows
+// and ranges.
 func SelectWindow(lines []RawLine, w TimeWindow, now time.Time) []RawLine {
+	if w.IsRange() {
+		return selectRange(lines, w)
+	}
 	if w.IsHead() {
 		if len(lines) > w.Head {
 			return lines[:w.Head]

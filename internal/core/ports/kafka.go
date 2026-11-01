@@ -26,8 +26,21 @@ type TopicRead struct {
 	// before its end.
 	Since time.Duration
 	Tail  int
-	// Limit caps the history read per partition (the newest records of
-	// the window), so a long window over a busy topic stays bounded.
+	// From and To, when From is set, make an absolute range: each
+	// partition starts at the first record at or after From and ends at
+	// the first at or after To (the end offset when To is zero: the range
+	// is then open and follows). Since and Tail do not apply. Timestamps
+	// are set by producers and can be out of order, so a source locates the
+	// bounds approximately and the consumer filters records by time.
+	From, To time.Time
+	// After, with a range, starts each partition it names at that offset
+	// (the offset after the last record of the page before) instead of at
+	// From; a partition it does not name starts at From.
+	After map[int32]int64
+	// Limit caps the history read per partition: the newest records of the
+	// window, or, with a range, the first Limit records from its start (a
+	// page; RecordBatch.Next says where the next one starts). It keeps a
+	// long window over a busy topic bounded.
 	Limit int
 	// Follow keeps reading new records once the history is read.
 	Follow bool
@@ -47,6 +60,12 @@ type RecordBatch struct {
 	// HistoryDone is set once every partition reached the end offset it
 	// had when the read started; later records are live.
 	HistoryDone bool
+	// Next, set with HistoryDone for a range, is where each partition
+	// resumes: the offset after the last record the history delivered. More
+	// says some partition has records left in the range beyond its page; a
+	// read with More does not follow, even when the range is open.
+	Next map[int32]int64
+	More bool
 	// Err ends the read: the channel closes after this batch.
 	Err error
 }
@@ -86,8 +105,14 @@ type KafkaTopicState struct {
 // KafkaQuery asks for the records of a topic of an open session.
 type KafkaQuery struct {
 	Topic string
-	// Window is a tail (Tail records per partition) or a duration.
-	Window        domain.TimeWindow
+	// Window is a tail (Tail records per partition), a duration, or a range
+	// of absolute times. A range larger than the view holds is read in
+	// pages: the first page holds the first records of each partition, and
+	// KafkaBatch.Next says where the next one starts.
+	Window domain.TimeWindow
+	// After starts a later page of a range: the offsets KafkaBatch.Next
+	// gave, by partition.
+	After         map[int32]int64
 	Follow        bool
 	ReadCommitted bool
 	// Raw leaves records written by Schema Registry serializers
@@ -102,6 +127,10 @@ type KafkaBatch struct {
 	Records     []domain.KafkaRecord
 	Notices     []string
 	HistoryDone bool
+	// Next, set with HistoryDone when a range has records after the page
+	// delivered, is the After of the query that reads the next page. A page
+	// with a successor is not live: the read does not follow.
+	Next map[int32]int64
 	// Err ends the read.
 	Err error
 }

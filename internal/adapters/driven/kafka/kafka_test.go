@@ -499,7 +499,7 @@ func TestPollRecoversFromAPanic(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		s.poll(context.Background(), cl, nil, ports.TopicRead{Topic: topic}, map[int32]int64{0: 1}, out)
+		s.poll(context.Background(), cl, nil, ports.TopicRead{Topic: topic}, map[int32]int64{0: 1}, nil, out)
 	}()
 	select {
 	case b := <-out:

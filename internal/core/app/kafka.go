@@ -657,10 +657,18 @@ func (k *kafkaSession) Read(ctx context.Context, q ports.KafkaQuery) (<-chan por
 	r := ports.TopicRead{Topic: q.Topic, Follow: q.Follow, ReadCommitted: q.ReadCommitted}
 	parts := max(t.Partitions, 1)
 	maxRecords := max(k.s.MaxRecords, 1)
-	if q.Window.Since > 0 {
+	switch {
+	case q.Window.IsRange():
+		// A page: the first records of each partition from the range start
+		// (or from where the page before ended), as many as the view holds
+		// in all, rounded down so the page never exceeds it.
+		r.From, r.To, r.After = q.Window.From, q.Window.To, q.After
+		r.Limit = max(maxRecords/parts, 1)
+		r.Follow = q.Follow && !q.Window.Closed()
+	case q.Window.Since > 0:
 		r.Since = q.Window.Since
 		r.Limit = max((maxRecords+parts-1)/parts, 1)
-	} else {
+	default:
 		r.Tail = max(q.Window.Tail, 1)
 		r.Limit = r.Tail
 	}
@@ -670,7 +678,7 @@ func (k *kafkaSession) Read(ctx context.Context, q ports.KafkaQuery) (<-chan por
 		return nil, err
 	}
 	out := make(chan ports.KafkaBatch, 16)
-	go k.forward(ctx, cancel, in, out, q.Raw)
+	go k.forward(ctx, cancel, in, out, q.Raw, q.Window)
 	return out, nil
 }
 
@@ -679,7 +687,13 @@ const historyChunk = 2000
 
 // forward truncates records, sorts the history by timestamp once it is
 // complete (bounded like the view), then passes live batches on sorted.
-func (k *kafkaSession) forward(ctx context.Context, cancel context.CancelFunc, in <-chan ports.RecordBatch, out chan<- ports.KafkaBatch, raw bool) {
+//
+// A range is read in pages and trimmed from the newest end, so the next page
+// can take up where this one stopped: nothing is dropped unseen. Records
+// outside [From, To) by their own timestamp are left out, since producers
+// set timestamps and a broker's lookup of them is approximate.
+func (k *kafkaSession) forward(ctx context.Context, cancel context.CancelFunc, in <-chan ports.RecordBatch, out chan<- ports.KafkaBatch, raw bool, window domain.TimeWindow) {
+	rng := window.IsRange()
 	defer close(out)
 	defer cancel()
 	defer func() {
@@ -702,9 +716,12 @@ func (k *kafkaSession) forward(ctx context.Context, cancel context.CancelFunc, i
 		for i := range b.Records {
 			domain.TruncateRecord(&b.Records[i], k.s.MaxValueBytes)
 		}
+		if rng {
+			b.Records = keepInRange(b.Records, window)
+		}
 		if !live {
 			history = append(history, b.Records...)
-			if len(history) > 2*max(k.s.MaxRecords, 1) {
+			if !rng && len(history) > 2*max(k.s.MaxRecords, 1) {
 				history = k.trim(history)
 			}
 			if !b.HistoryDone && b.Err == nil {
@@ -714,7 +731,16 @@ func (k *kafkaSession) forward(ctx context.Context, cancel context.CancelFunc, i
 				continue
 			}
 			live = true
-			history = k.trim(history)
+			var next map[int32]int64 // where the next page of a range starts, when there is one
+			if rng {
+				var dropped []domain.KafkaRecord
+				history, dropped = k.trimOldest(history)
+				if b.More || len(dropped) > 0 {
+					next = resumeAt(b.Next, dropped)
+				}
+			} else {
+				history = k.trim(history)
+			}
 			decoding.decodeAll(ctx, history, k.s.MaxValueBytes, notices)
 			if n := notices.take(); len(n) > 0 && !send(ctx, out, ports.KafkaBatch{Notices: n}) {
 				return
@@ -725,13 +751,19 @@ func (k *kafkaSession) forward(ctx context.Context, cancel context.CancelFunc, i
 				}
 				history = history[historyChunk:]
 			}
-			if !send(ctx, out, ports.KafkaBatch{Records: history, Notices: b.Notices, HistoryDone: true, Err: b.Err}) {
+			if !send(ctx, out, ports.KafkaBatch{Records: history, Notices: b.Notices, HistoryDone: true, Next: next, Err: b.Err}) {
 				return
 			}
 			history = nil
+			if next != nil {
+				return // a page with a successor is not live: the read ends (cancel stops the source)
+			}
 			continue
 		}
 		b = coalesce(b, in, k.s.MaxValueBytes)
+		if rng {
+			b.Records = keepInRange(b.Records, window)
+		}
 		sortRecords(b.Records)
 		decoding.decodeAll(ctx, b.Records, k.s.MaxValueBytes, notices)
 		if !send(ctx, out, ports.KafkaBatch{Records: b.Records, Notices: append(b.Notices, notices.take()...), Err: b.Err}) {
@@ -805,6 +837,52 @@ func (k *kafkaSession) trim(recs []domain.KafkaRecord) []domain.KafkaRecord {
 	}
 	clear(recs) // the records dropped release their bytes
 	return out
+}
+
+// trimOldest is trim for a range: it keeps the oldest records the view can
+// hold, in time order, and returns the others, which the next page reads.
+func (k *kafkaSession) trimOldest(recs []domain.KafkaRecord) (kept, dropped []domain.KafkaRecord) {
+	sortRecords(recs)
+	maxBytes := k.s.MaxBufferBytes
+	if maxBytes <= 0 {
+		maxBytes = int(^uint(0) >> 1)
+	}
+	n, bytes := 0, 0
+	for n < len(recs) && n < max(k.s.MaxRecords, 1) {
+		size := recs[n].Bytes()
+		if bytes+size > maxBytes && n > 0 {
+			break
+		}
+		bytes += size
+		n++
+	}
+	return recs[:n:n], slices.Clone(recs[n:])
+}
+
+// resumeAt is where each partition resumes after a page that left records
+// out: at the offset the source reached, or at the first record dropped
+// when that is earlier (a partition's records dropped by the view are read
+// again, never skipped).
+func resumeAt(next map[int32]int64, dropped []domain.KafkaRecord) map[int32]int64 {
+	out := maps.Clone(next)
+	if out == nil {
+		out = map[int32]int64{}
+	}
+	for i := range dropped {
+		r := &dropped[i]
+		if cur, ok := out[r.Partition]; !ok || r.Offset < cur {
+			out[r.Partition] = r.Offset
+		}
+	}
+	return out
+}
+
+// keepInRange leaves in recs the records stamped inside w's range, in
+// place; a record without a timestamp is kept.
+func keepInRange(recs []domain.KafkaRecord, w domain.TimeWindow) []domain.KafkaRecord {
+	return slices.DeleteFunc(recs, func(r domain.KafkaRecord) bool {
+		return !r.Time.IsZero() && (r.Time.Before(w.From) || (!w.To.IsZero() && !r.Time.Before(w.To)))
+	})
 }
 
 // sortRecords orders records by timestamp, then partition and offset (a
