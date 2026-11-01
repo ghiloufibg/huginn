@@ -179,6 +179,46 @@ func TestPodConversion(t *testing.T) {
 	}
 }
 
+func TestRolloutDone(t *testing.T) {
+	updated := metav1.NewTime(t0.Add(-3 * time.Hour))
+	cond := func(typ appsv1.DeploymentConditionType, status corev1.ConditionStatus, reason string, at metav1.Time) appsv1.DeploymentCondition {
+		return appsv1.DeploymentCondition{Type: typ, Status: status, Reason: reason, LastUpdateTime: at}
+	}
+	other := metav1.NewTime(t0.Add(-time.Minute))
+	tests := []struct {
+		name  string
+		conds []appsv1.DeploymentCondition
+		want  time.Time
+	}{
+		{"complete rollout", []appsv1.DeploymentCondition{
+			cond(appsv1.DeploymentAvailable, corev1.ConditionTrue, "MinimumReplicasAvailable", other),
+			cond(appsv1.DeploymentProgressing, corev1.ConditionTrue, "NewReplicaSetAvailable", updated),
+		}, updated.Time},
+		{"rollout in progress", []appsv1.DeploymentCondition{cond(appsv1.DeploymentProgressing, corev1.ConditionTrue, "ReplicaSetUpdated", updated)}, time.Time{}},
+		{"new replica set created", []appsv1.DeploymentCondition{cond(appsv1.DeploymentProgressing, corev1.ConditionTrue, "NewReplicaSetCreated", updated)}, time.Time{}},
+		{"deadline exceeded", []appsv1.DeploymentCondition{cond(appsv1.DeploymentProgressing, corev1.ConditionFalse, "ProgressDeadlineExceeded", updated)}, time.Time{}},
+		{"complete reason but not true", []appsv1.DeploymentCondition{cond(appsv1.DeploymentProgressing, corev1.ConditionUnknown, "NewReplicaSetAvailable", updated)}, time.Time{}},
+		{"the reason on another condition", []appsv1.DeploymentCondition{cond(appsv1.DeploymentAvailable, corev1.ConditionTrue, "NewReplicaSetAvailable", updated)}, time.Time{}},
+		{"no condition", nil, time.Time{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := deployment("api", map[string]string{"app": "api"})
+			d.Status.Conditions = tt.conds
+			if got := fromDeployment("rec", d).RolloutDone; !got.Equal(tt.want) {
+				t.Fatalf("RolloutDone = %v, want %v", got, tt.want)
+			}
+		})
+	}
+	// Only Deployments keep such a record.
+	sts := &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: "db", Namespace: ns}}
+	ds := &appsv1.DaemonSet{ObjectMeta: metav1.ObjectMeta{Name: "agent", Namespace: ns}}
+	cj := &batchv1.CronJob{ObjectMeta: metav1.ObjectMeta{Name: "export", Namespace: ns}}
+	if !fromStatefulSet("rec", sts).RolloutDone.IsZero() || !fromDaemonSet("rec", ds).RolloutDone.IsZero() || !fromCronJob("rec", cj).RolloutDone.IsZero() {
+		t.Error("StatefulSets, DaemonSets and CronJobs have no controller record of a completed rollout")
+	}
+}
+
 func TestWorkloadConversion(t *testing.T) {
 	d := deployment("api", map[string]string{"app": "api"})
 	if w := fromDeployment("rec", d); w.Progressing || w.DesiredReplicas != 2 || w.Selector["app"] != "api" || w.Ref.Kind != domain.KindDeployment {

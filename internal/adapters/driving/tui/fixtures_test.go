@@ -83,6 +83,7 @@ func mockupSnapshot(env string) ports.CatalogSnapshot {
 			sum.WorkloadStates = append(sum.WorkloadStates, domain.Workload{
 				Ref:             domain.WorkloadRef{Env: domain.Env(env), Namespace: "app-" + env, Kind: domain.KindDeployment, Name: name},
 				DesiredReplicas: desired, ReadyReplicas: ready, UpdatedReplicas: desired,
+				RolloutDone: t0.Add(-r.age + 90*time.Second), // deployed when the service was created
 			})
 		}
 		s.Services = append(s.Services, sum)

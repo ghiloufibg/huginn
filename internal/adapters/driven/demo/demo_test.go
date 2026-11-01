@@ -272,3 +272,44 @@ func TestHeadOfThePreviousInstance(t *testing.T) {
 		t.Fatalf("previous head: %d lines, want the first 2 of the instance", len(lines))
 	}
 }
+
+// The demo shows every state of the services preview's DEPLOYED section: a
+// completed rollout, one in progress, and a workload dated from its pods.
+func TestDemoDeployments(t *testing.T) {
+	c, _ := newTest(t)
+	ctx := context.Background()
+	ws, err := c.ListWorkloads(ctx, recScope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pods, err := c.ListPods(ctx, recScope, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bySource := map[domain.DeploySource]int{}
+	inProgress := 0
+	for _, w := range ws {
+		info := domain.LastDeployment(w, pods)
+		bySource[info.Source]++
+		if info.InProgress {
+			inProgress++
+			if info.At.IsZero() || info.Updated >= info.Desired {
+				t.Errorf("%s: a rollout in progress is dated by its new pod: %+v", w.Ref.Name, info)
+			}
+		}
+		if w.Ref.Name == "nightly-report" && info.Source != domain.DeployPods {
+			t.Errorf("the legacy workload keeps no controller record, so its pods date it: %+v", info)
+		}
+		if !info.InProgress && info.Source == domain.DeployController && info.At.After(w.Created.Add(time.Hour)) {
+			t.Errorf("%s: deployed after being created? %+v", w.Ref.Name, info)
+		}
+	}
+	if bySource[domain.DeployController] == 0 || bySource[domain.DeployPods] == 0 || inProgress == 0 {
+		t.Fatalf("the demo must cover every state: sources %v, %d in progress", bySource, inProgress)
+	}
+	for _, p := range pods {
+		if p.Revision == "" {
+			t.Fatalf("pod %s has no template revision", p.Name)
+		}
+	}
+}

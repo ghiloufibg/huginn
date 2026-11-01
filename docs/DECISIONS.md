@@ -635,3 +635,13 @@ Design and rationale: [`docs/plan/M15-absolute-time-range.md`](plan/M15-absolute
 - **Not done**: saving a whole range to a file (not a quick way to debug, owner's call); loading the next page when scrolling past the end (explicit pages are simpler to reason about and test); time-shift keys.
 - **To measure on real GKE** (not assumed): the kubelet scans the file to find `sinceTime`, so a page far from the start of a very long log may cost more than page 1.
 Status: accepted.
+
+## D-072 Last deployment time in the services preview (M15.1)
+Design and rationale: [`docs/plan/M15.1-last-deployment.md`](plan/M15.1-last-deployment.md). A **DEPLOYED** section of the preview shows, per workload, the date and hour of the last deployment in the user's time zone and its age.
+- **"Deployed" means a rollout of the pod template that the cluster completed** (new image, changed variable, restart, rollback), not a replica change nor a restarted pod. While one runs the line says `rolling out since …` with the updated count.
+- **Sources, all already watched: no new permission, informer or request.** (1) A Deployment's `Progressing` condition with `reason: NewReplicaSetAvailable`: its `lastUpdateTime`; (2) for other kinds, or when there is no record, the earliest creation time of the pods of the newest template revision, shown as `pods since …` because it is a lower bound (all the pods of a revision replaced by an eviction or a node upgrade make it later than the deploy). A CronJob has none.
+- **Rejected, from the Kubernetes documentation:** the newest ReplicaSet's creation time (a rollback reuses the old ReplicaSet, so it would not move; and it needs a ReplicaSet permission the adapter deliberately avoids, `ownerOf`), `managedFields[].time` (it also moves when an autoscaler changes replicas), the condition's `lastTransitionTime` (stays at the first rollout, `Progressing` stays True), the registry's push time (not known to the cluster).
+- **Not done, as decided:** a pipeline-written annotation named in the config folder (can be added without a redesign: one more source in `LastDeployment`); a column in the services table (`AGE` stays the object's creation date).
+- **Layout:** the DEPLOYED lines are given room before the pod list, since a service has a few workloads and possibly many pods and the dates are why the panel is opened.
+- **Not verified yet on a real cluster:** that the condition's `lastUpdateTime` stays fixed once a rollout is complete (the documentation only says "the last time this condition was updated"); the real-GKE QA checks it first (`docs/plan/M15-gke-qa.md` §4b, V-2). If it moves, the pods become the first source.
+Status: accepted, pending V-2.

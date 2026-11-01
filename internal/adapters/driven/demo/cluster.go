@@ -259,7 +259,7 @@ func (c *Cluster) applyStage(stage int) ([]domain.PodEvent, []ports.WorkloadEven
 		old := c.world.pods[env][i]
 		c.world.pods[env] = slices.Delete(c.world.pods[env], i, i+1)
 		old.Deleted = true
-		wl.Progressing, wl.ReadyReplicas = false, wl.ReadyReplicas-1
+		wl.Progressing, wl.ReadyReplicas, wl.RolloutDone = false, wl.ReadyReplicas-1, now
 		wl.Labels["app.kubernetes.io/version"] = liveRollout.version
 		evs = append(evs, domain.PodEvent{Type: domain.PodDeleted, Pod: old})
 	}

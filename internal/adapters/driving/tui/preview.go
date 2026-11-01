@@ -17,6 +17,15 @@ import (
 // the recent warnings of its worst pod and its hidden containers, in the
 // space the table leaves free (docs/DECISIONS.md D-028).
 
+// The sections of the preview, in order.
+const (
+	secWorkloads = iota
+	secDeployed
+	secPods
+	secWarnings
+	secSidecars
+)
+
 // previewMode is the user's choice for the preview (key p).
 type previewMode int
 
@@ -170,10 +179,11 @@ func (p *preview) render(m *Model, svc domain.ServiceSummary, w, h int) string {
 		label string
 		lines []string
 	}{
-		{"WORKLOADS", p.workloads(m, svc)},
-		{"PODS", p.pods(m, svc, now)},
-		{"WARNINGS", p.warnings(m, now, stackWrap(w))},
-		{"SIDECARS", p.hidden(m, svc)},
+		secWorkloads: {"WORKLOADS", p.workloads(m, svc)},
+		secDeployed:  {"DEPLOYED", p.deployed(m, svc, now)},
+		secPods:      {"PODS", p.pods(m, svc, now)},
+		secWarnings:  {"WARNINGS", p.warnings(m, now, stackWrap(w))},
+		secSidecars:  {"SIDECARS", p.hidden(m, svc)},
 	}
 	alloc := make([]int, len(sections))
 	avail := h - 1
@@ -193,13 +203,16 @@ func (p *preview) render(m *Model, svc domain.ServiceSummary, w, h int) string {
 	for i := range sections { // one line each first
 		give(i, 1)
 	}
-	give(1, len(sections[1].lines))
+	// The deployment times come first: they are why the panel was opened,
+	// and a service has a few workloads against possibly many pods.
+	give(secDeployed, len(sections[secDeployed].lines))
+	give(secPods, len(sections[secPods].lines))
 	if stacked {
-		give(2, len(sections[2].lines))
+		give(secWarnings, len(sections[secWarnings].lines))
 	} else {
-		give(2, maxWarnings)
+		give(secWarnings, maxWarnings)
 	}
-	give(0, len(sections[0].lines))
+	give(secWorkloads, len(sections[secWorkloads].lines))
 
 	lines := []string{title}
 	for i, s := range sections {
@@ -239,6 +252,61 @@ func (p *preview) workloads(m *Model, svc domain.ServiceSummary) []string {
 		out = append(out, line)
 	}
 	return out
+}
+
+// deployed says, for each workload, when it was last deployed: the date and
+// hour in the user's time zone, and how long ago (docs/plan/M15.1).
+func (p *preview) deployed(m *Model, svc domain.ServiceSummary, now time.Time) []string {
+	t := &m.opts.Theme
+	width := 0
+	for _, w := range svc.WorkloadStates {
+		width = max(width, ansi.StringWidth(w.Ref.Name))
+	}
+	out := make([]string, 0, len(svc.WorkloadStates))
+	for _, w := range svc.WorkloadStates {
+		info := domain.LastDeployment(w, svc.Pods)
+		out = append(out, padRight(w.Ref.Name, width)+"  "+deployText(t, info, m.location(), now))
+	}
+	return out
+}
+
+// deployText is the part of a DEPLOYED line after the workload's name.
+func deployText(t *Theme, info domain.DeployInfo, loc *time.Location, now time.Time) string {
+	when := ""
+	if !info.At.IsZero() {
+		when = deployStamp(info.At, now, loc) + "  " + deployAge(now, info.At)
+	}
+	switch {
+	case info.InProgress && info.At.IsZero():
+		return t.Warn.Render("rolling out, no new pod yet")
+	case info.InProgress:
+		return t.Warn.Render("rolling out since "+when) + t.Dim.Render(fmt.Sprintf("  %d/%d updated", info.Updated, info.Desired))
+	case info.Source == domain.DeployController:
+		return when
+	case info.Source == domain.DeployPods:
+		// The pods' age is a lower bound of the deployment's: say so.
+		return t.Dim.Render("pods since ") + when
+	}
+	return t.Dim.Render("no rollout record")
+}
+
+// deployStamp is a date and hour in loc: "Nov 1 14:32", with the year when
+// it is not the current one.
+func deployStamp(at, now time.Time, loc *time.Location) string {
+	at = at.In(loc)
+	if at.Year() != now.In(loc).Year() {
+		return at.Format("Jan 2 2006 15:04")
+	}
+	return at.Format("Jan 2 15:04")
+}
+
+// deployAge is how long ago at was. The cluster's clock and the machine's can
+// differ: a time in the future reads "just now", never a negative age.
+func deployAge(now, at time.Time) string {
+	if d := now.Sub(at); d >= time.Second {
+		return shortAge(d) + " ago"
+	}
+	return "just now"
 }
 
 func (p *preview) pods(m *Model, svc domain.ServiceSummary, now time.Time) []string {

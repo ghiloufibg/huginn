@@ -38,6 +38,11 @@ type Workload struct {
 	UpdatedReplicas int
 	// Progressing is true while a rollout is in progress.
 	Progressing bool
+	// RolloutDone is when the controller last completed a rollout of the
+	// pod template (a Deployment's Progressing condition reaching
+	// NewReplicaSetAvailable); zero when the kind keeps no such record or
+	// no rollout completed yet. See LastDeployment.
+	RolloutDone time.Time
 	// Selector is the label selector of the workload's pods.
 	Selector map[string]string
 	Created  time.Time

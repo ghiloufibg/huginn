@@ -3,6 +3,7 @@ package kubernetes
 import (
 	"regexp"
 	"strings"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
@@ -155,7 +156,23 @@ func fromDeployment(env domain.Env, d *appsv1.Deployment) domain.Workload {
 	// A rollout is in progress while the controller has not seen the new
 	// spec, some replicas are not updated, or old ones still run.
 	w.Progressing = s.ObservedGeneration < d.Generation || w.UpdatedReplicas < w.DesiredReplicas || int(s.Replicas) > w.UpdatedReplicas
+	w.RolloutDone = rolloutDone(s.Conditions)
 	return w
+}
+
+// rolloutDone is when the Deployment controller last completed a rollout:
+// the update time of its Progressing condition once that condition says
+// NewReplicaSetAvailable. The controller keeps the condition True until a
+// new rollout starts, and only a complete rollout carries that reason, so a
+// rollout in progress, stuck (ProgressDeadlineExceeded) or never started
+// has no such time (zero).
+func rolloutDone(conds []appsv1.DeploymentCondition) time.Time {
+	for _, c := range conds {
+		if c.Type == appsv1.DeploymentProgressing && c.Status == corev1.ConditionTrue && c.Reason == "NewReplicaSetAvailable" {
+			return c.LastUpdateTime.Time
+		}
+	}
+	return time.Time{}
 }
 
 func fromStatefulSet(env domain.Env, d *appsv1.StatefulSet) domain.Workload {

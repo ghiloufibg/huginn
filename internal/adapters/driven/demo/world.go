@@ -116,12 +116,26 @@ func (w *world) addWorkload(env domain.Env, ns string, r repoSpec, name string, 
 			updated++
 		}
 	}
+	// The controller's record of the last completed rollout: the pods of the
+	// current template came up at created; a service rolling out completed
+	// its previous rollout when its old pod did, three days earlier. The
+	// unlabelled legacy workload keeps none, as a controller that never
+	// wrote the condition: its deployment is then dated from its pods.
+	var rolloutDone time.Time
+	switch {
+	case name == "nightly-report":
+	case cond == rollingOut:
+		rolloutDone = created.Add(-3*day + 30*time.Second)
+	default:
+		rolloutDone = created.Add(30 * time.Second)
+	}
 	w.workloads[env] = append(w.workloads[env], domain.Workload{
 		Ref: ref, Labels: labels, Annotations: map[string]string{},
 		DesiredReplicas: replicas, ReadyReplicas: ready, UpdatedReplicas: updated,
 		Progressing: cond == rollingOut,
 		Selector:    map[string]string{"app.kubernetes.io/name": name},
 		Created:     created,
+		RolloutDone: rolloutDone,
 	})
 	w.pods[env] = append(w.pods[env], pods...)
 }
@@ -166,6 +180,7 @@ func (w *world) newPod(env domain.Env, ns string, r repoSpec, workload, rs, vers
 		},
 		Phase: domain.PodRunning, Node: "gke-main-pool-" + randomName(4, w.seed, env, name),
 		Created: podCreated, Started: podCreated.Add(2 * time.Second), OwnerName: workload,
+		Revision: rs,
 	}
 	app := domain.Container{
 		Name: workload, Image: "eu.gcr.io/acme/" + workload + ":" + version,

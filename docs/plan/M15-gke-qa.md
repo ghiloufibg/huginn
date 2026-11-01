@@ -127,6 +127,23 @@ Comparisons are **set and order comparisons on `seq` (logs) or `(partition, offs
 | FR-8g | P1 | `i` (isolation), `D` (decode toggle), Avro/JSON Schema records inside a range and across pages | As M14, including `registry answered 404` for the bad id |
 | **FR-9** | P0 | `huginn-reader` (get on `pods/log`, list/watch pods, nothing else) | Range and pages work; `qa-restricted` stays `Forbidden` under `restricted`. A range that needs a permission the plain tail does not would show up here |
 
+### 4b. Last deployment time in the services preview ([M15.1](M15.1-last-deployment.md))
+
+Tested in the same session, on the same cluster, because it needs real rollouts that `--demo` cannot produce. Its design rests on one assumption not yet checked (that the Deployment's `Progressing` condition keeps its `lastUpdateTime` once a rollout is complete), so **V-2 is `P0` and is run first**: if it fails, the design changes before anything else is trusted.
+
+| ID | Pri | Scenario | Expected |
+|---|---|---|---|
+| V-1 | P0 | Deploy a new image of `payment-service`; watch the preview during and after | `rolling out since …`, then a date and hour equal (within seconds) to the end of `kubectl rollout status` |
+| **V-2** | P0 | Wait 15+ minutes; scale 2→3→2; delete a pod; let an HPA act | The time does **not** move. Compare with the condition's `lastUpdateTime` read by `kubectl get deploy -o jsonpath` |
+| V-3 | P0 | `kubectl rollout undo` | Moves to the rollback's completion (a ReplicaSet-based source would not: that is why it was rejected) |
+| V-4 | P1 | `kubectl rollout restart` | Moves |
+| V-5 | P1 | Delete every pod of a Deployment and of a StatefulSet | Deployment: unchanged. StatefulSet: moves, shown as `pods since …` (the documented lower bound) |
+| V-6 | P1 | Rollout with a bad image (`ErrImagePull`), then fix it | `rolling out since … 0/2 updated`; the previous completion time is not shown as current; back to a dated line after recovery |
+| V-7 | P1 | StatefulSet rolling update, DaemonSet, CronJob | `pods since …` for the first two, `no rollout record` for the CronJob |
+| V-8 | P0 | Everything above under `huginn-reader` (no ReplicaSet or ControllerRevision rights) | Unchanged: the feature asks for no new permission |
+| V-9 | P1 | `TZ` = UTC and `Asia/Tokyo`; local clock 5 minutes ahead | The zone is the machine's; the age reads `just now`, never negative |
+| V-10 | P1 | Non-regression: the `AGE` column, the `WORKLOADS`, `PODS`, `WARNINGS`, `SIDECARS` sections, `p` toggle, the 80/120/200-column layouts | Only the added `DEPLOYED` section differs from the pre-change binary (use the differential run of §6.3) |
+
 ## 5. Non-functional test plan
 
 Methods of M10/M14 (`ps` sampling, `HUGINN_CPUPROFILE`) plus per-process bytes read (`/proc/<pid>/io`, `rchar`, from WSL; to be validated that it counts the TLS socket reads before relying on it). **Correctness is binary; performance rows give numbers and "investigate" triggers.** The thresholds marked *proposed* are tolerances for noisy sampling, not derived from a measurement, and need the owner's agreement before execution.
@@ -205,7 +222,7 @@ Sizes 80×24, 120×30, 220×50 (the popup is clipped, not spilled, D-054) × the
 7. NFR pass (§5), then chaos (§7).
 8. Fill `deploy/gke-qa/M15-QA-REPORT.md` (findings, filled matrix, numbers, what was not covered).
 9. **Teardown, unconditionally**; list clusters in both regions; delete the repo and `huginn-reader`.
-10. Record D-072 (the filled matrix, the measured numbers, FR-8c's verdict); fold any real-GKE-only finding into the README and `docs/CONFIG.md`.
+10. Record D-073 (the filled matrix, the measured numbers, FR-8c's verdict); fold any real-GKE-only finding into the README and `docs/CONFIG.md`.
 
 Time-box: like M10/M12/M14, hours and not days, with a hard stop that triggers teardown whatever has been done. The page-depth measurement (NFR-4) is the one that may need a second, short run once the first numbers are known.
 

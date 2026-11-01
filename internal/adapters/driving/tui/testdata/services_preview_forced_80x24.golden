@@ -13,12 +13,12 @@
  ─ catalog-indexer ─────────────────────────────────────────────────────────────
  WORKLOADS                                                                      
    Deployment catalog-indexer  0/2 ready  2/2 updated  v1.3.7                   
+ DEPLOYED                                                                       
+   catalog-indexer  Sep 26 18:54  19m ago                                       
  PODS                                                                           
    6kq2x  CrashLoopBackOff  0/1 ready  23 restarts  last: Error exit 1, 4m ago  
  WARNINGS                                                                       
    ⠋ reading events of 6kq2x                                                    
- SIDECARS                                                                       
-   istio-proxy                                                                  
                                                                                 
  preview on   SERVICES   3 failing · 2 degraded/pending · 2 rolling · 8 health… 
  enter logs  / filter  s sort  p preview  r resync  ctrl+e env  f2 keys  ? help 

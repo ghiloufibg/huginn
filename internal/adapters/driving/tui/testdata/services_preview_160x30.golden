@@ -17,10 +17,10 @@
  legacy-cron (no repo)   1    1/1  Healthy             0     -  1.0               16d                                                                           
  ─ catalog-indexer ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  WORKLOADS  Deployment catalog-indexer  0/2 ready  2/2 updated  v1.3.7                                                                                          
+ DEPLOYED   catalog-indexer  Sep 26 18:54  19m ago                                                                                                              
  PODS       6kq2x  CrashLoopBackOff  0/1 ready  23 restarts  last: Error exit 1, 4m ago  gke-main-pool-1-bh2c  21m                                              
  WARNINGS    30s  BackOff  Back-off restarting failed container app in pod catalog-indexer-7d4b9c-6kq2x (x87)                                                   
  SIDECARS   istio-proxy                                                                                                                                         
-                                                                                                                                                                
                                                                                                                                                                 
                                                                                                                                                                 
                                                                                                                                                                 
