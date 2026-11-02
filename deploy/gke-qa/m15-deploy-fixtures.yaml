@@ -1,0 +1,215 @@
+# M15.1 QA fixtures (docs/plan/M15-gke-qa.md §2.6): workloads that can be
+# rolled out cheaply, to check the services preview's DEPLOYED section on a
+# real cluster. All busybox, requests 10m/16Mi (the shape of
+# named-pod-fixture, which Autopilot accepted in M14).
+#
+# A rollout is a change of the pod template:
+#   kubectl -n qa-rec set env deployment/deploy-probe REV=2
+# progressDeadlineSeconds is low on purpose so a stuck rollout (V-6) reaches
+# ProgressDeadlineExceeded in 2 minutes instead of the default 10.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deploy-probe
+  namespace: qa-rec
+  labels:
+    app.kubernetes.io/part-of: deploy-probe
+spec:
+  replicas: 2
+  progressDeadlineSeconds: 120
+  minReadySeconds: 5
+  selector:
+    matchLabels: {app: deploy-probe}
+  template:
+    metadata:
+      labels: {app: deploy-probe, app.kubernetes.io/part-of: deploy-probe}
+    spec:
+      containers:
+        - name: deploy-probe
+          image: busybox:1.36
+          env: [{name: REV, value: "1"}]
+          command: ["sh", "-c", "while true; do echo \"{\\\"level\\\":\\\"info\\\",\\\"message\\\":\\\"deploy-probe rev $REV\\\"}\"; sleep 5; done"]
+          resources: {requests: {cpu: 10m, memory: 16Mi}}
+---
+# Pods-only source (`pods since ...`); V-5 (deleting every pod moves it, the
+# documented lower bound), V-7 (a template change is a real rollout).
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: deploy-sts
+  namespace: qa-rec
+  labels:
+    app.kubernetes.io/part-of: deploy-sts
+spec:
+  serviceName: deploy-sts
+  replicas: 2
+  updateStrategy: {type: RollingUpdate}
+  selector:
+    matchLabels: {app: deploy-sts}
+  template:
+    metadata:
+      labels: {app: deploy-sts, app.kubernetes.io/part-of: deploy-sts}
+    spec:
+      containers:
+        - name: deploy-sts
+          image: busybox:1.36
+          env: [{name: REV, value: "1"}]
+          command: ["sh", "-c", "while true; do echo \"{\\\"level\\\":\\\"info\\\",\\\"message\\\":\\\"deploy-sts rev $REV\\\"}\"; sleep 5; done"]
+          resources: {requests: {cpu: 10m, memory: 16Mi}}
+---
+# V-7. Autopilot may refuse or constrain a DaemonSet: if so the case is
+# reported as not exercised (the code has no DaemonSet-specific branch).
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: deploy-ds
+  namespace: qa-rec
+  labels:
+    app.kubernetes.io/part-of: deploy-ds
+spec:
+  selector:
+    matchLabels: {app: deploy-ds}
+  template:
+    metadata:
+      labels: {app: deploy-ds, app.kubernetes.io/part-of: deploy-ds}
+    spec:
+      containers:
+        - name: deploy-ds
+          image: busybox:1.36
+          env: [{name: REV, value: "1"}]
+          command: ["sh", "-c", "while true; do echo \"{\\\"level\\\":\\\"info\\\",\\\"message\\\":\\\"deploy-ds rev $REV\\\"}\"; sleep 10; done"]
+          resources: {requests: {cpu: 10m, memory: 16Mi}}
+---
+# V-7: `no rollout record`, whatever its jobs' pods say.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: deploy-cron
+  namespace: qa-rec
+  labels:
+    app.kubernetes.io/part-of: deploy-cron
+spec:
+  schedule: "*/5 * * * *"
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels: {app: deploy-cron, app.kubernetes.io/part-of: deploy-cron}
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: deploy-cron
+              image: busybox:1.36
+              command: ["sh", "-c", "echo '{\"level\":\"info\",\"message\":\"deploy-cron ran\"}'; sleep 20"]
+              resources: {requests: {cpu: 10m, memory: 16Mi}}
+---
+# V-11: one microservice, two workloads of different kinds, two lines in
+# WORKLOADS order.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deploy-pair-api
+  namespace: qa-rec
+  labels:
+    app.kubernetes.io/part-of: deploy-pair
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: deploy-pair-api}
+  template:
+    metadata:
+      labels: {app: deploy-pair-api, app.kubernetes.io/part-of: deploy-pair}
+    spec:
+      containers:
+        - name: deploy-pair-api
+          image: busybox:1.36
+          env: [{name: REV, value: "1"}]
+          command: ["sh", "-c", "while true; do echo \"{\\\"level\\\":\\\"info\\\",\\\"message\\\":\\\"deploy-pair-api rev $REV\\\"}\"; sleep 5; done"]
+          resources: {requests: {cpu: 10m, memory: 16Mi}}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: deploy-pair-db
+  namespace: qa-rec
+  labels:
+    app.kubernetes.io/part-of: deploy-pair
+spec:
+  serviceName: deploy-pair-db
+  replicas: 1
+  selector:
+    matchLabels: {app: deploy-pair-db}
+  template:
+    metadata:
+      labels: {app: deploy-pair-db, app.kubernetes.io/part-of: deploy-pair}
+    spec:
+      containers:
+        - name: deploy-pair-db
+          image: busybox:1.36
+          command: ["sh", "-c", "while true; do echo '{\"level\":\"info\",\"message\":\"deploy-pair-db up\"}'; sleep 10; done"]
+          resources: {requests: {cpu: 10m, memory: 16Mi}}
+---
+# V-2d: an autoscaler changes replicas by itself and nothing may move. Each
+# pod burns CPU for 3 minutes after it starts, then idles, so the HPA scales
+# up and then down without help. Optional: depends on the cluster giving the
+# HPA metrics.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deploy-auto
+  namespace: qa-rec
+  labels:
+    app.kubernetes.io/part-of: deploy-auto
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: deploy-auto}
+  template:
+    metadata:
+      labels: {app: deploy-auto, app.kubernetes.io/part-of: deploy-auto}
+    spec:
+      containers:
+        - name: deploy-auto
+          image: busybox:1.36
+          command: ["sh", "-c", "timeout 180 sh -c 'while :; do :; done'; while true; do echo '{\"level\":\"info\",\"message\":\"deploy-auto idle\"}'; sleep 30; done"]
+          resources: {requests: {cpu: 10m, memory: 16Mi}}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: deploy-auto
+  namespace: qa-rec
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: deploy-auto}
+  minReplicas: 1
+  maxReplicas: 3
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: {type: Utilization, averageUtilization: 50}
+---
+# V-15: a workload in the namespace the `restricted` environment cannot read.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deploy-forbidden
+  namespace: qa-restricted
+  labels:
+    app.kubernetes.io/part-of: deploy-forbidden
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: deploy-forbidden}
+  template:
+    metadata:
+      labels: {app: deploy-forbidden, app.kubernetes.io/part-of: deploy-forbidden}
+    spec:
+      containers:
+        - name: deploy-forbidden
+          image: busybox:1.36
+          command: ["sh", "-c", "while true; do echo '{\"level\":\"info\",\"message\":\"deploy-forbidden\"}'; sleep 10; done"]
+          resources: {requests: {cpu: 10m, memory: 16Mi}}

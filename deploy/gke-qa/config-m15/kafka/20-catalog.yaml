@@ -1,0 +1,25 @@
+# yaml-language-server: $schema=../../../../docs/schema/kafka.schema.json
+# Tier 1 (M12-gke-qa.md §3.2): PLAINTEXT, no secrets at all -- the bulk
+# of the feature (topics, records, zoom, filters, tail/window/follow,
+# order, copy, isolation) at minimum setup complexity.
+version: 1
+
+match:
+  repos: [catalog]
+
+sources:
+  - file: "../kafka-secrets/kafka-plaintext.env"
+
+connection:
+  bootstrap: ${KAFKA_PLAINTEXT_BOOTSTRAP}
+  security: plaintext
+
+topics:
+  consume: [topic-b]
+  produce: [topic-a]
+  # M15 QA (m15-gke-qa.md section 2.3): the topics of the range tests.
+  list: [topic-c, range-topic, range-topic-lat]
+
+schema_registry:
+  url: http://localhost:8081
+  decode: [value]

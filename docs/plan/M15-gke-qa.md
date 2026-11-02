@@ -1,4 +1,4 @@
-# M15 QA — Real GKE: absolute time range and last deployment time (functional, non-functional, TUI non-regression)  (status: design, not executed)
+# M15 QA — Real GKE: absolute time range and last deployment time (functional, non-functional, TUI non-regression)  (status: executed in part on 2026-11-02, see [`deploy/gke-qa/M15-QA-REPORT.md`](../../deploy/gke-qa/M15-QA-REPORT.md))
 
 **Goal:** run two features against a real GKE Autopilot cluster and a real Kafka broker, in one session, the way M5/M10/M12/M14 did for earlier features:
 

@@ -1,0 +1,6 @@
+# yaml-language-server: $schema=../../../docs/schema/services.schema.json
+# Same convention as deploy/lab: repositories are resolved from the
+# app.kubernetes.io/part-of label set on every Deployment in workloads.yaml.
+version: 1
+resolve: [labels]
+label_keys: [app.kubernetes.io/part-of, app.kubernetes.io/name, app]

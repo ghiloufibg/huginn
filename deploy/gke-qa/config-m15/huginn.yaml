@@ -1,0 +1,19 @@
+# yaml-language-server: $schema=../../../docs/schema/huginn.schema.json
+version: 1
+
+default_env: rec
+
+windows:
+  presets: [15m, 30m, 40m, 45m, 1h, 1d, 2d]
+  tail_lines: 500
+  default: 15m
+
+# M15 QA: logs.buffer_lines is the page size of a range (the minimum, 1000).
+logs:
+  buffer_lines: 1000
+
+# M15 QA (docs/plan/M15-gke-qa.md section 2.5): the smallest pages, so a few
+# thousand lines or records already make several pages. 6 000 records over
+# 6 partitions at 200 per partition and page: 5 pages.
+kafka:
+  max_records: 1200

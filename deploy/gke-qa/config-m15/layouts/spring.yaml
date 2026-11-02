@@ -1,0 +1,46 @@
+# yaml-language-server: $schema=../../../../docs/schema/layout.schema.json
+# The Spring Boot console layout. Reference: docs/CONFIG.md#layoutsnameyaml
+version: 1
+
+stream:                        # the logs screen
+  time_format: "15:04:05.000"
+  columns:                     # c hides them one by one, in this order
+    - { name: time,   key: t, show: "{time}",                       role: time }
+    - { name: level,  key: l, show: "{level|right:5}",              role: level }
+    - { name: thread, key: h, show: "[{thread|last:15|right:15}]",  role: thread, hide_below: 140 }
+    - { name: class,  key: c, show: "{logger|abbrev:30|left:30}",   role: logger, hide_below: 110 }
+  separator: { text: ": ", after: [thread, class] }
+
+zoom:                          # the first line of the zoom view
+  time_format: "2006-01-02T15:04:05.000Z07:00"
+  columns:
+    - { name: time,   show: "{time}",                       role: time }
+    - { name: level,  show: "{level|right:5}",              role: level }
+    - { name: pid,    show: "{pid}",                        role: pid }
+    - { name: dashes, show: "---",                          role: dim }
+    - { name: app,    show: "[{app}]",                      role: dim }
+    - { name: thread, show: "[{thread|last:15|right:15}]",  role: thread }
+    - { name: class,  show: "{logger|abbrev:40|left:40}",   role: logger }
+  separator: { text: ": ", after: [thread, class] }
+
+stack:                         # frames outside these packages are your code
+  framework_prefixes:
+    - java.
+    - javax.
+    - jdk.
+    - sun.
+    - com.sun.
+    - jakarta.
+    - kotlin.
+    - scala.
+    - org.springframework.
+    - org.apache.
+    - org.hibernate.
+    - io.netty.
+    - io.lettuce.
+    - reactor.
+    - io.micrometer.
+    - com.zaxxer.
+    - org.eclipse.
+    - io.undertow.
+    - feign.

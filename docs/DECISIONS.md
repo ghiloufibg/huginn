@@ -646,4 +646,17 @@ Design and rationale: [`docs/plan/M15.1-last-deployment.md`](plan/M15.1-last-dep
 - **A scale-up is not a deployment (fixed after measuring).** The watched `Progressing` flag is also true while a Deployment is scaled and the controller's counts lag, so the first version showed `rolling out since <the old pods' age>` for those seconds, and an autoscaler would have made it flicker. A rollout now needs a second template revision among the pods, or a Deployment whose controller record does not say "complete" (that record holds through scaling and changes the moment a rollout starts), or, for kinds with no record, no replica on the template yet. Found by running the case, not by the tests that existed.
 - **Not verified yet on a real cluster:** that the condition's `lastUpdateTime` stays fixed once a rollout is complete (the documentation only says "the last time this condition was updated"); the real-GKE QA checks it first (`docs/plan/M15-gke-qa.md` §4b, V-2). If it moves, the pods become the first source.
 - **Cost, measured:** the section is about 1.5% of the preview's render (190 µs of 12.3 ms for 2 000 pods before the fix; the preview is redrawn on every frame). After the fix a settled Deployment costs 8.8 ns and no allocation, whatever its pod count; a workload with no record scans its pods in 46 µs for 2 000, also with no allocation. The preview's PODS section, not this one, dominates large services (10.7 ms for 2 000 pods): untouched, noted.
-Status: accepted, pending V-2.
+Status: accepted. V-2 confirmed on a real cluster (D-073).
+
+## D-073 Real-GKE QA of M15 and M15.1: outcome and open points
+
+Report: [`deploy/gke-qa/M15-QA-REPORT.md`](../deploy/gke-qa/M15-QA-REPORT.md). Run 2026-11-02 on an Autopilot cluster; **partial** (see the report's section 5 for what was not run).
+
+- **D-072's assumption holds.** A Deployment's `Progressing.lastUpdateTime` did not move in 30 minutes, nor for a scale, a pod deletion, an autoscaler or a scale from zero, and moved to the second for an undo and a restart. No source change was needed. The scale-up defect fixed after the first measurement did not appear: during a real scale-up the controller reported fewer available than desired replicas while `Progressing` was true, and the preview kept the plain date.
+- **D-071's exactness holds on a real kubelet.** A closed range read in four pages equals the `kubectl logs --timestamps` oracle (3 893 of 3 893 lines, none missing, extra or repeated). Same-instant page boundaries could not be produced on this node (burst writes get distinct nanosecond stamps), so that path stays proven by unit tests only.
+- **Kafka's edge is quantified.** With 2 % of records stamped 90 s late, 9 of 1 500 in-range records (0.6 %) were missed, all at the `To` edge. The documented "approximate at the edges" stands; whether to widen the end offset by a margin is the owner's call.
+- **Open, not decided here:** the rotation notice is silent when the first kept line is within 5 minutes of `From` (or a tenth of the range); a stuck rollout reads `rolling out since …` past `ProgressDeadlineExceeded`; a StatefulSet with no pod reads `rolling out, no new pod yet`; a page that is loading reads `(last)` with 0 lines. The committed Role in `rbac.yaml` grants ReplicaSets that the feature does not need.
+- **Not measured:** the cost of a page far into a log (D-071's open item), the non-functional plan, and the regression scripts that need the Spring trio.
+- **Cost leak found:** three unattached 5 GB disks from the M12 and M14 sessions remained in the project; they are listed in the report and were not deleted.
+
+Status: accepted.
