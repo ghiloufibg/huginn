@@ -77,6 +77,9 @@ jobs:
       - uses: actions/setup-go@v7.0.0
         with:
           go-version: "1.26.x"
+          # The runner image caches an older 1.26.x that setup-go reuses;
+          # stdlib advisories fixed in later patch releases then fail this job.
+          check-latest: true
       - run: scripts/govulncheck-allowlist.sh
 
   lab:
