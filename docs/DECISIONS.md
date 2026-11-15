@@ -688,3 +688,17 @@ Design: [`docs/plan/M16.1-commits-from-gitlab-api.md`](plan/M16.1-commits-from-g
 - **`compare_ref`** must be `<remote>/HEAD` or `<remote>/<branch>` (validated with its position).
 - **Not verified on a real GitLab yet:** the count against `git rev-list` on the owner's GitLab, and whether an abbreviated id (image-tag guesses only) is resolved: the QA plan [`docs/plan/M16-qa.md`](plan/M16-qa.md) checks them (A-4, A-6).
 Status: accepted.
+
+## D-076 Resource usage screen: Metrics API, one new port, shared catalog watch (M21)
+
+- **Source.** The Metrics API (`metrics.k8s.io`, metrics-server) only: no extra infrastructure, one `list` of `pods` per namespace and refresh, namespaced like everything else (D-004, D-034). The verb test of the adapter also covers it. Prometheus or Cloud Monitoring would be another `MetricsSource` adapter, not a change to the core.
+- **A separate port.** `ports.MetricsSource` is not part of `ClusterClient`: metrics are optional (no metrics-server, no grant), and the services screen must not depend on them. Failures are `ErrMetricsUnavailable` (404, 503) or `ErrForbidden`, per namespace; the other namespaces are unaffected. Polling runs only while the usage screen is open (the Metrics API has no watch).
+- **What a number means.** Usage is an average over the metrics window. Rollups never count a pod without a sample or a container that is not running as zero, and never give a share of a sum when one counted container lacks a request or limit (it would hide an unbounded consumer). A share of a sum also hides a hot pod, so the hottest pod by memory limit is carried next to it. `over-provisioned` is a fact (under 25 % of requests on both resources), not advice.
+- **One catalog watch for both screens.** `Catalog.Watch` starts its own informers, so a second watch from the usage screen would have doubled the API server's load. `app.SharedCatalog` serves any number of readers from one upstream watch, started with the first reader and stopped with the last (a late reader gets the latest snapshot at once). Bootstrap wires it; the use cases do not know.
+- **Numbers beside strings.** `domain.Container` gains `Amounts` (millicores, bytes; zero means not set) next to the display strings of `Resources`, so `Explain` and the preview are untouched. The adapter fills both from the same quantities.
+- **In-place tree.** The design had a drill-down by screen; the tree opens a service on its pods and a pod on its containers inside the same table (`enter`), which keeps the sort, the filter and the cursor, with `L` for the logs. Containers count all (sidecars included) by default; `A` restricts them to application containers with the rules of `containers.yaml`, as for logs.
+- **Left out on purpose.** Node and cluster views (cluster-scoped read), disk and network, cost, recommendations, history kept beyond the screen's life, `ResourceQuota` (a later, separate read permission), a `sparkline` switch (`usage.history: 0s` removes the trend).
+- **Deviations from the design document.** Namespaces with pods the catalog does not list show no share (their requests and limits are unknown); `usage.enabled` replaces a `metrics:` adapter selector, since the only adapters are the cluster ones.
+- **Not verified here.** Behaviour on a real cluster, and `govulncheck` of the new `k8s.io/metrics` module: see `docs/plan/M21-gke-qa.md`.
+
+Status: accepted, pending the real-cluster QA.

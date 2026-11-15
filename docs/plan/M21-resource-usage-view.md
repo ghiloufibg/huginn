@@ -1,6 +1,6 @@
 # M21 — Resource usage view: CPU and memory per namespace and per service
 
-Status: **design only, not implemented.** Written 2026-11-15 on the owner's request: take inspiration from the open-source Kubernetes TUIs and add a view that shows resource utilisation per namespace and per service (Deployment) of the services Huginn lists. Nothing here is decided until the owner answers section 11.
+Status: **implemented as M21.1 to M21.5 on `feat/m21-resource-usage`; not yet run against a real cluster** ([M21-gke-qa.md](M21-gke-qa.md)). Where the code departs from this design, [D-076](../DECISIONS.md) says so (in-place tree instead of screen levels, `SharedCatalog`, `usage.enabled` instead of a `metrics:` selector, no `sparkline` switch, no share on a namespace with uncatalogued pods). The sections below are the design as written on 2026-11-15 on the owner's request: take inspiration from the open-source Kubernetes TUIs and add a view that shows resource utilisation per namespace and per service (Deployment) of the services Huginn lists. Nothing here is decided until the owner answers section 11.
 
 ## 1. Goal and non-goals
 

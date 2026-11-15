@@ -244,6 +244,35 @@ log_columns: [time, level, logger]
 | `save.dir` | path | | Where `ctrl+s` writes files. It must exist; `~` is the home directory. Files are named `<repo>-<env>-<yyyymmdd-hhmmss>.log` (`.raw.log` after a raw copy), never overwrite a file, and are readable by you only. Default: the current directory. |
 | `redact` | list | | Go regular expressions whose matches become `[redacted]` in everything copied (`y`, `Y`) or saved (`ctrl+s`). The screen still shows the logs as they are. None by default, for example `'(?i)bearer [a-z0-9._-]+'`. |
 | `mouse` | bool | | `true`: Huginn reads the mouse. The wheel scrolls, a click moves the cursor, `shift`+click selects from the cursor, and a drag selects lines. `false` leaves the mouse to the terminal, whose own selection then works directly. Default `true`. |
+| `usage.enabled` | bool | `true` | `false` removes the usage screen and its key; nothing is read from the Metrics API. |
+| `usage.refresh` | duration | `15s` | How often the metrics are read while the usage screen is open. At least `5s`. |
+| `usage.history` | duration | `15m` | How far back the TREND column reaches. Kept in memory while the screen is open; `0s` keeps none. |
+| `usage.thresholds.warn` / `.crit` | int | `80` / `95` | Percentage of a limit from which a value is shown as a warning / as critical. `1` to `100`, `warn` below `crit`. |
+
+### The usage screen (`u`)
+
+`u` on the services screen shows CPU and memory per namespace and per service (the rows of the services screen), from the Kubernetes Metrics API (`metrics.k8s.io`, served by metrics-server, which GKE installs by default). Open a service with `enter` to see its pods, and a pod to see its containers; `L` opens the logs of the service, `p` a detail panel, `A` switches between all containers (sidecars included, the default) and application containers only (the same `containers.yaml` rules as the logs), `s` sorts, `/` filters.
+
+How to read it:
+
+- **Usage is an average over the metrics window** (about a minute), not an instant. A peak between two samples is not shown, and a container can be OOM-killed at a peak this screen never displays.
+- `%REQ` and `%LIM` are the usage as a share of the requests and limits of the containers counted. They are `—` when a container has none: a share of a sum that leaves out an unbounded container would hide it. `no limit` says it in the NOTE column.
+- **A share of a sum hides the hot pod**: the `PEAK POD` column names the pod using the largest share of its memory limit, and NOTE says so when it is near the limit.
+- `PODS` is `reporting/total`. A pod younger than the window, or not running, has no sample: it is counted in the total and left out of the sums, never counted as zero. A container that is not running reads `not measured`.
+- `(not in the catalog)` is what the namespace's other pods use (finished jobs, pods no service lists), so that the services add up to the namespace. Its requests and limits are not known, so while it exists the namespace row shows usage only: its `%REQ` and `%LIM` read `—`, and the services below keep theirs.
+- `over-provisioned` means CPU and memory both stay under 25 % of their requests during the window. It states a fact; it recommends no value.
+
+**Permission.** Huginn reads one list of `pods.metrics.k8s.io` per namespace and per `usage.refresh` while the screen is open, and nothing else. The role needs:
+
+```yaml
+- apiGroups: [metrics.k8s.io]
+  resources: [pods]
+  verbs: [get, list]
+```
+
+Without it the namespace shows `no access: pods.metrics.k8s.io`, the other namespaces and the services screen are not affected. A cluster without metrics-server shows `no metrics served` (check `kubectl get apiservice v1beta1.metrics.k8s.io`).
+
+**Cost.** Twenty namespaces at the default `15s` is about one request per second to the API server, only while the screen is open. Raise `usage.refresh` on a shared control plane.
 
 ## 8. `formats/<name>.yaml`
 
@@ -802,6 +831,8 @@ huginn: the config folder ~/work/acme-huginn has 5 errors (see docs/CONFIG.md):
 | `unknown placeholder {x} (use {repo} or {workload})` | GitLab names may only use `{repo}` and `{workload}`. |
 | `is not origin/HEAD or origin/<branch>` / `is not a remote name` | `compare_ref` is the remote, a slash, then `HEAD` or a branch (`origin/main`); `remote` is a plain name such as `origin`; no `..`, no leading `-`. |
 | `token.file: must be a file of the config folder` | Put the dotenv file in the config folder, e.g. `.env`. |
+| `usage.refresh: "x" is not a duration of at least 5s` | Write a Go duration such as `15s` or `1m`; below `5s` is refused to spare the API server. |
+| `usage.thresholds.warn: must be below crit` | Both are percentages of a limit, from `1` to `100`. |
 
 ## 13. Your folder in 15 minutes
 

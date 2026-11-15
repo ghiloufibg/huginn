@@ -22,7 +22,7 @@ Huginn is built first as a **prototype** and will then be adapted to an enterpri
 | Layer | Package(s) | Contains | May import |
 |---|---|---|---|
 | Domain | `internal/core/domain` | Pure types and rules: Env, Repo, Workload, Pod, Container, Status aggregation, LogEntry, Level, TimeWindow, Filter, Fingerprint, redaction, filter engine | stdlib only |
-| Ports | `internal/core/ports` | Interfaces only. **Driven**: `ClusterClient`, `LogSource`, `LogDecoder`, `LogRenderer`, `ManifestScanner`, `RepoResolver`, `SecretsProvider`, `Clock`, `Clipboard`, `FileSink`, `Opener`, `TopicSourceFactory`, `SchemaDecoderFactory`, `ReleaseHistory`, `CommitLog`, `GitRemotes`. **Driving**: `ServiceCatalog`, `LogSession`, `PodEvents`, `Diagnostics`, `Releases` (use cases the UI calls) | domain |
+| Ports | `internal/core/ports` | Interfaces only. **Driven**: `ClusterClient`, `MetricsSource`, `LogSource`, `LogDecoder`, `LogRenderer`, `ManifestScanner`, `RepoResolver`, `SecretsProvider`, `Clock`, `Clipboard`, `FileSink`, `Opener`, `TopicSourceFactory`, `SchemaDecoderFactory`, `ReleaseHistory`, `CommitLog`, `GitRemotes`. **Driving**: `ServiceCatalog`, `ResourceUsage`, `LogSession`, `PodEvents`, `Diagnostics`, `Releases` (use cases the UI calls) | domain |
 | Application | `internal/core/app` | Use-case implementations: build the service list, open a log session, merge streams, apply filters, group errors. Orchestrates ports, no I/O of its own | domain, ports |
 | Driven adapters | `internal/adapters/driven/<name>` | One technology each: client-go, sops CLI, Kustomize scanner, JSON log decoder, Spring Boot renderer, demo cluster, file system, OS clipboard | domain, ports, third-party libs |
 | Driving adapters | `internal/adapters/driving/tui`, `…/cli` | Bubble Tea UI, Cobra CLI. Talk to the core **only through driving ports** | domain, ports |
@@ -65,6 +65,7 @@ These rules are enforced mechanically: `golangci-lint` `depguard` rules give edi
 | Records written by Schema Registry serializers | `schema_registry` in a file of `kafka/` | No |
 | Another schema format (Protobuf) or registry | A decoder in `adapters/driven/schemaregistry`, or a new `SchemaDecoderFactory` adapter | One package |
 | Another log backend (Cloud Logging, Loki, Elastic) | New `LogSource` adapter | One package |
+| Another source of CPU and memory usage (Prometheus, Cloud Monitoring) | New `MetricsSource` adapter | One package |
 | Other sidecars to hide | Edit `containers.yaml` | No |
 | Noisy loggers to hide (pool state, snapshots) | `mute.loggers` in the format of `formats/` | No |
 | Different keys or theme | Edit `ui.yaml` | No |
@@ -91,9 +92,10 @@ internal/
                                 ManifestScanner, RepoResolver, SecretsProvider, Clock,
                                 driving ports, Registry[F]
   core/ports/portstest/         fakes + RunClusterContract / RunLogSourceContract
-  core/app/                     use cases: Catalog (ServiceCatalog), LogSessions (LogSession), repo resolvers
+  core/app/                     use cases: Catalog (ServiceCatalog), SharedCatalog (one watch for several readers),
+                                Usage (ResourceUsage), LogSessions (LogSession), repo resolvers
   adapters/driven/demo/         synthetic cluster + log generator (--demo)
-  adapters/driven/kubernetes/   client-go adapter (M4; placeholder until then)
+  adapters/driven/kubernetes/   client-go adapter: ClusterClient, LogSource and MetricsSource (metrics.k8s.io, list only)
   adapters/driven/clock/        system clock
   adapters/driven/clipboard/    Clipboard: the system clipboard command (pbcopy, wl-copy, xclip, xsel, clip.exe)
   adapters/driven/filesink/     FileSink: saved lines, new files only, mode 0600

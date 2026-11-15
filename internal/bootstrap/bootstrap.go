@@ -217,7 +217,7 @@ func Build(o cli.Options, e Env, log *slog.Logger) (*App, error) {
 		Config: c, Env: env, Cluster: cluster, Log: log,
 		UI: tui.Options{
 			Env: current, Envs: envs, Theme: theme, Keys: keys, Source: clientName, Repo: o.Repo,
-			Catalog: catalog, Usage: newUsage(sc, catalog, cluster, clk, filter, log), Filter: filter,
+			Catalog: catalog, Usage: newUsage(c, sc, catalog, cluster, clk, filter, log), UsageThresholds: c.UI.Usage.ShareThresholds(), Filter: filter,
 			Sessions: newLogSessions(c, sc, cluster, clk, filter, lp.decoders, log),
 			Events:   newPodEvents(sc, cluster),
 			Releases: releases, Notice: notice,

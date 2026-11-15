@@ -31,7 +31,7 @@ func TestNoUsageWithoutMetrics(t *testing.T) {
 	c := demoConfig(t)
 	clock := portstest.NewFakeClock(t0)
 	cluster := demo.New(demo.Options{Seed: 1, Clock: clock})
-	if newUsage(scopes(c, nil), nil, onlyCluster{cluster}, clock, domain.ContainerFilter{}, diag.Discard()) != nil {
+	if newUsage(c, scopes(c, nil), nil, onlyCluster{cluster}, clock, domain.ContainerFilter{}, diag.Discard()) != nil {
 		t.Error("usage wired over a cluster that reads no metrics")
 	}
 }
@@ -44,7 +44,7 @@ func TestDemoUsageEndToEnd(t *testing.T) {
 	cluster := demo.New(demo.Options{Seed: c.Huginn.Demo.Seed, Rate: c.Huginn.Demo.Rate, Clock: clock})
 	sc := scopes(c, nil)
 	filter := containerFilter(c)
-	usage := newUsage(sc, newCatalog(c, sc, cluster, clock, filter, diag.Discard()), cluster, clock, filter, diag.Discard())
+	usage := newUsage(c, sc, newCatalog(c, sc, cluster, clock, filter, diag.Discard()), cluster, clock, filter, diag.Discard())
 	ch, err := usage.Watch(t.Context(), ports.UsageQuery{Env: domain.Env("rec")})
 	if err != nil {
 		t.Fatal(err)

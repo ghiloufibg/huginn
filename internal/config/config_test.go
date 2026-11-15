@@ -7,6 +7,9 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
+
+	"github.com/ghiloufibg/huginn/internal/core/domain"
 )
 
 // valid is a minimal valid folder; tests change one file at a time.
@@ -394,4 +397,32 @@ func TestUICopy(t *testing.T) {
 	_, msg = load(t, fsys)
 	wantErrors(t, msg, `ui.yaml:2:1  clipboard: "xclip" is not one of: auto, osc52, system, off`, "ui.yaml:3:8  copy.max_bytes: must be at least 1",
 		"ui.yaml:4:14  redact[1]: invalid regular expression")
+}
+
+func TestUIUsage(t *testing.T) {
+	c, msg := load(t, valid())
+	if msg != "" {
+		t.Fatal(msg)
+	}
+	u := c.UI.Usage
+	if !u.On() || u.RefreshEvery() != DefaultUsageRefresh || u.KeepHistory() != DefaultUsageHistory ||
+		u.ShareThresholds() != (domain.Thresholds{Warn: 80, Crit: 95}) {
+		t.Fatalf("defaults: %+v", u)
+	}
+	fsys := valid()
+	fsys["ui.yaml"] = &fstest.MapFile{Data: []byte("version: 1\nusage: {enabled: false, refresh: 30s, history: 0s, thresholds: {warn: 70, crit: 90}}\n")}
+	c, msg = load(t, fsys)
+	if msg != "" {
+		t.Fatal(msg)
+	}
+	u = c.UI.Usage
+	if u.On() || u.RefreshEvery() != 30*time.Second || u.KeepHistory() != 0 || u.ShareThresholds() != (domain.Thresholds{Warn: 70, Crit: 90}) {
+		t.Fatalf("set: %+v", u)
+	}
+	fsys["ui.yaml"].Data = []byte("version: 1\nusage: {refresh: 1s, history: soon, thresholds: {warn: 95, crit: 95}}\n")
+	_, msg = load(t, fsys)
+	wantErrors(t, msg, "usage.refresh:", "usage.history:", "usage.thresholds.warn: must be below crit (95)")
+	fsys["ui.yaml"].Data = []byte("version: 1\nusage: {thresholds: {warn: 120, crit: 130}}\n")
+	_, msg = load(t, fsys)
+	wantErrors(t, msg, "usage.thresholds.warn: must be between 1 and 100", "usage.thresholds.crit: must be between 1 and 100")
 }

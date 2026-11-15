@@ -58,6 +58,7 @@ func applyDefaults(c *Config) {
 	if c.UI.Copy.MaxBytes == 0 {
 		c.UI.Copy.MaxBytes = DefaultCopyMaxBytes
 	}
+	usageDefaults(&c.UI.Usage)
 	c.UI.Save.Dir = ExpandHome(c.UI.Save.Dir)
 	if c.UI.Mouse == nil {
 		on := true

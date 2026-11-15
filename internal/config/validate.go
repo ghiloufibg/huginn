@@ -232,6 +232,7 @@ func (v *validator) ui() {
 			v.add(FileUI, fmt.Sprintf("redact[%d]", i), "invalid regular expression: %v", err)
 		}
 	}
+	v.usage()
 	known := map[string]bool{"pod": true}
 	for _, l := range v.c.Layouts {
 		for _, col := range l.Stream.Columns {

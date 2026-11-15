@@ -160,6 +160,21 @@ type UI struct {
 	Save            Save                `yaml:"save" doc:"Saving log lines to a file (ctrl+s)."`
 	Redact          []string            `yaml:"redact" doc:"Go regular expressions whose matches become [redacted] in everything copied or saved (not on screen), e.g. ['(?i)bearer [a-z0-9._-]+']. None by default."`
 	Mouse           *bool               `yaml:"mouse" doc:"Huginn reads the mouse: wheel scrolling, click to move the cursor, shift+click and drag to select lines. false leaves the mouse to the terminal, whose own selection then works directly. Default true."`
+	Usage           Usage               `yaml:"usage" doc:"The resource usage screen (u): CPU and memory per namespace and service, read from the Metrics API (metrics-server)."`
+}
+
+// Usage is the usage section of ui.yaml.
+type Usage struct {
+	Enabled    *bool           `yaml:"enabled" doc:"false removes the usage screen and its key, and nothing is read from the Metrics API. Default true."`
+	Refresh    string          `yaml:"refresh" doc:"How often the metrics are read while the usage screen is open, a Go duration of at least 5s, e.g. 30s. One read per namespace each time. Default 15s."`
+	History    string          `yaml:"history" doc:"How far back the TREND column reaches, a Go duration kept in memory only while the screen is open, e.g. 30m; 0s keeps none (no TREND). Default 15m."`
+	Thresholds UsageThresholds `yaml:"thresholds" doc:"Where a share of a limit is shown as a warning and as critical."`
+}
+
+// UsageThresholds are percentages of a limit.
+type UsageThresholds struct {
+	Warn int `yaml:"warn" doc:"Percentage of a limit from which a value is shown as a warning, 1 to 100 and below crit. Default 80."`
+	Crit int `yaml:"crit" doc:"Percentage of a limit from which a value is shown as critical, up to 100. Default 95."`
 }
 
 // Save says where ctrl+s writes files.

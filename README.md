@@ -93,6 +93,10 @@ A service whose status changes is highlighted for a few seconds. The `AGE` colum
 
 Pods that no known workload owns are listed too, grouped by owner: a bare pod shows as `debug-shell (Pod)`, a Job made by hand as `migrate (Job)`, pods of an unknown controller with its kind (`services.yaml`: `standalone_pods`).
 
+## Resource usage screen
+
+`u` on the services screen shows CPU and memory per namespace and per service, read from the Metrics API (metrics-server). `enter` opens a service on its pods and a pod on its containers, `L` opens the logs, `p` a detail panel, `A` counts all containers or the application ones, `s` sorts and `/` filters. Usage is an average over about a minute; a share of a limit reads `—` when a container has no limit; a `PEAK POD` column keeps one hot pod from hiding in an average. It needs `get, list` on `pods.metrics.k8s.io` and reads it only while the screen is open: see [docs/CONFIG.md](docs/CONFIG.md#the-usage-screen-u).
+
 ## Keys (services screen)
 
 | Key | Action |

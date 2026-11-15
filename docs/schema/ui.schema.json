@@ -87,6 +87,40 @@
       ],
       "type": "string"
     },
+    "usage": {
+      "additionalProperties": false,
+      "description": "The resource usage screen (u): CPU and memory per namespace and service, read from the Metrics API (metrics-server).",
+      "properties": {
+        "enabled": {
+          "description": "false removes the usage screen and its key, and nothing is read from the Metrics API. Default true.",
+          "type": "boolean"
+        },
+        "history": {
+          "description": "How far back the TREND column reaches, a Go duration kept in memory only while the screen is open, e.g. 30m; 0s keeps none (no TREND). Default 15m.",
+          "type": "string"
+        },
+        "refresh": {
+          "description": "How often the metrics are read while the usage screen is open, a Go duration of at least 5s, e.g. 30s. One read per namespace each time. Default 15s.",
+          "type": "string"
+        },
+        "thresholds": {
+          "additionalProperties": false,
+          "description": "Where a share of a limit is shown as a warning and as critical.",
+          "properties": {
+            "crit": {
+              "description": "Percentage of a limit from which a value is shown as critical, up to 100. Default 95.",
+              "type": "integer"
+            },
+            "warn": {
+              "description": "Percentage of a limit from which a value is shown as a warning, 1 to 100 and below crit. Default 80.",
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
     "version": {
       "description": "Structure version of this file; must be 1.",
       "type": "integer"
