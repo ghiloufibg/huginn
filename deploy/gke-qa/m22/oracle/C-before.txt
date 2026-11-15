@@ -1,0 +1,50 @@
+ huginn  REC  gke_huginn-kube-tui_us-east1_huginn-qa / qa-rec   services / trace-emitter / logs                                                                 kubernetes · watching · synced 00:48:58
+ pods  all 2    nsjpj Healthy 1.36   v45ph Healthy 1.36
+ nsjpj 00:37:20.000  INFO qa.trace                       : step 1 of trace 0 on trace-emitter-55c79c6bcf-nsjpj
+ v45ph 00:37:20.000  INFO qa.trace                       : step 1 of trace 0 on trace-emitter-55c79c6bcf-v45ph
+ nsjpj 00:37:22.000  INFO qa.trace                       : step 2 of trace 0 on trace-emitter-55c79c6bcf-nsjpj
+ v45ph 00:37:22.000  INFO qa.trace                       : step 2 of trace 0 on trace-emitter-55c79c6bcf-v45ph
+ nsjpj 00:37:24.000  INFO qa.trace                       : step 3 of trace 0 on trace-emitter-55c79c6bcf-nsjpj
+ v45ph 00:37:24.000  INFO qa.trace                       : step 3 of trace 0 on trace-emitter-55c79c6bcf-v45ph
+ nsjpj 00:37:26.000  INFO qa.trace                       : step 4 of trace 0 on trace-emitter-55c79c6bcf-nsjpj
+ v45ph 00:37:26.000  INFO qa.trace                       : step 4 of trace 0 on trace-emitter-55c79c6bcf-v45ph
+ nsjpj 00:37:28.000  INFO qa.trace                       : step 5 of trace 0 on trace-emitter-55c79c6bcf-nsjpj
+ v45ph 00:37:28.000  INFO qa.trace                       : step 5 of trace 0 on trace-emitter-55c79c6bcf-v45ph
+ nsjpj 00:37:30.000  INFO qa.trace                       : step 6 of trace 0 on trace-emitter-55c79c6bcf-nsjpj
+ v45ph 00:37:30.000  INFO qa.trace                       : step 6 of trace 0 on trace-emitter-55c79c6bcf-v45ph
+ nsjpj 00:37:32.000  INFO qa.trace                       : step 7 of trace 0 on trace-emitter-55c79c6bcf-nsjpj
+ v45ph 00:37:32.000  INFO qa.trace                       : step 7 of trace 0 on trace-emitter-55c79c6bcf-v45ph
+ nsjpj 00:37:34.000  INFO qa.trace                       : step 8 of trace 0 on trace-emitter-55c79c6bcf-nsjpj
+ v45ph 00:37:34.000  INFO qa.trace                       : step 8 of trace 0 on trace-emitter-55c79c6bcf-v45ph
+ nsjpj 00:37:36.000  INFO qa.trace                       : step 9 of trace 0 on trace-emitter-55c79c6bcf-nsjpj
+ v45ph 00:37:36.000  INFO qa.trace                       : step 9 of trace 0 on trace-emitter-55c79c6bcf-v45ph
+ nsjpj 00:37:38.000  INFO qa.trace                       : step 10 of trace 1 on trace-emitter-55c79c6bcf-nsjpj
+ v45ph 00:37:38.000  INFO qa.trace                       : step 10 of trace 1 on trace-emitter-55c79c6bcf-v45ph
+ nsjpj 00:37:40.000  INFO qa.trace                       : step 11 of trace 1 on trace-emitter-55c79c6bcf-nsjpj
+ v45ph 00:37:40.000  INFO qa.trace                       : step 11 of trace 1 on trace-emitter-55c79c6bcf-v45ph
+ nsjpj 00:37:42.000  INFO qa.trace                       : step 12 of trace 1 on trace-emitter-55c79c6bcf-nsjpj
+ v45ph 00:37:42.000  INFO qa.trace                       : step 12 of trace 1 on trace-emitter-55c79c6bcf-v45ph
+ nsjpj 00:37:44.000  INFO qa.trace                       : step 13 of trace 1 on trace-emitter-55c79c6bcf-nsjpj
+ v45ph 00:37:44.000  INFO qa.trace                       : step 13 of trace 1 on trace-emitter-55c79c6bcf-v45ph
+ nsjpj 00:37:46.000  INFO qa.trace                       : step 14 of trace 1 on trace-emitter-55c79c6bcf-nsjpj
+ v45ph 00:37:46.000  INFO qa.trace                       : step 14 of trace 1 on trace-emitter-55c79c6bcf-v45ph
+ nsjpj 00:37:48.000  INFO qa.trace                       : step 15 of trace 1 on trace-emitter-55c79c6bcf-nsjpj
+ v45ph 00:37:48.000  INFO qa.trace                       : step 15 of trace 1 on trace-emitter-55c79c6bcf-v45ph
+ nsjpj 00:37:50.000  INFO qa.trace                       : step 16 of trace 1 on trace-emitter-55c79c6bcf-nsjpj
+ v45ph 00:37:50.000  INFO qa.trace                       : step 16 of trace 1 on trace-emitter-55c79c6bcf-v45ph
+ nsjpj 00:37:52.000  INFO qa.trace                       : step 17 of trace 1 on trace-emitter-55c79c6bcf-nsjpj
+ v45ph 00:37:52.000  INFO qa.trace                       : step 17 of trace 1 on trace-emitter-55c79c6bcf-v45ph
+ nsjpj 00:37:54.000  INFO qa.trace                       : step 18 of trace 1 on trace-emitter-55c79c6bcf-nsjpj
+ v45ph 00:37:54.000  INFO qa.trace                       : step 18 of trace 1 on trace-emitter-55c79c6bcf-v45ph
+ nsjpj 00:37:56.000  INFO qa.trace                       : step 19 of trace 1 on trace-emitter-55c79c6bcf-nsjpj
+ v45ph 00:37:56.000  INFO qa.trace                       : step 19 of trace 1 on trace-emitter-55c79c6bcf-v45ph
+ nsjpj 00:37:58.000  INFO qa.trace                       : step 20 of trace 2 on trace-emitter-55c79c6bcf-nsjpj
+ v45ph 00:37:58.000  INFO qa.trace                       : step 20 of trace 2 on trace-emitter-55c79c6bcf-v45ph
+ nsjpj 00:38:00.000  INFO qa.trace                       : step 21 of trace 2 on trace-emitter-55c79c6bcf-nsjpj
+ v45ph 00:38:00.000  INFO qa.trace                       : step 21 of trace 2 on trace-emitter-55c79c6bcf-v45ph
+ nsjpj 00:38:02.000  INFO qa.trace                       : step 22 of trace 2 on trace-emitter-55c79c6bcf-nsjpj
+ v45ph 00:38:02.000  INFO qa.trace                       : step 22 of trace 2 on trace-emitter-55c79c6bcf-v45ph
+ nsjpj 00:38:04.000  INFO qa.trace                       : step 23 of trace 2 on trace-emitter-55c79c6bcf-nsjpj
+ v45ph 00:38:04.000  INFO qa.trace                       : step 23 of trace 2 on trace-emitter-55c79c6bcf-v45ph
+ STOPPED   15m  ·  all pods  ·  levels all  ·  oldest first  ·  702/702 lines  ·  buffer 1%  ·  dropped 0
+ / filter  l levels  x mode  n/N match  f follow  space pause  t window  tab pods  c cols  C columns  z focus  enter zoom  ? help

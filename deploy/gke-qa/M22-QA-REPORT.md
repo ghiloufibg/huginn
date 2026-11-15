@@ -183,3 +183,48 @@ The 60 remaining TUI functions at 0 % include the trace view (`trace.go`: `range
 |---|---|---|
 | F-4 | P2 | After the cause of a usage error is fixed, the stale marker stays for up to about 2 minutes (backoff); the screen says nothing about `r`. Measured once |
 | F-5 | info | `usage.refresh` of 15 s with the metrics-server window of about 40–50 s means the displayed sample is 30–60 s old (`sampled 57s ago`). The screen says so; it is the metrics API, not Huginn |
+
+## 4. Third batch: soak, fixes verified on the cluster, log content against `kubectl`
+
+### Soak (N-5): 11 cycles of about 5.5 minutes (60 minutes), `plain` build, alone on the cluster
+
+Each cycle: services idle 60 s, usage open 120 s, logs follow of `range-emitter` 90 s (80 lines/s into a 50 000-line buffer), Kafka topics and records 35 s. Sampled every second (`m22-soak-summary.sh`).
+
+| Cycle | RSS at the end of the idle minute | Peak of the cycle | Threads | Fds |
+|---|---|---|---|---|
+| 1 | 46.6 MiB | 175 MiB | 16 | 15 |
+| 2–5 | 53.8, 64.7, 58.7, 62.9 | 155–199 MiB | 18 | 15 |
+| 6–8 | 58.0, 57.4, 57.1 | 163–183 MiB | 18–19 | 15 |
+| 9–11 | 59.1, 55.5, 55.8 | 171–211 MiB | 19 | 15 |
+
+**Result: pass.** The idle-minute RSS rises over cycles 1–3 (mean 55.0 MiB) and then holds: cycles 9–11 average 56.8 MiB (+3 %, proposed limit +10 %). Descriptors constant at 15; threads 16 → 19 and flat from cycle 7. All 11 cycles ended with the process alive. The peaks are the full buffer. One run, one cluster, one terminal size.
+
+### Findings fixed after the first run, each verified on the real cluster with the fixed binary
+
+| # | Finding | Fix | On the cluster |
+|---|---|---|---|
+| F-1 | completed Job / CronJob pods counted as "not reporting" (`20/22 · 2 pods not reporting`) | a finished pod is counted in `Rollup.Done`, not in the pods | namespace `23/23`; `usage-done` and `deploy-cron` read `0/0 · 1 pod completed` |
+| F-2 | a service under a `no access` namespace read `1 pod not reporting` | its row keeps the name only; the namespace row says why | `prd-api` bare under `qa-prd · no access: pods.metrics.k8s.io` |
+| F-4 | after a permission was restored the stale mark stayed about 2 minutes, with no hint | retry wait capped at one minute (it was 8 ticks); mark reads `· r retries now` | stale 30 s after the revoke; recovered **29 s** after the restore on its own, **1 s** with `r` |
+| F-6 | at 80 columns the NOTE column lost `no limit`, leaving `—` unexplained | `no limit` first | unit test (80 columns); not re-run on the cluster |
+| F-7 (older than M21) | `f` (follow off) emptied the logs screen for about 300 ms and a save in that time said `nothing to save` | with the history loaded and nothing paused or paged, `f` stops the stream and keeps the lines; D-025 amended | before: blank for 313–330 ms in the current and the pre-M21 binary (once 1.3 s); after: **never blank** (3 runs) |
+
+A new test fails with the old behaviour for F-1, F-2, F-4 (a mutation check with the old cap: still stale 2m20s) and F-7. Commits `eb6e560`, `355d241`, `a89591c`.
+
+### Log content against `kubectl logs` (L-1, L-8, L-10), saved with `ctrl+s`
+
+| Case | Result |
+|---|---|
+| `prd-api`, 15 min window, follow off, save | 180 lines, numbers 2502–2681, **0 duplicates, 0 missing between the first and last, 0 not present in `kubectl logs`**; 180 lines = 15 min at one line per 5 s |
+| `range-emitter`, `--since 5m`, follow off, save (2.7 MB) | pod 0: 12 157 lines, `seq` 022213–034369; pod 1: 12 159 lines, `seq` 373569–385727; **0 duplicates, 0 missing, 0 extra against `kubectl logs --since=8m`** on both; about 40 lines/s × 300 s |
+| trace view `v` on `trace-0000` (2 pods, 9 lines each) | `TRACE trace trace-0000 · 18 lines · 2 pods · +16.0 s`; `kubectl logs` of both pods: 9 + 9 = 18 lines with that id |
+
+Not compared: the window edges to the second (the window slides while the test runs), `Y` raw copy content, `y` clipboard content, redaction in the saved file (the fixtures carry no pattern the `redact` list matches).
+
+### Display review (T-1), 80×24 and tiny sizes, read by eye
+
+At 20×6 the screen shows a truncated header, the first rows and `? help`, no crash; at 10×3 it prints `huginn: te`, cut mid-word, acceptable at that size. At 80×24 `none` and `accessible` show the same columns, words only (`—`, `no limit`, `CPU 100% of limit`): nothing depends on colour. The other themes at 120×30 and 220×50 were **not read**.
+
+### Updated list of what was not run
+
+Spring trio and Karapace (so Avro/JSON Schema decoding and the SASL/TLS Kafka tier); the `-race` pass; the secrets scan of artefacts; the clipboard; chaos beyond a revoked permission, a scale-to-zero, a deleted followed pod and an unreachable API (no network cut mid-session, no metrics-server removal, no throttling); 3-run medians for the performance numbers outside the latency table; the per-verb API count.

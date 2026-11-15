@@ -1,0 +1,11 @@
+A file: /home/ghiloufi/m22/saves/prd-api-prd-20261116-004824.log
+A huginn lines=180 first=2502 last=2681 dups=0
+A missing-inside-range=0  extra(not in kubectl)=0
+A kubectl(20m) first=2444 last=2683 total=240
+B file: /home/ghiloufi/m22/saves/range-emitter-rec-20261116-004841.log size=2699076
+B pod 0 huginn lines=12157 first=022213 last=034369 dups=0 missing=0 extra=0  kubectl(8m) lines=19048
+B pod 1 huginn lines=12159 first=373569 last=385727 dups=0 missing=0 extra=0  kubectl(8m) lines=19047
+C top line trace=trace-0000
+C kubectl pod/trace-emitter-55c79c6bcf-nsjpj lines with trace-0000: 9
+C kubectl pod/trace-emitter-55c79c6bcf-v45ph lines with trace-0000: 9
+C kubectl total=18

@@ -1,0 +1,15 @@
+role.rbac.authorization.k8s.io/huginn-reader patched
+stale after 30 s
+namespace/qa-prd unchanged
+role.rbac.authorization.k8s.io/huginn-reader configured
+rolebinding.rbac.authorization.k8s.io/huginn-reader unchanged
+role.rbac.authorization.k8s.io/huginn-reader unchanged
+rolebinding.rbac.authorization.k8s.io/huginn-reader unchanged
+automatic recovery 29 s after the grant was restored
+role.rbac.authorization.k8s.io/huginn-reader patched
+namespace/qa-prd unchanged
+role.rbac.authorization.k8s.io/huginn-reader configured
+rolebinding.rbac.authorization.k8s.io/huginn-reader unchanged
+role.rbac.authorization.k8s.io/huginn-reader unchanged
+rolebinding.rbac.authorization.k8s.io/huginn-reader unchanged
+recovery with r: 1 s

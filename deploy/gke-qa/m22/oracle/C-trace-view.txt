@@ -1,0 +1,50 @@
+ huginn  REC  gke_huginn-kube-tui_us-east1_huginn-qa / qa-rec   services / trace-emitter / logs                                                                 kubernetes · watching · synced 00:48:58
+ pods  all 2    nsjpj Healthy 1.36   v45ph Healthy 1.36
+     +0 ms nsjpj 00:37:20.000  INFO qa.trace                       : step 1 of trace 0 on trace-emitter-55c79c6bcf-nsjpj
+     +0 ms v45ph 00:37:20.000  INFO qa.trace                       : step 1 of trace 0 on trace-emitter-55c79c6bcf-v45ph
+    +2.0 s nsjpj 00:37:22.000  INFO qa.trace                       : step 2 of trace 0 on trace-emitter-55c79c6bcf-nsjpj
+    +2.0 s v45ph 00:37:22.000  INFO qa.trace                       : step 2 of trace 0 on trace-emitter-55c79c6bcf-v45ph
+    +4.0 s nsjpj 00:37:24.000  INFO qa.trace                       : step 3 of trace 0 on trace-emitter-55c79c6bcf-nsjpj
+    +4.0 s v45ph 00:37:24.000  INFO qa.trace                       : step 3 of trace 0 on trace-emitter-55c79c6bcf-v45ph
+    +6.0 s nsjpj 00:37:26.000  INFO qa.trace                       : step 4 of trace 0 on trace-emitter-55c79c6bcf-nsjpj
+    +6.0 s v45ph 00:37:26.000  INFO qa.trace                       : step 4 of trace 0 on trace-emitter-55c79c6bcf-v45ph
+    +8.0 s nsjpj 00:37:28.000  INFO qa.trace                       : step 5 of trace 0 on trace-emitter-55c79c6bcf-nsjpj
+    +8.0 s v45ph 00:37:28.000  INFO qa.trace                       : step 5 of trace 0 on trace-emitter-55c79c6bcf-v45ph
+   +10.0 s nsjpj 00:37:30.000  INFO qa.trace                       : step 6 of trace 0 on trace-emitter-55c79c6bcf-nsjpj
+   +10.0 s v45ph 00:37:30.000  INFO qa.trace                       : step 6 of trace 0 on trace-emitter-55c79c6bcf-v45ph
+   +12.0 s nsjpj 00:37:32.000  INFO qa.trace                       : step 7 of trace 0 on trace-emitter-55c79c6bcf-nsjpj
+   +12.0 s v45ph 00:37:32.000  INFO qa.trace                       : step 7 of trace 0 on trace-emitter-55c79c6bcf-v45ph
+   +14.0 s nsjpj 00:37:34.000  INFO qa.trace                       : step 8 of trace 0 on trace-emitter-55c79c6bcf-nsjpj
+   +14.0 s v45ph 00:37:34.000  INFO qa.trace                       : step 8 of trace 0 on trace-emitter-55c79c6bcf-v45ph
+   +16.0 s nsjpj 00:37:36.000  INFO qa.trace                       : step 9 of trace 0 on trace-emitter-55c79c6bcf-nsjpj
+   +16.0 s v45ph 00:37:36.000  INFO qa.trace                       : step 9 of trace 0 on trace-emitter-55c79c6bcf-v45ph
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ TRACE   trace trace-0000  ·  18 lines · 2 pods · +16.0 s  ·  may start before the loaded lines (t: wider window)  ·  15m  ·  oldest first  ·  18/702 lines  ·  buffer 1%  ·  dropped 0
+ esc back to the logs  enter zoom  / filter  >/< error  v trace of this line  t window  ? help
