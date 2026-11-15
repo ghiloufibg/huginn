@@ -87,6 +87,9 @@ type Container struct {
 	// is what `kubectl logs --previous` would show logs for.
 	LastTermination *Termination
 	Resources       Resources
+	// Amounts are the numeric twins of Resources, for ratios; a zero field
+	// means "not set".
+	Amounts ResourceAmounts
 }
 
 // Restarts returns the total restart count across containers; an init

@@ -23,6 +23,9 @@ var (
 	// ErrInvalidPayload: bytes that do not match their declared format
 	// (a record whose Avro binary does not follow its schema).
 	ErrInvalidPayload = errors.New("invalid payload")
+	// ErrMetricsUnavailable: the cluster does not serve usage metrics (no
+	// metrics-server, or it is not ready). Other views are unaffected.
+	ErrMetricsUnavailable = errors.New("metrics unavailable")
 )
 
 // ErrNoPrevious marks a container that never restarted: it has no previous
