@@ -117,7 +117,7 @@ func usagePaymentPods() []domain.PodDetail {
 	return []domain.PodDetail{pod("payment-service-7c9f-x2", 2, 1950*mi, true), pod("payment-service-7c9f-k8", 0, 1600*mi, false)}
 }
 
-func openUsage(t *testing.T, repo string) (*Model, *usageScreen, *fakeUsage) {
+func openUsage(t testing.TB, repo string) (*Model, *usageScreen, *fakeUsage) {
 	t.Helper()
 	m, fc := newTestModel(t, 1, "")
 	fu := &fakeUsage{}
