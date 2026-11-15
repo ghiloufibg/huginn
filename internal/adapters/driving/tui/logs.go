@@ -337,6 +337,12 @@ func (l *logsScreen) apply(b ports.LogBatch, now time.Time) {
 	}
 }
 
+// settled reports whether the screen holds everything its stream has to give:
+// the history is loaded, nothing is held back by a pause, no error, no pages.
+func (l *logsScreen) settled() bool {
+	return l.live && !l.loading && l.err == nil && !l.paused && l.cancel != nil && l.more == nil && len(l.pages) == 0
+}
+
 // toOldest puts the cursor on the oldest line, unpinned: where a head is
 // read from.
 func (l *logsScreen) toOldest() {
@@ -729,6 +735,15 @@ func (l *logsScreen) key(m *Model, k tea.KeyPressMsg) (bool, tea.Cmd) {
 		m.flash("follow: back to " + l.window.Label())
 		return true, l.open(m)
 	case keys.Is(key, ActFollow):
+		if l.follow && l.settled() {
+			// Everything the window holds is on screen: stopping the stream
+			// is all that follow off needs. Reopening would read it again and
+			// leave the screen empty for the length of the read (M22 F-7).
+			l.follow = false
+			l.close()
+			m.flash(onOff("follow", false))
+			return true, nil
+		}
 		l.follow = !l.follow
 		m.flash(onOff("follow", l.follow))
 		return true, l.open(m)

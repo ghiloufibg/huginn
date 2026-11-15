@@ -1,0 +1,30 @@
+# M22: a service whose two pods log JSON lines sharing trace ids, to exercise
+# the trace view (v). One trace id every 10 lines, shared by both replicas
+# (trace number = floor(seq/10), the same on both pods for the same seq range).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trace-emitter
+  namespace: qa-rec
+  labels: {app.kubernetes.io/part-of: trace-emitter}
+spec:
+  replicas: 2
+  selector: {matchLabels: {app: trace-emitter}}
+  template:
+    metadata: {labels: {app: trace-emitter, app.kubernetes.io/part-of: trace-emitter}}
+    spec:
+      containers:
+        - name: trace-emitter
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              i=0
+              while true; do
+                i=$((i+1)); t=$((i/10))
+                printf '{"timestamp":"%s","level":"INFO","logger":"qa.trace","message":"step %d of trace %d on %s","traceId":"trace-%04d"}\n' "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" "$i" "$t" "$HOSTNAME" "$t"
+                sleep 2
+              done
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}

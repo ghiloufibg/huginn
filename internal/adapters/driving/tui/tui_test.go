@@ -480,8 +480,8 @@ func TestLogsFollowPauseAndTail(t *testing.T) {
 		t.Fatal("G must return to the tail")
 	}
 	press(m, "f")
-	if n := len(sessions.queries); n != 2 || sessions.queries[1].Follow || sessions.ctxs[0].Err() == nil {
-		t.Fatalf("f must reopen without follow: %+v", sessions.queries)
+	if n := len(sessions.queries); n != 1 || sessions.ctxs[0].Err() == nil {
+		t.Fatalf("f stops the stream of a loaded screen and does not read again: %+v", sessions.queries)
 	}
 	if out := render(m, 160, 20); !strings.Contains(out, "STOPPED") {
 		t.Fatal("follow off must show STOPPED")
