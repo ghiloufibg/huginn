@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/ghiloufibg/huginn/internal/core/domain"
 	"github.com/ghiloufibg/huginn/internal/core/ports"
@@ -37,6 +39,8 @@ const (
 	usageNamespace usageRowKind = iota
 	usageService
 	usageUnlisted
+	usagePod
+	usageContainer
 )
 
 // usageRow is one line of the usage table.
@@ -49,6 +53,14 @@ type usageRow struct {
 	unassigned bool
 	err        error
 	collapsed  bool
+	// repo is the service the row belongs to (services, pods, containers).
+	repo string
+	// expandable and expanded describe a service or a pod that can show its
+	// pods or containers.
+	expandable, expanded bool
+	history              []domain.UsageSample
+	pod                  *domain.PodDetail
+	ctr                  *domain.ContainerDetail
 }
 
 func (r usageRow) id() string { return fmt.Sprintf("%d|%s|%s", r.kind, r.ns, r.name) }
@@ -70,6 +82,8 @@ type usageScreen struct {
 	filter    lineEdit
 	editing   bool
 	collapsed map[string]bool
+	expanded  map[string]bool // services and pods shown open, by row id
+	preview   bool
 	selected  string
 	height    int
 }
@@ -92,18 +106,19 @@ type (
 
 func newUsageScreen(m *Model, focus string) *usageScreen {
 	return &usageScreen{
-		focus: focus, mode: domain.ContainersAll, collapsed: map[string]bool{},
+		focus: focus, mode: domain.ContainersAll, collapsed: map[string]bool{}, expanded: map[string]bool{},
 		tbl: table{cols: []column{
 			{title: "NAMESPACE / SERVICE", width: 19, flex: true},
 			{title: "PODS", width: 5, right: true},
 			{title: "CPU", width: 6, right: true},
-			{title: "%REQ", width: 5, right: true, drop: 1},
+			{title: "%REQ", width: 5, right: true, drop: 2},
 			{title: "%LIM", width: 5, right: true},
 			{title: "MEMORY", width: 7, right: true},
-			{title: "%REQ", width: 5, right: true, drop: 1},
+			{title: "%REQ", width: 5, right: true, drop: 2},
 			{title: "%LIM", width: 5, right: true},
-			{title: "PEAK POD", width: 8, drop: 2},
-			{title: "NOTE", width: 20, fill: true, drop: 3},
+			{title: "PEAK POD", width: 8, drop: 3},
+			{title: "TREND", width: trendWidth, drop: 1},
+			{title: "NOTE", width: 20, fill: true, drop: 4},
 		}},
 	}
 }
@@ -257,9 +272,17 @@ func (s *usageScreen) key(m *Model, k tea.KeyPressMsg) (bool, tea.Cmd) {
 		case r == nil:
 		case r.kind == usageNamespace:
 			s.fold(!r.collapsed, true)
-		case r.kind == usageService:
-			return true, m.push(newLogsScreen(m, r.name))
+		case r.expandable:
+			s.expanded[r.id()] = !r.expanded
+			s.selected = r.id()
+			s.rebuild()
 		}
+	case keys.Is(key, ActUsageLogs):
+		if r := s.current(); r != nil && r.repo != "" {
+			return true, m.push(newLogsScreen(m, r.repo))
+		}
+	case keys.Is(key, ActPreview):
+		s.preview = !s.preview
 	case keys.Is(key, ActFilter):
 		s.editing = true
 	case keys.Is(key, ActSort):
@@ -328,12 +351,18 @@ func (s *usageScreen) rebuild() {
 		kids []usageRow
 	}
 	var groups []group
+	byRow := map[string][]usageRow{} // the pods and containers under an expanded service
 	for _, ns := range s.snap.Namespaces {
-		g := group{row: usageRow{kind: usageNamespace, ns: ns.Name, name: ns.Name, r: ns.Total, err: ns.Err, collapsed: s.collapsed[ns.Name]}}
+		g := group{row: usageRow{kind: usageNamespace, ns: ns.Name, name: ns.Name, r: ns.Total, err: ns.Err, collapsed: s.collapsed[ns.Name], history: ns.History}}
 		nsMatches := match(ns.Name)
 		for _, svc := range ns.Services {
 			if nsMatches || match(svc.Repo) {
-				g.kids = append(g.kids, usageRow{kind: usageService, ns: ns.Name, name: svc.Repo, r: svc.Rollup, unassigned: svc.Unassigned})
+				row := usageRow{kind: usageService, ns: ns.Name, name: svc.Repo, repo: svc.Repo, r: svc.Rollup, unassigned: svc.Unassigned, history: svc.History, expandable: len(svc.PodRows) > 0}
+				row.expanded = row.expandable && s.expanded[row.id()]
+				g.kids = append(g.kids, row)
+				if row.expanded {
+					byRow[row.id()] = s.podRows(row, svc.PodRows)
+				}
 			}
 		}
 		if q == "" && ns.Unlisted.Pods > 0 {
@@ -364,8 +393,12 @@ func (s *usageScreen) rebuild() {
 	})
 	for _, g := range groups {
 		s.rows = append(s.rows, g.row)
-		if !g.row.collapsed {
-			s.rows = append(s.rows, g.kids...)
+		if g.row.collapsed {
+			continue
+		}
+		for _, k := range g.kids {
+			s.rows = append(s.rows, k)
+			s.rows = append(s.rows, byRow[k.id()]...)
 		}
 	}
 	if i := slices.IndexFunc(s.rows, func(r usageRow) bool { return r.id() == s.selected }); i >= 0 {
@@ -435,10 +468,23 @@ func (s *usageScreen) view(m *Model, w, h int) string {
 		flex = max(flex, textWidth(usageName(r)))
 	}
 	get := func(i int) []cell { return s.cells(s.rows[i], t, th) }
-	if h >= 6 {
-		return s.tbl.render(len(s.rows), get, flex, w, h-1, t) + "\n" + " " + t.Dim.Render(usageFootnote)
+	if h < 6 {
+		return s.tbl.render(len(s.rows), get, flex, w, h, t)
 	}
-	return s.tbl.render(len(s.rows), get, flex, w, h, t)
+	foot := " " + t.Dim.Render(usageFootnote)
+	if s.preview && h >= 12 && s.tbl.cursor < len(s.rows) {
+		panel := s.previewLines(m, s.rows[s.tbl.cursor], th)
+		panel = panel[:min(len(panel), 4)]
+		s.height = h - len(panel) - 2
+		var b strings.Builder
+		b.WriteString(s.tbl.render(len(s.rows), get, flex, w, h-len(panel)-2, t))
+		b.WriteString("\n" + t.Dim.Render(strings.Repeat("─", w)))
+		for _, l := range panel {
+			b.WriteString("\n " + ansi.Truncate(l, w-2, "…"))
+		}
+		return b.String() + "\n" + foot
+	}
+	return s.tbl.render(len(s.rows), get, flex, w, h-1, t) + "\n" + foot
 }
 
 // usageFix says what to do about a usage error.
@@ -461,10 +507,63 @@ func usageName(r usageRow) string {
 		return "▾ " + r.name
 	case usageService:
 		if r.unassigned {
-			return "  " + r.name + " (no repo)"
+			return "  " + openMark(r) + r.name + " (no repo)"
 		}
+		return "  " + openMark(r) + r.name
+	case usagePod:
+		return "      " + openMark(r) + r.name
+	case usageContainer:
+		return "          " + r.name
+	case usageUnlisted:
+		return "    " + r.name
 	}
 	return "  " + r.name
+}
+
+// openMark is the fold marker of a service or a pod: blank when it has
+// nothing to show.
+func openMark(r usageRow) string {
+	switch {
+	case !r.expandable:
+		return "  "
+	case r.expanded:
+		return "▾ "
+	}
+	return "▸ "
+}
+
+// podRows are the rows under an expanded service: its pods, and the
+// containers of the pods that are expanded too.
+func (s *usageScreen) podRows(svc usageRow, pods []domain.PodDetail) []usageRow {
+	var out []usageRow
+	for i := range pods {
+		p := &pods[i]
+		row := usageRow{kind: usagePod, ns: svc.ns, name: p.Pod.Name, repo: svc.repo, r: p.Rollup, pod: p, expandable: len(p.Containers) > 0}
+		row.expanded = row.expandable && s.expanded[row.id()]
+		out = append(out, row)
+		if !row.expanded {
+			continue
+		}
+		for j := range p.Containers {
+			c := &p.Containers[j]
+			out = append(out, usageRow{kind: usageContainer, ns: svc.ns, name: c.Name, repo: svc.repo, r: containerRollup(c), ctr: c, pod: p})
+		}
+	}
+	return out
+}
+
+// containerRollup reads one container as a rollup, so that it is drawn
+// like the rows above it.
+func containerRollup(c *domain.ContainerDetail) domain.Rollup {
+	r := domain.Rollup{
+		Pods: 1, Use: c.Use, Request: c.Request, Limit: c.Limit,
+		RequestSet: domain.Coverage{CPU: c.Request.CPUMilli > 0, Mem: c.Request.MemBytes > 0},
+		LimitSet:   domain.Coverage{CPU: c.Limit.CPUMilli > 0, Mem: c.Limit.MemBytes > 0},
+	}
+	if c.Measured {
+		r.Reporting = 1
+	}
+	return r
 }
 
 // cells draws one row. The values are always printed: colour only adds to
@@ -479,7 +578,7 @@ func (s *usageScreen) cells(r usageRow, t *Theme, th domain.Thresholds) []cell {
 		name.style = t.Dim
 	}
 	if r.err != nil {
-		return []cell{name, {}, {}, {}, {}, {}, {}, {}, {}, {text: usageErrNote(r.err), style: t.Warn}}
+		return []cell{name, {}, {}, {}, {}, {}, {}, {}, {}, {}, {text: usageErrNote(r.err), style: t.Warn}}
 	}
 	ro := r.r
 	reporting := ro.Reporting > 0
@@ -516,6 +615,13 @@ func (s *usageScreen) cells(r usageRow, t *Theme, th domain.Thresholds) []cell {
 	if ro.Reporting > 1 && ro.HottestPod != "" {
 		peak = cell{text: podShortID(ro.HottestPod), style: sevStyle(t, th, ro.HottestMemPct)}
 	}
+	if r.kind == usageContainer {
+		pods = cell{}
+	}
+	trend := cell{}
+	if len(r.history) > 1 {
+		trend = cell{text: sparkline(r.history, trendWidth), style: t.Dim}
+	}
 	return []cell{
 		name, pods, cpu,
 		dash(ro.RequestSet.CPU, pct(ro.Use.CPUMilli, ro.Request.CPUMilli), plain),
@@ -523,7 +629,7 @@ func (s *usageScreen) cells(r usageRow, t *Theme, th domain.Thresholds) []cell {
 		mem,
 		dash(ro.RequestSet.Mem, pct(ro.Use.MemBytes, ro.Request.MemBytes), plain),
 		dash(ro.LimitSet.Mem, pct(ro.Use.MemBytes, ro.Limit.MemBytes), sev(ro.Use.MemBytes, ro.Limit.MemBytes, ro.LimitSet.Mem)),
-		peak,
+		peak, trend,
 		s.note(r, t, th),
 	}
 }
@@ -560,10 +666,16 @@ func (s *usageScreen) note(r usageRow, t *Theme, th domain.Thresholds) cell {
 	if r.kind == usageUnlisted {
 		return cell{text: "other pods of the namespace", style: t.Dim}
 	}
+	if r.kind == usageContainer && !r.ctr.Measured {
+		return cell{text: "not measured (not running)", style: t.Warn}
+	}
+	if r.kind == usagePod && ro.Reporting == 0 {
+		return cell{text: "no sample yet (" + podPhaseWord(r.pod.Pod) + ")", style: t.Warn}
+	}
 	if ro.Reporting > 0 {
 		if p, ok := domain.Pct(ro.Use.MemBytes, ro.Limit.MemBytes); ok && ro.LimitSet.Mem && th.Severity(p) > domain.SeverityOK {
 			add(fmt.Sprintf("MEM %.0f%% of limit", p), th.Severity(p))
-		} else if th.Severity(ro.HottestMemPct) > domain.SeverityOK && ro.Reporting > 1 {
+		} else if th.Severity(ro.HottestMemPct) > domain.SeverityOK && ro.Reporting > 1 && r.kind != usagePod {
 			add(fmt.Sprintf("pod %s at %.0f%% of its memory limit", podShortID(ro.HottestPod), ro.HottestMemPct), th.Severity(ro.HottestMemPct))
 		}
 		if p, ok := domain.Pct(ro.Use.CPUMilli, ro.Limit.CPUMilli); ok && ro.LimitSet.CPU && th.Severity(p) > domain.SeverityOK {
@@ -574,11 +686,14 @@ func (s *usageScreen) note(r usageRow, t *Theme, th domain.Thresholds) cell {
 				add("over-provisioned", domain.SeverityOK)
 			}
 		}
-		if !ro.LimitSet.Mem && r.kind == usageService {
+		if !ro.LimitSet.Mem && (r.kind == usageService || r.kind == usageContainer) {
 			add("no limit", domain.SeverityOK)
 		}
 	}
-	if ro.Reporting < ro.Pods {
+	if r.kind == usageContainer && r.ctr.Restarts > 0 {
+		add(plural(r.ctr.Restarts, "restart"), domain.SeverityOK)
+	}
+	if ro.Reporting < ro.Pods && r.kind != usageContainer && r.kind != usagePod {
 		add(plural(ro.Pods-ro.Reporting, "pod")+" not reporting", domain.SeverityOK)
 	}
 	st := t.Dim
@@ -625,7 +740,7 @@ func (s *usageScreen) hints(m *Model) []hint {
 		return []hint{{"enter", "keep"}, {"esc", "clear"}, {"ctrl+u", "erase"}}
 	}
 	return []hint{
-		m.h(ActOpen, "fold / logs"), m.h(ActFilter, "filter"), m.h(ActSort, "sort"), m.h(ActAllContainers, "containers"),
+		m.h(ActOpen, "expand"), m.h(ActUsageLogs, "logs"), m.h(ActPreview, "detail"), m.h(ActFilter, "filter"), m.h(ActSort, "sort"), m.h(ActAllContainers, "containers"),
 		m.h(ActRefresh, "reload"), m.h(ActKeyBar, "keys"), m.h(ActBack, "back"), m.h(ActQuit, "quit"), m.h(ActHelp, "help"),
 	}
 }
@@ -636,7 +751,8 @@ func (s *usageScreen) fullHints(m *Model) []hint {
 	}
 	return []hint{
 		m.pair(ActDown, ActUp, "move"), m.pair(ActTop, ActBottom, "top/bottom"), m.pair(ActPageDown, ActPageUp, "page"),
-		m.h(ActOpen, "fold a namespace / open a service's logs"), m.h(ActPause, "fold or unfold"),
+		m.h(ActOpen, "fold a namespace, expand a service or a pod"), m.h(ActUsageLogs, "logs of the service"), m.h(ActPreview, "detail panel on/off"),
+		m.h(ActPause, "fold or unfold a namespace"),
 		m.pair(ActPanLeft, ActPanRight, "fold/unfold"), m.h(ActFilter, "filter by name"),
 		m.h(ActSort, "sort: memory, cpu, memory % of limit, name"), m.h(ActAllContainers, "all containers / application only"),
 		m.h(ActRefresh, "reload (restarts the history)"), m.h(ActBack, "back"), m.h(ActKeyBar, "keys"), m.h(ActQuit, "quit"), m.h(ActHelp, "help"),
@@ -678,4 +794,99 @@ func formatMemory(b int64) string {
 		return fmt.Sprintf("%dMi", b/(ki*ki))
 	}
 	return fmt.Sprintf("%dGi", b/(ki*ki*ki))
+}
+
+// trendWidth is the width of the TREND column.
+const trendWidth = 10
+
+var sparkBlocks = []rune("▁▂▃▄▅▆▇█")
+
+// sparkline draws the memory of a history in width cells, scaled from zero to
+// its largest value so that a flat series reads as flat. Each cell is the
+// average of its share of the samples.
+func sparkline(h []domain.UsageSample, width int) string {
+	if len(h) < 2 || width < 1 {
+		return ""
+	}
+	n := min(width, len(h))
+	vals := make([]float64, n)
+	var top float64
+	for i := range vals {
+		lo, hi := i*len(h)/n, (i+1)*len(h)/n
+		var sum float64
+		for _, p := range h[lo:hi] {
+			sum += float64(p.Use.MemBytes)
+		}
+		vals[i] = sum / float64(hi-lo)
+		top = max(top, vals[i])
+	}
+	var b strings.Builder
+	for _, v := range vals {
+		level := 0
+		if top > 0 {
+			level = max(int(math.Ceil(v/top*float64(len(sparkBlocks))))-1, 0)
+		}
+		b.WriteRune(sparkBlocks[level])
+	}
+	return b.String()
+}
+
+// podPhaseWord says why a pod has no sample, in a word.
+func podPhaseWord(p domain.Pod) string {
+	label, _ := podLabel(p)
+	return label
+}
+
+// previewLines are the lines of the detail panel for the row under the
+// cursor: what the numbers are in absolute terms, and why the service has the
+// status it has.
+func (s *usageScreen) previewLines(m *Model, r usageRow, th domain.Thresholds) []string {
+	ro := r.r
+	abs := func(a domain.Amount) string {
+		if a == (domain.Amount{}) {
+			return "—"
+		}
+		return formatCPU(a.CPUMilli) + " cpu / " + formatMemory(a.MemBytes)
+	}
+	amounts := func(ro domain.Rollup) string {
+		return fmt.Sprintf("use %s  ·  requests %s  ·  limits %s", abs(ro.Use), abs(ro.Request), abs(ro.Limit))
+	}
+	switch r.kind {
+	case usageNamespace:
+		if r.err != nil {
+			return []string{usageErrNote(r.err)}
+		}
+		return []string{"namespace " + r.name, amounts(ro), fmt.Sprintf("%d of %d pods report", ro.Reporting, ro.Pods)}
+	case usageUnlisted:
+		return []string{"pods of " + r.ns + " that no service of the catalog lists", "use " + abs(ro.Use) + " (their requests and limits are not known)"}
+	case usageService:
+		lines := []string{"service " + r.name + " in " + r.ns}
+		if svc, ok := m.findService(r.repo); ok {
+			why := domain.Explain(svc, m.opts.Filter, m.opts.Now())
+			if why == "" {
+				why = "nothing to explain"
+			}
+			lines = append(lines, "status "+svc.Status.String()+" · "+why)
+		}
+		lines = append(lines, amounts(ro))
+		switch ro.Provision(th) {
+		case domain.ProvisioningOver:
+			lines = append(lines, fmt.Sprintf("far below its requests: under %d%% on CPU and memory", domain.OverProvisionedBelow))
+		case domain.ProvisioningUnder:
+			lines = append(lines, fmt.Sprintf("at or above %.0f%% of a limit", th.Crit))
+		}
+		return lines
+	case usagePod:
+		label, _ := podLabel(r.pod.Pod)
+		return []string{
+			"pod " + r.name + " · " + label + " · node " + r.pod.Pod.Node,
+			amounts(ro), plural(r.pod.Pod.Restarts(), "restart"),
+		}
+	}
+	c := r.ctr
+	line := fmt.Sprintf("container %s of %s", c.Name, r.pod.Pod.Name)
+	if !c.Measured {
+		return []string{line, "not measured: the container is not running"}
+	}
+	return []string{line, amounts(r.r), plural(c.Restarts, "restart")}
 }

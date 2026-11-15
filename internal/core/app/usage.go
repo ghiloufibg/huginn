@@ -321,6 +321,7 @@ func (u *Usage) snapshot(q ports.UsageQuery, polled []string, st *usageState) po
 				Rollup: domain.RollupPods(g.pods, usage, u.Filter, all),
 			}
 			su.History = u.record(st, ns+"/"+g.repo, su.Rollup, now)
+			su.PodRows = domain.PodDetails(g.pods, usage, u.Filter, all)
 			nu.Services = append(nu.Services, su)
 		}
 		nu.Total = domain.RollupPods(nsPods, usage, u.Filter, all)

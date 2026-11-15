@@ -1,15 +1,15 @@
  huginn  REC  gke_acme_europe-west1_main / app-rec   services / usage                 demo · watching · synced 00:00:00 
- NAMESPACE / SERVICE      PODS     CPU   %REQ   %LIM   MEMORY   %REQ   %LIM  PEAK POD  NOTE                             
- ▾ app-rec               31/31    14.2    71%    48%     38Gi    93%    78%                                             
-   order-orchestrator      6/6    2.40    80%    40%    9.6Gi    81%    60%  q1                                         
-   payment-service         4/4    1.90    95%    63%    7.2Gi    99%    96%  x2        MEM 96% of limit                 
-   pricing-engine          3/3    200m    13%     7%    1.1Gi    18%     9%  c7        over-provisioned                 
-   ledger-writer           2/3    400m    67%      —    1.0Gi    67%      —  a0        no limit · 1 pod not reporting   
-   orphan-job (no repo)    1/1     50m    50%    25%    100Mi    39%    20%                                             
-   (not in the catalog)    3/3    100m      —      —    400Mi      —      —            other pods of the namespace      
- ▾ app-rec-2               9/9    1.10    40%    22%    5.0Gi    62%    45%                                             
-   batch-runner            9/9    1.10    40%    22%    5.0Gi    62%    45%                                             
- ▾ batch-prd                                                                           no access: pods.metrics.k8s.io   
+ NAMESPACE / SERVICE       PODS     CPU   %REQ   %LIM   MEMORY   %REQ   %LIM  PEAK POD  TREND       NOTE                
+ ▾ app-rec                31/31    14.2    71%    48%     38Gi    93%    78%                                            
+     order-orchestrator     6/6    2.40    80%    40%    9.6Gi    81%    60%  q1                                        
+   ▸ payment-service        4/4    1.90    95%    63%    7.2Gi    99%    96%  x2        ▁▂▃▄▄▅▆▇██  MEM 96% of limit    
+     pricing-engine         3/3    200m    13%     7%    1.1Gi    18%     9%  c7                    over-provisioned    
+     ledger-writer          2/3    400m    67%      —    1.0Gi    67%      —  a0                    no limit · 1 pod no…
+     orphan-job (no rep…    1/1     50m    50%    25%    100Mi    39%    20%                                            
+     (not in the catalo…    3/3    100m      —      —    400Mi      —      —                        other pods of the n…
+ ▾ app-rec-2                9/9    1.10    40%    22%    5.0Gi    62%    45%                                            
+     batch-runner           9/9    1.10    40%    22%    5.0Gi    62%    45%                                            
+ ▾ batch-prd                                                                                        no access: pods.met…
                                                                                                                         
                                                                                                                         
                                                                                                                         
@@ -17,4 +17,4 @@
                                                                                                                         
  Averages over the metrics window: peaks between samples are not shown.                                                 
  USAGE   sampled 12s ago · 1m window  ·  containers all (sidecars included)  ·  sort memory                             
- enter fold / logs  / filter  s sort  A containers  r reload  f2 keys  esc back  q quit  ? help                         
+ enter expand  L logs  p detail  / filter  s sort  A containers  r reload  f2 keys  esc back  q quit  ? help            

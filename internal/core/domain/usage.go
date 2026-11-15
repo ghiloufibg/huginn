@@ -1,6 +1,10 @@
 package domain
 
-import "time"
+import (
+	"slices"
+	"strings"
+	"time"
+)
 
 // Amount is a quantity of CPU and memory: CPU in millicores, memory in
 // bytes. A zero field means "not set" for requests and limits.
@@ -84,6 +88,27 @@ type ServiceUsage struct {
 	Unassigned bool
 	Rollup
 	History []UsageSample
+	// PodRows are the pods of the service in this namespace, by name.
+	PodRows []PodDetail
+}
+
+// ContainerDetail is what one container uses against what it asked for.
+type ContainerDetail struct {
+	Name string
+	// Measured is false for a container the sample does not cover (not
+	// running); its Use is then zero.
+	Measured       bool
+	Use            Amount
+	Request, Limit Amount
+	// Restarts is the restart count of the container.
+	Restarts int
+}
+
+// PodDetail is the usage of one pod and of its containers.
+type PodDetail struct {
+	Pod Pod
+	Rollup
+	Containers []ContainerDetail
 }
 
 // NamespaceUsage is the usage of one namespace: its total, its services, and
@@ -244,4 +269,24 @@ func (r Rollup) Provision(t Thresholds) Provisioning {
 		return ProvisioningOver
 	}
 	return ProvisioningOK
+}
+
+// PodDetails returns the pods with their containers' usage, ordered by pod
+// name. The containers are the ones RollupPods counts.
+func PodDetails(pods []Pod, usage map[PodKey]PodUsage, f ContainerFilter, all bool) []PodDetail {
+	out := make([]PodDetail, 0, len(pods))
+	for _, p := range pods {
+		d := PodDetail{Pod: p, Rollup: RollupPods([]Pod{p}, usage, f, all)}
+		u, reported := usage[p.Key()]
+		for _, c := range countedContainers(p, f, all) {
+			cd := ContainerDetail{Name: c.Name, Request: c.Amounts.Request, Limit: c.Amounts.Limit, Restarts: c.Restarts}
+			if reported {
+				cd.Use, cd.Measured = usedBy(u, c.Name)
+			}
+			d.Containers = append(d.Containers, cd)
+		}
+		out = append(out, d)
+	}
+	slices.SortFunc(out, func(a, b PodDetail) int { return strings.Compare(a.Pod.Name, b.Pod.Name) })
+	return out
 }

@@ -166,3 +166,24 @@ func TestProvision(t *testing.T) {
 		}
 	}
 }
+
+func TestPodDetails(t *testing.T) {
+	t0 := time.Date(2026, 11, 15, 12, 0, 0, 0, time.UTC)
+	b, a := mkPod("b", mkCtr("app", 100, 200, 100*miB, 200*miB)), mkPod("a", mkCtr("app", 100, 200, 100*miB, 200*miB), mkCtr("side", 10, 0, 10*miB, 0))
+	a.Containers[1].Restarts = 3
+	ua := mkSample(a, t0, ContainerUsage{"app", Amount{50, 150 * miB}})
+	got := PodDetails([]Pod{b, a}, mkUsage(ua), ContainerFilter{}, true)
+	if len(got) != 2 || got[0].Pod.Name != "a" || got[1].Pod.Name != "b" {
+		t.Fatalf("order: %+v", got)
+	}
+	app, side := got[0].Containers[0], got[0].Containers[1]
+	if !app.Measured || app.Use != (Amount{50, 150 * miB}) || app.Limit.MemBytes != 200*miB {
+		t.Errorf("app %+v", app)
+	}
+	if side.Measured || side.Use != (Amount{}) || side.Restarts != 3 || side.Limit != (Amount{}) {
+		t.Errorf("a container the sample does not cover must read as not measured: %+v", side)
+	}
+	if got[1].Reporting != 0 || got[1].Containers[0].Measured {
+		t.Errorf("a pod without a sample: %+v", got[1])
+	}
+}

@@ -71,7 +71,10 @@ func usageSnapshot() ports.UsageSnapshot {
 			{
 				Name: "app-rec", Total: total, Unlisted: unlisted,
 				Services: []domain.ServiceUsage{
-					{Repo: "payment-service", Rollup: withPeak(rollup(4, 4, 1900, 2000, 3000, 7*gi+200*mi, 7*gi+300*mi, 7*gi+500*mi), "payment-service-7c9f-x2", 96)},
+					{
+						Repo: "payment-service", Rollup: withPeak(rollup(4, 4, 1900, 2000, 3000, 7*gi+200*mi, 7*gi+300*mi, 7*gi+500*mi), "payment-service-7c9f-x2", 96),
+						History: rampHistory(), PodRows: usagePaymentPods(),
+					},
 					{Repo: "order-orchestrator", Rollup: withPeak(rollup(6, 6, 2400, 3000, 6000, 9*gi+600*mi, 11*gi+800*mi, 16*gi), "order-orchestrator-5b8d-q1", 71)},
 					{Repo: "pricing-engine", Rollup: withPeak(rollup(3, 3, 200, 1500, 3000, 1*gi+100*mi, 6*gi, 12*gi), "pricing-engine-6f4a-c7", 20)},
 					{Repo: "ledger-writer", Rollup: withPeak(noLimit, "ledger-writer-77d1-a0", 0)},
@@ -84,6 +87,34 @@ func usageSnapshot() ports.UsageSnapshot {
 			{Name: "batch-prd", Err: domain.KindError(domain.ErrForbidden, "forbidden")},
 		},
 	}
+}
+
+// rampHistory is a memory that climbs for fifteen minutes.
+func rampHistory() []domain.UsageSample {
+	var h []domain.UsageSample
+	for i := 0; i < 20; i++ {
+		h = append(h, domain.UsageSample{At: t0.Add(time.Duration(i-20) * 45 * time.Second), Use: domain.Amount{MemBytes: int64(i+1) * 350 * mi}})
+	}
+	return h
+}
+
+func usagePaymentPods() []domain.PodDetail {
+	pod := func(name string, restarts int, mem int64, sidecar bool) domain.PodDetail {
+		app := domain.ContainerDetail{
+			Name: "payment-service", Measured: true, Use: domain.Amount{CPUMilli: 480, MemBytes: mem},
+			Request: domain.Amount{CPUMilli: 500, MemBytes: 1900 * mi}, Limit: domain.Amount{CPUMilli: 750, MemBytes: 2 * gi}, Restarts: restarts,
+		}
+		cs := []domain.ContainerDetail{app}
+		if sidecar {
+			cs = append(cs, domain.ContainerDetail{Name: "istio-proxy", Measured: false, Request: domain.Amount{CPUMilli: 100, MemBytes: 128 * mi}})
+		}
+		return domain.PodDetail{
+			Pod:        domain.Pod{Name: name, Node: "gke-main-pool-1", Phase: domain.PodRunning, OwnerName: "payment-service", Containers: []domain.Container{{Name: "payment-service", Restarts: restarts}}},
+			Rollup:     rollup(1, 1, 480, 500, 750, mem, 1900*mi, 2*gi),
+			Containers: cs,
+		}
+	}
+	return []domain.PodDetail{pod("payment-service-7c9f-x2", 2, 1950*mi, true), pod("payment-service-7c9f-k8", 0, 1600*mi, false)}
 }
 
 func openUsage(t *testing.T, repo string) (*Model, *usageScreen, *fakeUsage) {
@@ -248,7 +279,7 @@ func TestUsageSortFilterAndContainers(t *testing.T) {
 func TestUsageOpensLogsOfAService(t *testing.T) {
 	m, s, _ := openUsage(t, "")
 	feedUsage(m, s, usageSnapshot())
-	press(m, "g", "j", "enter") // the first service of the first namespace
+	press(m, "g", "j", "L") // the first service of the first namespace
 	l, ok := m.top().(*logsScreen)
 	if !ok || l.repo != s.rows[1].name {
 		t.Fatalf("top %T, want the logs of %q", m.top(), s.rows[1].name)
@@ -325,6 +356,97 @@ func TestUsageNumberFormats(t *testing.T) {
 	}{{512 * 1024, "512Ki"}, {128 * mi, "128Mi"}, {1023 * mi, "1023Mi"}, {gi, "1.0Gi"}, {7*gi + 300*mi, "7.3Gi"}, {38 * gi, "38Gi"}} {
 		if got := formatMemory(c.b); got != c.want {
 			t.Errorf("memory %d: %q, want %q", c.b, got, c.want)
+		}
+	}
+}
+
+func TestUsageDrillDown(t *testing.T) {
+	m, s, _ := openUsage(t, "")
+	feedUsage(m, s, usageSnapshot())
+	press(m, "g")
+	var payment int
+	for i, r := range s.rows {
+		if r.kind == usageService && r.name == "payment-service" {
+			payment = i
+		}
+	}
+	for s.tbl.cursor != payment {
+		press(m, "j")
+	}
+	if out := render(m, 160, 24); !strings.Contains(out, "▸   payment-service") && !strings.Contains(out, "▸ payment-service") {
+		t.Errorf("an expandable service carries a marker:\n%s", out)
+	}
+	press(m, "enter") // the service opens on its pods
+	out := render(m, 160, 24)
+	for _, want := range []string{"payment-service-7c9f-x2", "payment-service-7c9f-k8", "▾ payment-service"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expanded service lacks %q:\n%s", want, out)
+		}
+	}
+	if s.current().name != "payment-service" {
+		t.Errorf("the cursor left the service: %+v", s.current().name)
+	}
+	press(m, "j", "enter") // the first pod opens on its containers
+	out = render(m, 160, 24)
+	if !strings.Contains(out, "istio-proxy") || !strings.Contains(out, "not measured (not running)") {
+		t.Errorf("containers of the pod:\n%s", out)
+	}
+	golden(t, "usage_drilldown_160x24", out)
+	press(m, "enter") // and closes again
+	if strings.Contains(render(m, 160, 24), "istio-proxy") {
+		t.Error("enter on an open pod does not close it")
+	}
+	press(m, "k", "enter")
+	if strings.Contains(render(m, 160, 24), "payment-service-7c9f-x2") {
+		t.Error("enter on an open service does not close it")
+	}
+}
+
+func TestUsagePreviewPanel(t *testing.T) {
+	m, s, _ := openUsage(t, "")
+	m.snap.Services[0].Status = domain.StatusOOMKilled
+	feedUsage(m, s, usageSnapshot())
+	press(m, "p", "g")
+	if !s.preview {
+		t.Fatal("p does not open the panel")
+	}
+	golden(t, "usage_preview_namespace_140x20", render(m, 140, 20))
+	press(m, "j", "j") // payment-service is the second service by memory
+	out := render(m, 140, 20)
+	if !strings.Contains(out, "service payment-service in app-rec") || !strings.Contains(out, "requests") {
+		t.Errorf("service panel:\n%s", out)
+	}
+	if out := render(m, 140, 10); strings.Contains(out, "service payment-service in app-rec") {
+		t.Error("a panel must never take the table's last lines on a short terminal")
+	}
+	press(m, "p")
+	if s.preview || strings.Contains(render(m, 140, 20), "service payment-service in app-rec") {
+		t.Error("p does not close the panel")
+	}
+}
+
+func TestSparkline(t *testing.T) {
+	mem := func(vs ...int64) []domain.UsageSample {
+		var h []domain.UsageSample
+		for _, v := range vs {
+			h = append(h, domain.UsageSample{Use: domain.Amount{MemBytes: v}})
+		}
+		return h
+	}
+	for _, c := range []struct {
+		name string
+		h    []domain.UsageSample
+		w    int
+		want string
+	}{
+		{"one point is no trend", mem(5), 10, ""},
+		{"flat reads as flat and high", mem(4, 4, 4, 4), 4, "████"},
+		{"zero stays low", mem(0, 0, 0), 3, "▁▁▁"},
+		{"a ramp rises", mem(1, 2, 3, 4, 5, 6, 7, 8), 8, "▁▂▃▄▅▆▇█"},
+		{"more samples than cells are averaged", mem(1, 1, 8, 8), 2, "▁█"},
+	} {
+		if got := sparkline(c.h, c.w); got != c.want {
+			t.Errorf("%s: %q, want %q", c.name, got, c.want)
 		}
 	}
 }

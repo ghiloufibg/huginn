@@ -1,16 +1,16 @@
  huginn  REC  gke_acme_…   services / usage   demo · watching · synced 00:00:00 
  NAMESPACE / SERVICE   PODS     CPU   %LIM   MEMORY   %LIM  NOTE                
  ▾ app-rec            31/31    14.2    48%     38Gi    78%                      
-   order-orchestrat…    6/6    2.40    40%    9.6Gi    60%                      
-   payment-service      4/4    1.90    63%    7.2Gi    96%  MEM 96% of limit    
-   pricing-engine       3/3    200m     7%    1.1Gi     9%  over-provisioned    
-   ledger-writer        2/3    400m      —    1.0Gi      —  no limit · 1 pod no…
-   orphan-job (no r…    1/1     50m    25%    100Mi    20%                      
-   (not in the cata…    3/3    100m      —    400Mi      —  other pods of the n…
+     order-orchestr…    6/6    2.40    40%    9.6Gi    60%                      
+   ▸ payment-service    4/4    1.90    63%    7.2Gi    96%  MEM 96% of limit    
+     pricing-engine     3/3    200m     7%    1.1Gi     9%  over-provisioned    
+     ledger-writer      2/3    400m      —    1.0Gi      —  no limit · 1 pod no…
+     orphan-job (no…    1/1     50m    25%    100Mi    20%                      
+     (not in the ca…    3/3    100m      —    400Mi      —  other pods of the n…
  ▾ app-rec-2            9/9    1.10    22%    5.0Gi    45%                      
-   batch-runner         9/9    1.10    22%    5.0Gi    45%                      
+     batch-runner       9/9    1.10    22%    5.0Gi    45%                      
  ▾ batch-prd                                                no access: pods.met…
                                                                                 
  Averages over the metrics window: peaks between samples are not shown.         
  USAGE   sampled 12s ago · 1m window  ·  containers all (sidecars included)  ·… 
- enter fold / logs  / filter  s sort  A containers  r reload  f2 keys  ? help   
+ enter expand  L logs  p detail  / filter  s sort  A containers  ? help         

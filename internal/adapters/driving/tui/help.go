@@ -34,7 +34,7 @@ func helpActions(s screen) (string, []Action) {
 	case *servicesScreen:
 		return "Services", []Action{ActUp, ActDown, ActPageUp, ActPageDown, ActTop, ActBottom, ActOpen, ActKafka, ActUsage, ActFilter, ActSort, ActPreview, ActRefresh}
 	case *usageScreen:
-		return "Usage", []Action{ActUp, ActDown, ActPageUp, ActPageDown, ActTop, ActBottom, ActOpen, ActPause, ActPanLeft, ActPanRight, ActFilter, ActSort, ActAllContainers, ActRefresh}
+		return "Usage", []Action{ActUp, ActDown, ActPageUp, ActPageDown, ActTop, ActBottom, ActOpen, ActUsageLogs, ActPause, ActPanLeft, ActPanRight, ActPreview, ActFilter, ActSort, ActAllContainers, ActRefresh}
 	case *kafkaTopicsScreen:
 		return "Kafka topics", []Action{ActUp, ActDown, ActPageUp, ActPageDown, ActTop, ActBottom, ActOpen, ActRefresh}
 	case *kafkaRecordsScreen:

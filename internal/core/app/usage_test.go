@@ -118,6 +118,9 @@ func TestUsageJoinsCatalogAndMetrics(t *testing.T) {
 	if api.HottestPod != "api-1" {
 		t.Errorf("hottest %q, want api-1", api.HottestPod)
 	}
+	if len(api.PodRows) != 2 || api.PodRows[0].Pod.Name != "api-1" || len(api.PodRows[0].Containers) != 1 || !api.PodRows[0].Containers[0].Measured {
+		t.Errorf("pod rows %+v", api.PodRows)
+	}
 	if ns.Unlisted.Pods != 1 || ns.Unlisted.Use.MemBytes != 20*miB {
 		t.Errorf("unlisted %+v", ns.Unlisted)
 	}
