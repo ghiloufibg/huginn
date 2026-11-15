@@ -688,13 +688,15 @@ func (s *usageScreen) note(r usageRow, t *Theme, th domain.Thresholds) cell {
 		if p, ok := domain.Pct(ro.Use.CPUMilli, ro.Limit.CPUMilli); ok && ro.LimitSet.CPU && th.Severity(p) > domain.SeverityOK {
 			add(fmt.Sprintf("CPU %.0f%% of limit", p), th.Severity(p))
 		}
+		// "no limit" first: it explains the dash of the %LIM column, and at 80
+		// columns the note is cut after its first words (M22 F-6).
+		if !ro.LimitSet.Mem && (r.kind == usageService || r.kind == usageContainer) {
+			add("no limit", domain.SeverityOK)
+		}
 		if r.kind == usageService || r.kind == usageNamespace && len(parts) == 0 {
 			if ro.Provision(th) == domain.ProvisioningOver {
 				add("over-provisioned", domain.SeverityOK)
 			}
-		}
-		if !ro.LimitSet.Mem && (r.kind == usageService || r.kind == usageContainer) {
-			add("no limit", domain.SeverityOK)
 		}
 	}
 	if r.kind == usageContainer && r.ctr.Restarts > 0 {

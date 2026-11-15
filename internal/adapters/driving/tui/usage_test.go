@@ -501,3 +501,24 @@ func TestUsageRealClusterFindings(t *testing.T) {
 		}
 	})
 }
+
+// At 80 columns the note is cut after its first words: "no limit" explains the
+// dash of the %LIM column, so it comes before "over-provisioned" (M22 F-6).
+func TestUsageNoLimitComesFirstInTheNote(t *testing.T) {
+	m, s, _ := openUsage(t, "")
+	snap := usageSnapshot()
+	r := rollup(2, 2, 10, 1000, 0, 10*mi, 1*gi, 0)
+	r.LimitSet, r.Limit = domain.Coverage{}, domain.Amount{}
+	snap.Namespaces[0].Services = append(snap.Namespaces[0].Services, domain.ServiceUsage{Repo: "idle-no-limit", Rollup: r})
+	feedUsage(m, s, snap)
+	out := render(m, 160, 24)
+	if !strings.Contains(out, "no limit · over-provisioned") {
+		t.Errorf("note order:\n%s", out)
+	}
+	narrow := render(m, 80, 24)
+	for _, l := range strings.Split(narrow, "\n") {
+		if strings.Contains(l, "idle-no-limit") && !strings.Contains(l, "no limit") {
+			t.Errorf("at 80 columns the dash has no explanation: %q", l)
+		}
+	}
+}
