@@ -1,0 +1,26 @@
+# yaml-language-server: $schema=../../../docs/schema/containers.schema.json
+# Same sidecar-hide list as deploy/lab. payment-service's istio-proxy
+# container (workloads.yaml) exercises this against a real pod.
+version: 1
+hide:
+  - istio-proxy
+  - istio-init
+  - istio-validation
+  - linkerd-proxy
+  - linkerd-init
+  - vault-agent
+  - vault-agent-init
+  - cloud-sql-proxy
+  - cloudsql-proxy
+  - fluent-bit
+  - fluentd
+  - filebeat
+  - otel-collector
+  - opentelemetry-collector
+  - datadog-agent
+  - config-reloader
+  - envoy
+  - oauth2-proxy
+always_show: []
+show_init: false
+default_mode: app

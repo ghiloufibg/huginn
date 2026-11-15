@@ -1,0 +1,50 @@
+ huginn  REC  gke_huginn-kube-tui_us-east1_huginn-qa / qa-rec   services / usage-mem / logs                                                                     kubernetes · watching · synced 21:25:25
+ pods  all 3    4chhq Healthy 1.0.4   fgzkt Healthy 1.0.4   xhr8l Healthy 1.0.4
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                      no log line in the last 15m
+
+                                                                             t longer window  ·  0 last lines  ·  esc back
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ LIVE   15m  ·  all pods  ·  levels all  ·  oldest first  ·  0/0 lines  ·  buffer 0%  ·  dropped 0
+ / filter  l levels  x mode  n/N match  f follow  space pause  t window  tab pods  c cols  C columns  z focus  enter zoom  ? help

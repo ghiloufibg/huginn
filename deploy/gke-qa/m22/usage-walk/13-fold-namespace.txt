@@ -1,0 +1,50 @@
+ huginn  REC  gke_huginn-kube-tui_us-east1_huginn-qa / qa-rec   services / usage                                                                                kubernetes · watching · synced 21:25:25
+ NAMESPACE / SERVICE   PODS     CPU   %REQ   %LIM   MEMORY   %REQ   %LIM  PEAK POD  TREND       NOTE
+ ▸ qa-rec             20/22    1.02    32%      —    910Mi    13%      —  4chhq                 2 pods not reporting
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ Averages over the metrics window: peaks between samples are not shown.
+ USAGE   sampled 46s ago · 43s window  ·  containers all (sidecars included)  ·  sort memory
+ enter expand  L logs  p detail  / filter  s sort  A containers  r reload  f2 keys  esc back  q quit  ? help

@@ -1,6 +1,6 @@
 # M22 QA — Real GKE: the whole TUI, the usage screen, and the non-functional requirements (design)
 
-Status: **a design. Nothing in this file has been run**, and no `gcloud`, `kubectl` or cluster call was made to write it. Figures quoted from earlier sessions are marked with their source; every threshold marked *proposed* needs the owner's agreement before execution (§11).
+Status: **partially executed on 2026-11-15, see [`deploy/gke-qa/M22-QA-REPORT.md`](../../deploy/gke-qa/M22-QA-REPORT.md).** The text below is the design as written; the report lists what ran, what did not, and what changed on the way (for example the `-coverpkg` form).
 
 **Goal.** One session on a real GKE Autopilot cluster that covers, with evidence:
 
@@ -37,7 +37,7 @@ What "100%" means here is defined in §1. It is not "every statement executes".
 
 **Ledger.** `deploy/gke-qa/coverage.tsv`, one row per inventory item, filled during the session: `item, test id, evidence file, result`. A tool (written in the execution session, `go run ./scripts/qa-inventory` or similar) regenerates the inventory from the code and **fails if any row has no test id and no written reason**. Every test case in §4 names the inventory items it exercises.
 
-**Measured statement coverage as a cross-check, not as the claim.** A build with `go build -cover -coverpkg=./internal/...` is used for the functional pass; it writes coverage data to `GOCOVERDIR` on exit. `go tool covdata merge` + `textfmt` gives the statements reached **on a real cluster**. Report: coverage of `internal/adapters/driving/tui`, `…/driven/kubernetes`, `…/driven/kafka`, `internal/core/app`, and the **list of functions with zero coverage in both the unit tests and this session**, each with a verdict: reached by a case added now, dead code to delete, or unreachable without a failure we cannot produce (and then said so).
+**Measured statement coverage as a cross-check, not as the claim.** A build with `go build -cover -coverpkg=github.com/ghiloufibg/huginn/...` is used (the relative form `./internal/...` matched nothing and produced no data: found during execution) for the functional pass; it writes coverage data to `GOCOVERDIR` on exit. `go tool covdata merge` + `textfmt` gives the statements reached **on a real cluster**. Report: coverage of `internal/adapters/driving/tui`, `…/driven/kubernetes`, `…/driven/kafka`, `internal/core/app`, and the **list of functions with zero coverage in both the unit tests and this session**, each with a verdict: reached by a case added now, dead code to delete, or unreachable without a failure we cannot produce (and then said so).
 
 **Honest limits.** Not claimed: every statement (error branches need failures a managed cluster does not produce on demand), every state combination (filters × windows × pods × sizes is combinatorial; §4 covers each axis alone and a chosen set of crossings), other terminals or operating systems than the ones in §3. Coverage data is lost when the process is killed with `SIGKILL` or panics, so chaos cases (§7) that kill it use a second, uninstrumented run.
 

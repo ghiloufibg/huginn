@@ -1,0 +1,50 @@
+ huginn  REC  gke_huginn-kube-tui_us-east1_huginn-qa / qa-rec   services / usage / help                                                                         kubernetes · watching · synced 21:25:25
+ USAGE
+   Move
+     k  up            up
+     j  down          down
+     pgup  ctrl+b     page up
+     pgdown  ctrl+d   page down
+     g  home          top
+     G  end           bottom (on logs: back to the live tail)
+   Time and stream
+     space            pause / resume (keeps buffering)
+   Filter
+     /  ctrl+f        filter as you type
+   Inspect
+     enter            open / zoom / apply
+     A                all containers (sidecars and init) or application containers only
+   Display
+     left             pan left (wrap off)
+     right            pan right (wrap off)
+   Services
+     L                usage screen: logs of the service under the cursor
+     p                preview of the selected service: on/off
+     s                sort: status, name, restarts, age
+     r                resync the watches (on a logs error: reload the logs)
+
+ GLOBAL
+     ?  f1            help for this screen
+     f2  ctrl+k       key bar: compact, full, hidden
+     esc              back, close, exit fullscreen, clear the last filter
+     ctrl+e           switch environment
+     q  ctrl+c        quit
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ HELP   keys follow keymap in ui.yaml
+ j/k scroll  / search  esc close

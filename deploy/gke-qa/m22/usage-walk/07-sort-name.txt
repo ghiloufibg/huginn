@@ -1,0 +1,50 @@
+ huginn  REC  gke_huginn-kube-tui_us-east1_huginn-qa / qa-rec   services / usage                                                                                kubernetes · watching · synced 21:25:02
+ NAMESPACE / SERVICE           PODS     CPU   %REQ   %LIM   MEMORY   %REQ   %LIM  PEAK POD  TREND       NOTE
+ ▾ qa-rec                     20/23    1.02    32%      —    910Mi    13%      —  4chhq     ██          3 pods not reporting
+   ▸ deploy-auto                1/1      1m     2%      —    432Ki     1%      —            ██          over-provisioned · no limit
+   ▸ deploy-cron                0/2       —      —      —        —      —      —                        2 pods not reporting
+   ▸ deploy-ds                  2/2      2m    10%      —      1Mi     6%      —            ██          over-provisioned · no limit
+   ▸ deploy-pair                2/2      2m     2%      —      2Mi     2%      —            ██          over-provisioned · no limit
+   ▸ deploy-probe               2/2      2m     2%      —      1Mi     2%      —            ██          over-provisioned · no limit
+   ▸ deploy-sts                 2/2      2m     2%      —    844Ki     1%      —            ██          over-provisioned · no limit
+   ▾ named-pod-fixture          1/1      1m     2%      —    416Ki     1%      —            ██          over-provisioned · no limit
+       ▾ named-pod-fixture-0    1/1      1m     2%      —    416Ki     1%      —
+           named-pod-fixture             1m     2%      —    416Ki     1%      —                        no limit
+   ▸ range-emitter              2/2     11m    11%      —      1Mi     2%      —            ██          over-provisioned · no limit
+   ▸ usage-cpu                  1/1    996m   199%   100%    364Ki     0%     0%            ██          CPU 100% of limit
+   ▸ usage-done                 0/1       —      —      —        —      —      —                        1 pod not reporting
+   ▸ usage-mem                  3/3      0m     0%     0%    770Mi    50%    50%  4chhq     ██
+   ▸ usage-nolimit              2/2      2m     0%      —    820Ki     0%      —            ██          over-provisioned · no limit
+   ▸ usage-sidecar              2/2      2m     0%     0%    129Mi    25%    25%  nwdgw     ██
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ Averages over the metrics window: peaks between samples are not shown.
+ sort name   USAGE   sampled 58s ago · 39s window  ·  containers all (sidecars included)  ·  sort name
+ enter expand  L logs  p detail  / filter  s sort  A containers  r reload  f2 keys  esc back  q quit  ? help

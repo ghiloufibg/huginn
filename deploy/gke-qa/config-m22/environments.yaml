@@ -1,0 +1,15 @@
+# yaml-language-server: $schema=../../../docs/schema/environments.schema.json
+# M22 QA (docs/plan/M22-gke-full-qa.md). rec and prd use the owner's context;
+# restricted uses the huginn-reader IAM identity (qa-rec has the metrics
+# grant, qa-prd does not, qa-restricted has no Role at all).
+version: 1
+environments:
+  rec:
+    context: gke_huginn-kube-tui_us-east1_huginn-qa
+    namespaces: [qa-rec]
+  prd:
+    context: gke_huginn-kube-tui_us-east1_huginn-qa
+    namespaces: [qa-prd]
+  restricted:
+    context: huginn-reader
+    namespaces: [qa-rec, qa-prd, qa-restricted]

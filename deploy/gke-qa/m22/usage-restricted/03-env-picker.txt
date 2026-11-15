@@ -1,0 +1,50 @@
+ huginn  RESTRICTED  huginn-reader / qa-rec,qa-prd,qa-restricted   services / usage                                                                              kubernetes · partial · synced 21:27:35
+ NAMESPACE / SERVICE     PODS     CPU   %REQ   %LIM   MEMORY   %REQ   %LIM  PEAK POD  TREND       NOTE
+ ▾ qa-rec               20/22    1.02    32%      —    911Mi    13%      —  4chhq                 2 pods not reporting
+   ▸ usage-mem            3/3      0m     0%     0%    770Mi    50%    50%  4chhq
+   ▸ usage-sidecar        2/2      2m     0%     0%    129Mi    25%    25%  nwdgw
+   ▸ deploy-pair          2/2      2m     2%      —      2Mi     2%      —                        over-provisioned · no limit
+   ▸ deploy-ds            2/2      2m    10%      —      2Mi     6%      —                        over-provisioned · no limit
+   ▸ deploy-probe         2/2      2m     2%      —      1Mi     2%      —                        over-provisioned · no limit
+   ▸ range-emitter        2/2      9m     9%      —      1Mi     2%      —                        over-provisioned · no limit
+   ▸ deploy-sts           2/2      2m     2%      —    844Ki     1%      —                        over-provisioned · no limit
+   ▸ usage-nolimit        2/2      2m     0%      —    820Ki     0%      —                        over-provisioned · no limit
+   ▸ deploy-auto          1/1      1m     2%      —    432Ki     1%      —                        over-provisioned · no limit
+   ▸ named-pod-fixture    1/1      1m     2%      —    416Ki     1%      —                        over-provisioned · no limit
+   ▸ usage-cpu            1/1    998m   200%   100%    364Ki     0%     0%                        CPU 100% of limit
+   ▸ deploy-cron          0/1       —      —      —        —      —      —                        1 pod not reporting
+   ▸ usage-done           0/1       —      —      —        —      —      —                        1 pod not reporting
+ ▾ qa-prd                                                                                         no access: pods.metrics.k8s.io
+   ▸ prd-api              0/1       —      —      —        —      —      —                        1 pod not reporting
+ ▾ qa-restricted                                                                                  no access: pods.metrics.k8s.io
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ Averages over the metrics window: peaks between samples are not shown.
+ USAGE   sampled 38s ago · 42s window  ·  containers all (sidecars included)  ·  sort memory
+ enter expand  L logs  p detail  / filter  s sort  A containers  r reload  f2 keys  esc back  q quit  ? help

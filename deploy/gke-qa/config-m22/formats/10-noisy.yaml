@@ -1,0 +1,32 @@
+# yaml-language-server: $schema=../../../../docs/schema/format.schema.json
+# Synthetic fixture (workloads.yaml: noisy-fixture) shaped to exercise what
+# none of the three real Spring Boot services naturally produce: a
+# non-standard level field read through level_from (M7), and a non-default
+# pairs syntax read through a configured pair_pattern (M6.1/M6.2). See
+# docs/plan/M10-gke-qa.md §3.3.
+version: 1
+
+decoder: json
+
+match:
+  containers: ["noisy-fixture"]
+
+fields:
+  message: [message, msg]
+
+# "sev" is not in any candidate list above, so these lines carry no level of
+# their own; level_from supplies it entirely (docs/CONFIG.md: "a line with
+# no level at all takes the level of the matching rule").
+level_from:
+  field: sev
+  map: { "error*": error, "warn*": warn, "*": info }
+
+# Pairs written as key: "value"; (not the default key=value), matching
+# docs/CONFIG.md's own pair_pattern example.
+transform:
+  message:
+    pattern: '^(?P<pairs>(?:[\w.-]+: "[^"]*";\s*)*)-\s+(?P<message>.*)$'
+    pairs: [pairs]
+    pair_pattern: '(?P<key>[\w.-]+): "(?P<value>[^"]*)";?'
+
+layout: noisy

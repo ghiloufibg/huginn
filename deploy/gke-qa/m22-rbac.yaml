@@ -1,0 +1,50 @@
+# M22 QA: namespaced read-only RBAC for huginn-reader.
+# qa-rec gets the Metrics API grant (usage screen works).
+# qa-prd gets the same rights WITHOUT it, so the usage screen must show
+# "no access: pods.metrics.k8s.io" for qa-prd only (U-6, R-4).
+# qa-restricted has no Role at all (real "forbidden").
+apiVersion: v1
+kind: Namespace
+metadata: {name: qa-prd}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: huginn-reader, namespace: qa-rec}
+rules:
+  - apiGroups: [""]
+    resources: [pods, pods/log, events]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [deployments, replicasets, statefulsets, daemonsets]
+    verbs: [get, list, watch]
+  - apiGroups: [batch]
+    resources: [jobs, cronjobs]
+    verbs: [get, list, watch]
+  - apiGroups: [metrics.k8s.io]
+    resources: [pods]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: huginn-reader, namespace: qa-rec}
+subjects:
+  - {kind: User, name: huginn-reader@huginn-kube-tui.iam.gserviceaccount.com, apiGroup: rbac.authorization.k8s.io}
+roleRef: {kind: Role, name: huginn-reader, apiGroup: rbac.authorization.k8s.io}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: huginn-reader, namespace: qa-prd}
+rules:
+  - apiGroups: [""]
+    resources: [pods, pods/log, events]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [deployments, replicasets, statefulsets, daemonsets]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: huginn-reader, namespace: qa-prd}
+subjects:
+  - {kind: User, name: huginn-reader@huginn-kube-tui.iam.gserviceaccount.com, apiGroup: rbac.authorization.k8s.io}
+roleRef: {kind: Role, name: huginn-reader, apiGroup: rbac.authorization.k8s.io}
