@@ -98,3 +98,88 @@ The first instrumented build used `-coverpkg=./internal/...`, which matched noth
 ## 2. Not run (so far)
 
 Spring trio, Kafka and Karapace (and so every `K-*` case and the Kafka screens); the `-race` pass; the A/B of the services screen at the key level (only memory, cycling); latency measurement (N-12); startup time (N-11); the 60 minute soak (N-5); chaos (R-2…R-9, including the network cut, metrics-server removal and throttling); terminal matrix (themes × sizes) and resize storm; clipboard checks; the plan's 3-run median for any timing; the whole-TUI ledger (`coverage.tsv`) beyond the figures above; per-key checks of the logs screen against `kubectl logs` oracles (only reached, not compared); secrets scan of artefacts (N-17).
+
+## 3. Second batch (same day): CLI, latency, error states, Kafka, live changes
+
+### Command line and config (C-1…C-8), run without a TTY against `huginn-plain`
+
+| Case | Result |
+|---|---|
+| C-1 unknown environment | exit **1**, message lists the known names. The plan expected 2; README documents 2 only for a missing/invalid config folder or no TTY, so 1 is within the documented rules (the README does not say which code a bad flag gets) |
+| C-2/C-3 bad `--since`, `--from`, `--to` without `--from`, `--theme`, `--containers` | exit 1 each, one-line reason that names the accepted forms |
+| C-4 invalid config | exit 2, every problem as `file:line:column`, with a "did you mean" for a misspelt key; the usage settings are validated (`usage.refresh: 1s` below the 5 s floor, `warn >= crit`) |
+| C-5 no TTY | exit 2, one-line message, no escape sequences |
+| C-8 `--version`, `--help` | exit 0 |
+| missing config folder | exit 2 and the expected folder structure |
+
+Not run: C-6 (debug log scan), C-7 for the shell `kafka read` flags other than `--tail` (`--since --from --to -f --committed --raw --no-decode`), C-9 (token expiry, wrong context).
+
+### Latency and startup (N-11, N-12), 3 to 5 runs, polling every 50 ms (resolution about 60 ms), 200×50
+
+| What | Runs (ms) |
+|---|---|
+| start to services synced | 1 787, 1 887, 2 029 |
+| `u` to the usage table with data (cold) | 526–584 |
+| usage: `s` (sort), 3 × `s`, `p` (detail) | 62–69, 60–68, 61–69 (at the measuring floor) |
+| usage: `esc` back to services | 73–129 |
+
+Three rows of the script (`usage-expand`, `usage-filter-open`, `services-down`, 4 to 13 ms) were **invalid**: their expected text was already on screen. Discarded. Nothing exceeded the proposed 150 ms. This measures the screen update after a key, not what a person perceives.
+
+### Error and size states
+
+| Case | Result |
+|---|---|
+| P-2 API unreachable (`HTTPS_PROXY` to a closed port) | services and usage screens both show the cause with the API URL, a fix line ("Check network or VPN access cluster"), `retrying automatically · press r retry now`; the process stays up |
+| T-2 resize storm | 200 random resizes (10–250 columns, 3–62 rows) on the usage screen, then 20×6, 10×3 and 200×50: process alive, no crash. **Only liveness was checked**; the captures at 20×6 and 10×3 were not read |
+| T-1 themes × sizes | `light dark accessible classic none auto` × 80×24, 120×30, 220×50, on the services and usage screens: all 18 alive. The captures (`m22/ui/`) were **not reviewed** for legibility |
+
+### Kafka, tier 1 (plaintext, `kubectl port-forward`), one broker, topics created with `kafka-topics.sh`
+
+Oracle: counts produced and `kafka-get-offsets.sh`. Karapace, SASL/TLS and the Avro cases were **not run**.
+
+| Case | Expected | Observed |
+|---|---|---|
+| `huginn kafka check catalog` | 5 topics with their partitions | 5 topics, partitions 3/1/2/6/1, all `ready` |
+| `kafka read topic-b --tail 2` | last 2 per partition | 6 records, 2 per partition |
+| TUI `topic-b`, default view (200 records, 3 partitions) | 200 | **200** |
+| filter `key=k1` | 40 (keys `k(i mod 5)`, 200 records) | **40** |
+| filter `partition=2` | 80 (end offset of p2) | **80** |
+| text filter `50` | 2 (`n=50`, `n=150`) | **2** |
+| `range-topic` (6 partitions, 3 000 records), `0` last 100 per partition | 600 | **600** |
+| `range-topic`, `6` (1 day) | 3 000 | **3 000** |
+| consumer groups on the broker after all of the above | none | **none** (`kafka-consumer-groups.sh --list` empty) |
+
+Not compared: record order inside partitions, the `]`/`[` page keys (the topic fits one page, so they changed nothing), follow with a live producer, pause with "no broker read while paused", isolation `i`, raw `D`, range `b` beyond opening the popup, copy `y` content.
+
+### Merged statement coverage of the two instrumented real-cluster walks (services, usage, logs, Kafka)
+
+| Package | Before Kafka | After Kafka |
+|---|---|---|
+| `adapters/driving/tui` | 59.1 % (121 functions at 0 %) | **69.5 %** (60 functions at 0 %) |
+| `adapters/driven/kafka` | 0 % | 65.6 % |
+| `adapters/driven/kubernetes` | 67.8 % | 70.8 % |
+| `core/app` | 47.4 % | 63.2 % |
+| `core/domain` | 42.1 % | 56.9 % |
+| `config` | 47.1 % | 56.4 % |
+| `bootstrap` | 43.2 % | 52.2 % |
+
+The 60 remaining TUI functions at 0 % include the trace view (`trace.go`: `range-emitter` carries no `trace_id`), the mouse handlers (`mouse.go`: `tmux send-keys` cannot send mouse events), the error panels (the proxy test ran on the **uninstrumented** binary), the range popup, `logfilter.go` context and match helpers, and the usage screen's error and narrow-terminal branches (`usage.go:491, 647, 748, 807, 835`).
+
+### Live changes under the usage screen (R-3, R-4, U-18), `huginn-reader`
+
+| Action | Observed |
+|---|---|
+| remove the `metrics.k8s.io` rule from the Role (23:28:07) | within 45 s the status line reads `stale since 23:28 (52s)`; rows keep their values; no error panel |
+| restore the Role (23:29:03) | **still `stale since 23:28 (1m) · sampled 2m ago` 45 s later**; fresh at the next capture (about 2 min after the restore). The use case backs off after errors (D-075); the screen gives no hint that `r` retries at once. **Finding F-4 (P2)** |
+| scale `usage-mem` 3 → 0 | row shows `0/3`, then pods drop out; no share is computed for pods without a sample |
+| scale back 0 → 3, 25 s later | `0/3 · 3 pods not reporting` (never 0 %), then `3/3` once the metrics server has a sample (38m CPU while the new pods start) |
+| delete `range-emitter-0` while its logs are followed | pod strip `emitter-0 terminated`, `emitter-1 Healthy`; lines keep arriving (`LIVE 39/s`); the buffer line says `older lines of the window not loaded: 50000 lines kept (buffer size), 21751 older skipped` |
+
+**Rate of the fixture, measured late:** consecutive lines of one pod are 25 ms apart, about 40 lines/s per pod and 80 lines/s for the two. The 143–189 MiB peaks of N-2 and N-4b are a **full 50 000-line buffer at 80 lines/s**, not a leak; they are not comparable with the 76 MiB of M10/M14 (a lower rate).
+
+### Findings, additions
+
+| # | P | Finding |
+|---|---|---|
+| F-4 | P2 | After the cause of a usage error is fixed, the stale marker stays for up to about 2 minutes (backoff); the screen says nothing about `r`. Measured once |
+| F-5 | info | `usage.refresh` of 15 s with the metrics-server window of about 40–50 s means the displayed sample is 30–60 s old (`sampled 57s ago`). The screen says so; it is the metrics API, not Huginn |
