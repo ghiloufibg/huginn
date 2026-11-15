@@ -43,7 +43,7 @@ func toPod(env domain.Env, p *corev1.Pod) domain.Pod {
 func containers(specs []corev1.Container, statuses []corev1.ContainerStatus, init bool) []domain.Container {
 	out := make([]domain.Container, 0, len(specs))
 	for _, s := range specs {
-		c := domain.Container{Name: s.Name, Image: s.Image, Init: init, State: domain.ContainerWaiting, Resources: resources(s.Resources)}
+		c := domain.Container{Name: s.Name, Image: s.Image, Init: init, State: domain.ContainerWaiting, Resources: resources(s.Resources), Amounts: amounts(s.Resources)}
 		for i := range statuses {
 			if statuses[i].Name == s.Name {
 				setStatus(&c, &statuses[i])
@@ -82,6 +82,16 @@ func resources(r corev1.ResourceRequirements) domain.Resources {
 		CPURequest: q(r.Requests, corev1.ResourceCPU), CPULimit: q(r.Limits, corev1.ResourceCPU),
 		MemoryRequest: q(r.Requests, corev1.ResourceMemory), MemoryLimit: q(r.Limits, corev1.ResourceMemory),
 	}
+}
+
+// amounts is resources as numbers: millicores and bytes, 0 when not set.
+func amounts(r corev1.ResourceRequirements) domain.ResourceAmounts {
+	return domain.ResourceAmounts{Request: amountOf(r.Requests), Limit: amountOf(r.Limits)}
+}
+
+func amountOf(l corev1.ResourceList) domain.Amount {
+	cpu, mem := l[corev1.ResourceCPU], l[corev1.ResourceMemory]
+	return domain.Amount{CPUMilli: cpu.MilliValue(), MemBytes: mem.Value()}
 }
 
 // revision is the pod template revision the controller put on the pod:

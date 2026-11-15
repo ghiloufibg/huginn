@@ -27,6 +27,7 @@ import (
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog/v2"
+	metricsv1beta1 "k8s.io/metrics/pkg/client/clientset/versioned/typed/metrics/v1beta1"
 
 	"github.com/ghiloufibg/huginn/internal/core/domain"
 )
@@ -40,15 +41,25 @@ type API interface {
 	BatchV1() batchv1client.BatchV1Interface
 }
 
+// MetricsAPI is the optional part of a clientset that reads usage metrics.
+// It is not part of API so that client-go's own fake clientset still
+// satisfies API; a clientset without it serves no metrics.
+type MetricsAPI interface {
+	MetricsV1beta1() metricsv1beta1.MetricsV1beta1Interface
+}
+
 type clients struct {
-	core  *corev1client.CoreV1Client
-	apps  *appsv1client.AppsV1Client
-	batch *batchv1client.BatchV1Client
+	core    *corev1client.CoreV1Client
+	apps    *appsv1client.AppsV1Client
+	batch   *batchv1client.BatchV1Client
+	metrics *metricsv1beta1.MetricsV1beta1Client
 }
 
 func (c clients) CoreV1() corev1client.CoreV1Interface    { return c.core }
 func (c clients) AppsV1() appsv1client.AppsV1Interface    { return c.apps }
 func (c clients) BatchV1() batchv1client.BatchV1Interface { return c.batch }
+
+func (c clients) MetricsV1beta1() metricsv1beta1.MetricsV1beta1Interface { return c.metrics }
 
 // Options configure the client.
 type Options struct {
@@ -63,7 +74,8 @@ type Options struct {
 	Log *slog.Logger
 }
 
-// Client implements ports.ClusterClient and ports.LogSource.
+// Client implements ports.ClusterClient, ports.LogSource and
+// ports.MetricsSource.
 type Client struct {
 	opts Options
 
@@ -124,7 +136,9 @@ func fromKubeconfig(context, userAgent string, log *slog.Logger) (API, error) {
 	err = quietPlugin(cfg, log, func() (err error) {
 		if cs.core, err = corev1client.NewForConfig(cfg); err == nil {
 			if cs.apps, err = appsv1client.NewForConfig(cfg); err == nil {
-				cs.batch, err = batchv1client.NewForConfig(cfg)
+				if cs.batch, err = batchv1client.NewForConfig(cfg); err == nil {
+					cs.metrics, err = metricsv1beta1.NewForConfig(cfg)
+				}
 			}
 		}
 		return err

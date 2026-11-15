@@ -22,6 +22,7 @@ import (
 	"github.com/ghiloufibg/huginn/internal/adapters/driving/tui"
 	"github.com/ghiloufibg/huginn/internal/buildinfo"
 	"github.com/ghiloufibg/huginn/internal/config"
+	"github.com/ghiloufibg/huginn/internal/core/app"
 	"github.com/ghiloufibg/huginn/internal/core/domain"
 	"github.com/ghiloufibg/huginn/internal/core/ports"
 	"github.com/ghiloufibg/huginn/internal/diag"
@@ -209,11 +210,14 @@ func Build(o cli.Options, e Env, log *slog.Logger) (*App, error) {
 	}
 	kl := c.Huginn.Kafka.Limits()
 	releases, notice := newReleases(c, clientName, cluster, clk, log)
+	// One upstream watch of the services serves the services screen and the
+	// usage screen, whichever is open.
+	catalog := &app.SharedCatalog{Upstream: newCatalog(c, sc, cluster, clk, filter, log)}
 	return &App{
 		Config: c, Env: env, Cluster: cluster, Log: log,
 		UI: tui.Options{
 			Env: current, Envs: envs, Theme: theme, Keys: keys, Source: clientName, Repo: o.Repo,
-			Catalog: newCatalog(c, sc, cluster, clk, filter, log), Filter: filter,
+			Catalog: catalog, Usage: newUsage(sc, catalog, cluster, clk, filter, log), Filter: filter,
 			Sessions: newLogSessions(c, sc, cluster, clk, filter, lp.decoders, log),
 			Events:   newPodEvents(sc, cluster),
 			Releases: releases, Notice: notice,

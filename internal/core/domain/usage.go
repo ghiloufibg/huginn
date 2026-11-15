@@ -101,6 +101,9 @@ type NamespaceUsage struct {
 
 // RollupPods sums the usage of pods. Init containers never count (they do
 // not run alongside); with all false only application containers (f) do.
+// Only containers the sample measures count, in the use and in the requests
+// and limits: one that is not running (crashed, waiting) uses nothing, and
+// counting its limit would lower every ratio.
 func RollupPods(pods []Pod, usage map[PodKey]PodUsage, f ContainerFilter, all bool) Rollup {
 	r := Rollup{Pods: len(pods)}
 	r.RequestSet = Coverage{CPU: true, Mem: true}
@@ -117,7 +120,11 @@ func RollupPods(pods []Pod, usage map[PodKey]PodUsage, f ContainerFilter, all bo
 		var use, limit Amount
 		limited := true
 		for _, c := range countedContainers(p, f, all) {
-			use = use.Add(usedBy(u, c.Name))
+			cu, measured := usedBy(u, c.Name)
+			if !measured { // not running: it uses nothing and its limit bounds nothing
+				continue
+			}
+			use = use.Add(cu)
 			am := c.Amounts
 			r.Request = r.Request.Add(am.Request)
 			r.Limit = r.Limit.Add(am.Limit)
@@ -152,13 +159,13 @@ func countedContainers(p Pod, f ContainerFilter, all bool) []Container {
 	return out
 }
 
-func usedBy(u PodUsage, container string) Amount {
+func usedBy(u PodUsage, container string) (Amount, bool) {
 	for _, c := range u.Containers {
 		if c.Name == container {
-			return c.Use
+			return c.Use, true
 		}
 	}
-	return Amount{}
+	return Amount{}, false
 }
 
 // Pct returns use as a percentage of ref; false when ref is not set.

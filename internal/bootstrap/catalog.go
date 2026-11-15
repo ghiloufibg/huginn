@@ -101,3 +101,13 @@ func newCatalog(c *config.Config, sc app.ScopeFunc, cluster ports.ClusterClient,
 		Filter: filter, Clock: clock, Log: log, Standalone: c.Services.ShowStandalone(),
 	}
 }
+
+// newUsage returns the resource usage use case, nil when the cluster
+// adapter reads no metrics. Refresh and history keep their defaults.
+func newUsage(sc app.ScopeFunc, catalog ports.ServiceCatalog, cluster ports.ClusterClient, clock ports.Clock, filter domain.ContainerFilter, log *slog.Logger) ports.ResourceUsage {
+	metrics, ok := cluster.(ports.MetricsSource)
+	if !ok {
+		return nil
+	}
+	return &app.Usage{Catalog: catalog, Metrics: metrics, Scopes: sc, Filter: filter, Clock: clock, Log: log}
+}

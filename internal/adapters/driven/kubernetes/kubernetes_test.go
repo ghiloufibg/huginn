@@ -159,6 +159,7 @@ func TestPodConversion(t *testing.T) {
 		Name: "app", Image: "app:1.0", State: domain.ContainerWaiting, Reason: "CrashLoopBackOff",
 		Message: "back-off 5m0s", Restarts: 4, LastTermination: &domain.Termination{Reason: "OOMKilled", ExitCode: 137, At: t0},
 		Resources: domain.Resources{CPURequest: "250m", MemoryLimit: "512Mi"},
+		Amounts:   domain.ResourceAmounts{Request: domain.Amount{CPUMilli: 250}, Limit: domain.Amount{MemBytes: 512 << 20}},
 	}
 	lt := app.LastTermination
 	app.LastTermination, want.LastTermination = nil, nil

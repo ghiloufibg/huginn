@@ -186,14 +186,21 @@ func (w *world) newPod(env domain.Env, ns string, r repoSpec, workload, rs, vers
 		Name: workload, Image: "eu.gcr.io/acme/" + workload + ":" + version,
 		State: domain.ContainerRunning, Ready: true,
 		Resources: domain.Resources{CPURequest: "500m", CPULimit: "1", MemoryRequest: "768Mi", MemoryLimit: "1Gi"},
+		Amounts:   domain.ResourceAmounts{Request: domain.Amount{CPUMilli: 500, MemBytes: 768 << 20}, Limit: domain.Amount{CPUMilli: 1000, MemBytes: 1 << 30}},
 	}
 	p.Containers = []domain.Container{
 		{Name: "istio-init", Image: "docker.io/istio/proxyv2:1.24.2", Init: true, State: domain.ContainerTerminated, Reason: "Completed"},
 		app,
-		{Name: "istio-proxy", Image: "docker.io/istio/proxyv2:1.24.2", State: domain.ContainerRunning, Ready: true},
+		{
+			Name: "istio-proxy", Image: "docker.io/istio/proxyv2:1.24.2", State: domain.ContainerRunning, Ready: true,
+			Amounts: domain.ResourceAmounts{Request: domain.Amount{CPUMilli: 100, MemBytes: 128 << 20}, Limit: domain.Amount{CPUMilli: 500, MemBytes: 256 << 20}},
+		},
 	}
 	if r.vault {
-		p.Containers = append(p.Containers, domain.Container{Name: "vault-agent", Image: "hashicorp/vault:1.18", State: domain.ContainerRunning, Ready: true})
+		p.Containers = append(p.Containers, domain.Container{
+			Name: "vault-agent", Image: "hashicorp/vault:1.18", State: domain.ContainerRunning, Ready: true,
+			Amounts: domain.ResourceAmounts{Request: domain.Amount{CPUMilli: 50, MemBytes: 64 << 20}}, // no limit
+		})
 	}
 	spec := podSpec{repo: r, workload: workload, cond: cond, version: version, createdAt: podCreated, runningSince: p.Started}
 	w.applyCondition(&p, &spec, i)

@@ -14,6 +14,11 @@ rules:
   - apiGroups: [apps]
     resources: [deployments, replicasets, statefulsets, daemonsets]
     verbs: [get, list, watch]
+  # Usage screen (u). kind has no metrics-server unless you install it: the
+  # screen then says metrics.k8s.io is not served, which is also worth testing.
+  - apiGroups: [metrics.k8s.io]
+    resources: [pods]
+    verbs: [get, list]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

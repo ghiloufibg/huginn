@@ -32,6 +32,9 @@ type Options struct {
 	Keys    Keymap
 	Source  string // "demo" or "kubernetes", shown in the header
 	Catalog ports.ServiceCatalog
+	// Usage streams resource usage for the usage screen; nil when the
+	// cluster adapter reads no metrics (the key is then inactive).
+	Usage ports.ResourceUsage
 	// Sessions opens log sessions.
 	Sessions ports.LogSession
 	// Layouts draw entries, by the name of the format that decoded them;

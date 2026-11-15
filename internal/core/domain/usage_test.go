@@ -95,12 +95,21 @@ func TestRollupPods(t *testing.T) {
 	})
 	t.Run("one container without limit", func(t *testing.T) {
 		c := mkPod("c", app("c"), mkCtr("sidecar-x", 10, 0, 10*miB, 0))
-		r := RollupPods([]Pod{c}, mkUsage(mkSample(c, t0)), ContainerFilter{}, true)
+		both := mkSample(c, t0, ContainerUsage{"app", Amount{1, 1}}, ContainerUsage{"sidecar-x", Amount{1, 1}})
+		r := RollupPods([]Pod{c}, mkUsage(both), ContainerFilter{}, true)
 		if r.LimitSet.CPU || r.LimitSet.Mem || !r.RequestSet.CPU {
 			t.Errorf("coverage limit %+v request %+v", r.LimitSet, r.RequestSet)
 		}
 		if r.HottestPod != "" {
 			t.Errorf("hottest %q for a pod with an unbounded container", r.HottestPod)
+		}
+	})
+	t.Run("a container that is not measured counts nowhere", func(t *testing.T) {
+		c := mkPod("c", app("c"), mkCtr("sidecar-x", 10, 0, 10*miB, 0))
+		only := mkSample(c, t0, ContainerUsage{"app", Amount{50, 100 * miB}})
+		r := RollupPods([]Pod{c}, mkUsage(only), ContainerFilter{}, true)
+		if r.Limit != (Amount{200, 200 * miB}) || !r.LimitSet.Mem || r.Request.CPUMilli != 100 {
+			t.Errorf("limit %+v (set %+v) request %+v: the idle container must not count", r.Limit, r.LimitSet, r.Request)
 		}
 	})
 }
