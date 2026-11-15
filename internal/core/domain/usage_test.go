@@ -167,6 +167,34 @@ func TestProvision(t *testing.T) {
 	}
 }
 
+// A finished pod (a completed Job) has no sample and nothing is wrong: it is
+// not a pod that fails to report (found on the real cluster, M22 F-1).
+func TestRollupLeavesFinishedPodsOut(t *testing.T) {
+	t0 := time.Date(2026, 11, 15, 12, 0, 0, 0, time.UTC)
+	run := mkPod("run", mkCtr("app", 100, 200, 100*miB, 200*miB))
+	done := mkPod("done", mkCtr("job", 100, 200, 100*miB, 200*miB))
+	done.Phase = PodSucceeded
+	ur := mkSample(run, t0, ContainerUsage{"app", Amount{50, 90 * miB}})
+
+	r := RollupPods([]Pod{run, done}, mkUsage(ur), ContainerFilter{}, true)
+	if r.Pods != 1 || r.Reporting != 1 || r.Done != 1 {
+		t.Errorf("pods %d/%d done %d, want 1/1 done 1", r.Reporting, r.Pods, r.Done)
+	}
+	only := RollupPods([]Pod{done}, nil, ContainerFilter{}, true)
+	if only.Pods != 0 || only.Reporting != 0 || only.Done != 1 {
+		t.Errorf("only a finished pod: %+v", only)
+	}
+	if got := PodDetails([]Pod{run, done}, mkUsage(ur), ContainerFilter{}, true); len(got) != 1 || got[0].Pod.Name != "run" {
+		t.Errorf("the pod rows list a finished pod: %+v", got)
+	}
+	// A failed or pending pod stays counted: it is not a clean exit.
+	failed := mkPod("failed", mkCtr("app", 100, 200, 100*miB, 200*miB))
+	failed.Phase = PodFailed
+	if r := RollupPods([]Pod{failed}, nil, ContainerFilter{}, true); r.Pods != 1 || r.Done != 0 {
+		t.Errorf("a failed pod: %+v", r)
+	}
+}
+
 func TestPodDetails(t *testing.T) {
 	t0 := time.Date(2026, 11, 15, 12, 0, 0, 0, time.UTC)
 	b, a := mkPod("b", mkCtr("app", 100, 200, 100*miB, 200*miB)), mkPod("a", mkCtr("app", 100, 200, 100*miB, 200*miB), mkCtr("side", 10, 0, 10*miB, 0))

@@ -699,6 +699,7 @@ Status: accepted.
 - **In-place tree.** The design had a drill-down by screen; the tree opens a service on its pods and a pod on its containers inside the same table (`enter`), which keeps the sort, the filter and the cursor, with `L` for the logs. Containers count all (sidecars included) by default; `A` restricts them to application containers with the rules of `containers.yaml`, as for logs.
 - **Left out on purpose.** Node and cluster views (cluster-scoped read), disk and network, cost, recommendations, history kept beyond the screen's life, `ResourceQuota` (a later, separate read permission), a `sparkline` switch (`usage.history: 0s` removes the trend).
 - **Deviations from the design document.** Namespaces with pods the catalog does not list show no share (their requests and limits are unknown); `usage.enabled` replaces a `metrics:` adapter selector, since the only adapters are the cluster ones.
-- **Not verified here.** Behaviour on a real cluster, and `govulncheck` of the new `k8s.io/metrics` module: see `docs/plan/M21-gke-qa.md`.
+- **Found on the real cluster (M22, 2026-11-15) and fixed:** a pod in phase `Succeeded` is counted in `Rollup.Done`, not as a pod that fails to report (a service with only such pods reads `completed`); the services of a namespace with no usage no longer read as pod faults; the retry wait after a failure is capped at one minute (it was eight ticks, which is eight minutes at a 60 s refresh) and the stale mark names the retry key.
+- **Not verified here.** Per-verb API load on a real cluster (no source on Autopilot without audit logs, see `deploy/gke-qa/M22-QA-REPORT.md`), and `govulncheck` of the new `k8s.io/metrics` module.
 
 Status: accepted, pending the real-cluster QA.

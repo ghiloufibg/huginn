@@ -357,7 +357,10 @@ func (s *usageScreen) rebuild() {
 		nsMatches := match(ns.Name)
 		for _, svc := range ns.Services {
 			if nsMatches || match(svc.Repo) {
-				row := usageRow{kind: usageService, ns: ns.Name, name: svc.Repo, repo: svc.Repo, r: svc.Rollup, unassigned: svc.Unassigned, history: svc.History, expandable: len(svc.PodRows) > 0}
+				// Under a namespace with no usage a service has nothing to
+				// show either: it keeps its name and no "pod not reporting"
+				// (the namespace row says why, M22 F-2).
+				row := usageRow{kind: usageService, ns: ns.Name, name: svc.Repo, repo: svc.Repo, r: svc.Rollup, unassigned: svc.Unassigned, history: svc.History, expandable: len(svc.PodRows) > 0 && ns.Err == nil, err: ns.Err}
 				row.expanded = row.expandable && s.expanded[row.id()]
 				g.kids = append(g.kids, row)
 				if row.expanded {
@@ -578,7 +581,11 @@ func (s *usageScreen) cells(r usageRow, t *Theme, th domain.Thresholds) []cell {
 		name.style = t.Dim
 	}
 	if r.err != nil {
-		return []cell{name, {}, {}, {}, {}, {}, {}, {}, {}, {}, {text: usageErrNote(r.err), style: t.Warn}}
+		note := cell{}
+		if r.kind == usageNamespace { // its services only say it by being empty
+			note = cell{text: usageErrNote(r.err), style: t.Warn}
+		}
+		return []cell{name, {}, {}, {}, {}, {}, {}, {}, {}, {}, note}
 	}
 	ro := r.r
 	reporting := ro.Reporting > 0
@@ -696,6 +703,9 @@ func (s *usageScreen) note(r usageRow, t *Theme, th domain.Thresholds) cell {
 	if ro.Reporting < ro.Pods && r.kind != usageContainer && r.kind != usagePod {
 		add(plural(ro.Pods-ro.Reporting, "pod")+" not reporting", domain.SeverityOK)
 	}
+	if ro.Pods == 0 && ro.Done > 0 && r.kind == usageService { // a Job that ran to the end: not a gap
+		add(plural(ro.Done, "pod")+" completed", domain.SeverityOK)
+	}
 	st := t.Dim
 	switch worst {
 	case domain.SeverityCrit:
@@ -718,8 +728,8 @@ func (s *usageScreen) statusLeft(m *Model) string {
 	}
 	var parts []string
 	if since := s.snap.StaleSince; !since.IsZero() {
-		parts = append(parts, t.Warn.Inherit(bar).Render(fmt.Sprintf("stale since %s (%s)",
-			since.In(time.Local).Format("15:04"), shortAge(m.opts.Now().Sub(since)))))
+		parts = append(parts, t.Warn.Inherit(bar).Render(fmt.Sprintf("stale since %s (%s) · %s retries now",
+			since.In(time.Local).Format("15:04"), shortAge(m.opts.Now().Sub(since)), m.label(ActRefresh))))
 	}
 	if at := s.snap.SampledAt; !at.IsZero() {
 		sampled := "sampled " + shortAge(m.opts.Now().Sub(at)) + " ago"

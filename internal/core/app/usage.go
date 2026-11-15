@@ -40,7 +40,10 @@ const (
 	MinUsageRefresh     = 5 * time.Second
 	defaultUsageRefresh = 15 * time.Second
 	defaultUsageHistory = 15 * time.Minute
-	maxBackoffTicks     = 8
+	// maxBackoff bounds the wait between polls of a namespace that fails.
+	// It is a time, not a number of ticks: eight ticks of a 60 s refresh
+	// would be eight minutes before a fixed permission shows (M22 F-4).
+	maxBackoff = time.Minute
 )
 
 // pollResult is what the poll of one namespace reports to the loop.
@@ -216,7 +219,7 @@ func (u *Usage) applyPoll(st *usageState, r pollResult) {
 		u.logger().Warn("usage poll failed", "namespace", r.ns, "err", r.err)
 		n.err = r.err
 		n.fails++
-		n.skip = min(1<<(n.fails-1), maxBackoffTicks) - 1
+		n.skip = min(1<<min(n.fails-1, 10), max(int(maxBackoff/u.refresh()), 1)) - 1
 		return
 	}
 	n.err, n.fails, n.skip = nil, 0, 0

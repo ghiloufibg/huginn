@@ -450,3 +450,54 @@ func TestSparkline(t *testing.T) {
 		}
 	}
 }
+
+// Found on the real cluster (M22): a completed Job read as a pod that fails to
+// report, a service under a namespace with no access read as a pod fault, and a
+// stale marker gave no way out.
+func TestUsageRealClusterFindings(t *testing.T) {
+	line := func(out, name string) string {
+		for _, l := range strings.Split(out, "\n") {
+			if strings.Contains(l, name) {
+				return l
+			}
+		}
+		return ""
+	}
+	t.Run("a completed job is not a pod that fails to report", func(t *testing.T) {
+		m, s, _ := openUsage(t, "")
+		snap := usageSnapshot()
+		done := domain.Rollup{Done: 1}
+		snap.Namespaces[0].Services = append(snap.Namespaces[0].Services, domain.ServiceUsage{Repo: "usage-done", Rollup: done})
+		feedUsage(m, s, snap)
+		l := line(render(m, 160, 24), "usage-done")
+		if !strings.Contains(l, "1 pod completed") || strings.Contains(l, "not reporting") {
+			t.Errorf("row of a completed job: %q", l)
+		}
+	})
+	t.Run("services under a namespace without usage do not read as pod faults", func(t *testing.T) {
+		m, s, _ := openUsage(t, "")
+		snap := usageSnapshot()
+		forbidden := domain.KindError(domain.ErrForbidden, "forbidden")
+		snap.Namespaces = append(snap.Namespaces, domain.NamespaceUsage{
+			Name: "app-prd", Err: forbidden,
+			Services: []domain.ServiceUsage{{Repo: "prd-api", Rollup: domain.Rollup{Pods: 1}, PodRows: usagePaymentPods()}},
+		})
+		feedUsage(m, s, snap)
+		out := render(m, 160, 30)
+		if l := line(out, "prd-api"); strings.Contains(l, "not reporting") || strings.Contains(l, "▸") {
+			t.Errorf("a service of a namespace without access: %q", l)
+		}
+		if !strings.Contains(line(out, "app-prd"), "no access: pods.metrics.k8s.io") {
+			t.Errorf("the namespace does not say why:\n%s", out)
+		}
+	})
+	t.Run("the stale marker says how to retry", func(t *testing.T) {
+		m, s, _ := openUsage(t, "")
+		snap := usageSnapshot()
+		snap.StaleSince = t0.Add(-3 * time.Minute)
+		feedUsage(m, s, snap)
+		if out := render(m, 160, 24); !strings.Contains(out, "stale since 19:11 (3m) · r retries now") {
+			t.Errorf("stale line:\n%s", out)
+		}
+	})
+}

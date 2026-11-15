@@ -68,7 +68,7 @@ Flags
       --version
 ```
 
-Exit codes: `0` success, `1` runtime error, `2` config folder missing or invalid (every problem is printed with its `file:line:column`), or no interactive terminal.
+Exit codes: `0` success, `1` runtime error or a bad argument (an unknown environment, an invalid flag value), `2` config folder missing or invalid (every problem is printed with its `file:line:column`), or no interactive terminal.
 
 Kafka from a shell (with a `kafka/` folder; no TUI, no Kubernetes needed, read only like the screens):
 

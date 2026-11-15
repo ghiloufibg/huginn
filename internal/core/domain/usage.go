@@ -62,9 +62,11 @@ type Coverage struct {
 // pod without a sample does not lower the ratios.
 type Rollup struct {
 	// Pods is the number of pods counted, Reporting those with a sample.
-	Pods, Reporting int
-	Use             Amount
-	Request, Limit  Amount
+	// A pod that finished (a completed Job) is neither: it never has a
+	// sample and nothing is wrong, so it counts in Done only.
+	Pods, Reporting, Done int
+	Use                   Amount
+	Request, Limit        Amount
 	// RequestSet and LimitSet say whether every counted container has a
 	// request (limit); when not, the matching ratio is undefined.
 	RequestSet, LimitSet Coverage
@@ -130,10 +132,15 @@ type NamespaceUsage struct {
 // and limits: one that is not running (crashed, waiting) uses nothing, and
 // counting its limit would lower every ratio.
 func RollupPods(pods []Pod, usage map[PodKey]PodUsage, f ContainerFilter, all bool) Rollup {
-	r := Rollup{Pods: len(pods)}
+	var r Rollup
 	r.RequestSet = Coverage{CPU: true, Mem: true}
 	r.LimitSet = Coverage{CPU: true, Mem: true}
 	for _, p := range pods {
+		if p.Phase == PodSucceeded {
+			r.Done++
+			continue
+		}
+		r.Pods++
 		u, ok := usage[p.Key()]
 		if !ok {
 			continue
@@ -272,10 +279,14 @@ func (r Rollup) Provision(t Thresholds) Provisioning {
 }
 
 // PodDetails returns the pods with their containers' usage, ordered by pod
-// name. The containers are the ones RollupPods counts.
+// name. The containers are the ones RollupPods counts, and the pods are the
+// ones it counts: a finished pod is left out.
 func PodDetails(pods []Pod, usage map[PodKey]PodUsage, f ContainerFilter, all bool) []PodDetail {
 	out := make([]PodDetail, 0, len(pods))
 	for _, p := range pods {
+		if p.Phase == PodSucceeded {
+			continue
+		}
 		d := PodDetail{Pod: p, Rollup: RollupPods([]Pod{p}, usage, f, all)}
 		u, reported := usage[p.Key()]
 		for _, c := range countedContainers(p, f, all) {

@@ -226,6 +226,51 @@ func TestUsageKeepsStaleValuesAndBacksOff(t *testing.T) {
 	}
 }
 
+// After a failure is fixed the screen recovers within the backoff cap (one
+// minute), whatever the refresh: found on the real cluster, where a restored
+// permission took about two minutes to show (M22 F-4).
+func TestUsageRecoversWithinTheBackoffCap(t *testing.T) {
+	for _, refresh := range []time.Duration{15 * time.Second, 60 * time.Second} {
+		t.Run(refresh.String(), func(t *testing.T) {
+			p := usagePod("app-rec", "api-1", "api", usageCtr("app", 1000*miB))
+			clock := portstest.NewFakeClock(t0)
+			m := portstest.NewFakeMetrics()
+			m.Set("app-rec", sampleOf(p, t0, 10, 10*miB))
+			u := newUsage(catalogOf(p), m, clock, "app-rec")
+			u.Refresh = refresh
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			ch, _ := u.Watch(ctx, ports.UsageQuery{Env: "rec"})
+			nextUsage(t, ch, clock, func(s ports.UsageSnapshot) bool {
+				return len(s.Namespaces) == 1 && s.Namespaces[0].Total.Reporting == 1
+			})
+			m.SetErr("app-rec", domain.ErrForbidden)
+			for range 12 { // long enough for the backoff to reach its cap
+				clock.Advance(refresh)
+				select {
+				case <-ch:
+				case <-time.After(20 * time.Millisecond):
+				}
+			}
+			m.SetErr("app-rec", nil)
+			m.Set("app-rec", sampleOf(p, clock.Now(), 10, 10*miB))
+			recovered := false
+			var waited time.Duration
+			for waited = 0; waited <= maxBackoff+refresh && !recovered; waited += refresh / 3 {
+				clock.Advance(refresh / 3)
+				select {
+				case s := <-ch:
+					recovered = s.StaleSince.IsZero() && len(s.Namespaces) == 1 && s.Namespaces[0].Err == nil
+				case <-time.After(20 * time.Millisecond):
+				}
+			}
+			if !recovered {
+				t.Fatalf("still stale %s after the cause was fixed (cap %s)", waited, maxBackoff)
+			}
+		})
+	}
+}
+
 func TestUsageHistoryIsBounded(t *testing.T) {
 	p := usagePod("app-rec", "api-1", "api", usageCtr("app", 1000*miB))
 	clock := portstest.NewFakeClock(t0)
