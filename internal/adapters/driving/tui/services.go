@@ -211,6 +211,16 @@ func (s *servicesScreen) key(m *Model, k tea.KeyPressMsg, rows []domain.ServiceS
 		if len(rows) > 0 && m.kafkaRepos[rows[s.tbl.cursor].Repo] {
 			return true, m.push(newKafkaTopicsScreen(rows[s.tbl.cursor].Repo))
 		}
+	case keys.Is(key, ActUsage):
+		if m.opts.Usage == nil {
+			m.flash("no usage metrics for this cluster")
+			return true, nil
+		}
+		repo := ""
+		if len(rows) > 0 {
+			repo = rows[s.tbl.cursor].Repo
+		}
+		return true, m.push(newUsageScreen(m, repo))
 	case keys.Is(key, ActFilter):
 		s.editing = true
 	case keys.Is(key, ActSort):
@@ -440,6 +450,9 @@ func (s *servicesScreen) hints(m *Model) []hint {
 	if s.kafka(m) {
 		hs = append(hs, m.h(ActKafka, "kafka"))
 	}
+	if m.opts.Usage != nil {
+		hs = append(hs, m.h(ActUsage, "usage"))
+	}
 	return append(hs,
 		m.h(ActFilter, "filter"), m.h(ActSort, "sort"), m.h(ActPreview, "preview"), m.h(ActRefresh, "resync"),
 		m.h(ActSwitchEnv, "env"), m.h(ActKeyBar, "keys"), m.h(ActQuit, "quit"), m.h(ActHelp, "help"),
@@ -461,6 +474,9 @@ func (s *servicesScreen) fullHints(m *Model) []hint {
 		m.h(ActOpen, "logs"), m.h(ActFilter, "filter by name"), m.h(ActSort, "sort: status, name, restarts, age"),
 		m.h(ActPreview, "preview on/off"), m.h(ActRefresh, "resync"), m.h(ActSwitchEnv, "switch env"), m.h(ActBack, "clear filter"),
 		m.h(ActKeyBar, "keys"), m.h(ActQuit, "quit"), m.h(ActHelp, "help"),
+	}
+	if m.opts.Usage != nil {
+		hs = append([]hint{m.h(ActUsage, "resource usage per namespace and service")}, hs...)
 	}
 	if s.kafka(m) {
 		hs = append([]hint{m.h(ActKafka, "kafka topics, read only")}, hs...)

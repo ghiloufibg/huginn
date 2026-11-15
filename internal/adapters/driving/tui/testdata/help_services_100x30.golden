@@ -12,6 +12,7 @@
    Inspect                                                                                          
      enter            open / zoom / apply                                                           
    Services                                                                                         
+     u                resource usage (CPU, memory) per namespace and service                        
      s                sort: status, name, restarts, age                                             
      p                preview of the selected service: on/off                                       
      r                resync the watches (on a logs error: reload the logs)                         
@@ -22,7 +23,6 @@
      esc              back, close, exit fullscreen, clear the last filter                           
      ctrl+e           switch environment                                                            
      q  ctrl+c        quit                                                                          
-                                                                                                    
                                                                                                     
                                                                                                     
                                                                                                     

@@ -95,6 +95,7 @@ const (
 	ActSelect        Action = "select"
 	ActCopyRaw       Action = "copy_raw"
 	ActKafka         Action = "kafka"
+	ActUsage         Action = "usage"
 	ActIsolation     Action = "kafka_isolation"
 	ActRawRecords    Action = "kafka_raw"
 )
@@ -124,7 +125,7 @@ var defaultKeys = map[Action][]string{
 	ActWrap: {"W"}, ActTimestamps: {"ctrl+t"}, ActCycleColumns: {"c"}, ActResetDisplay: {"R"}, ActPodID: {"I"}, ActMark: {"m"}, ActAllContainers: {"A"},
 	ActCopy: {"y", "ctrl+y"}, ActCopyRaw: {"Y"}, ActSelect: {"V"}, ActSave: {"ctrl+s"}, ActBugReport: {"B"},
 	ActFieldNext: {"tab"}, ActFieldPrev: {"shift+tab"}, ActFieldKeep: {"="}, ActFieldExclude: {"!"},
-	ActKafka: {"M"}, ActIsolation: {"i"}, ActRawRecords: {"D"},
+	ActUsage: {"u"}, ActKafka: {"M"}, ActIsolation: {"i"}, ActRawRecords: {"D"},
 	ActShowMuted: {"M"}, // logs screen; M is Kafka on the services screen
 }
 

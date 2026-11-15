@@ -87,6 +87,7 @@ var actions = map[Action]actionInfo{
 	ActColumns:       {"Display", "columns: time, pod, level, thread, class"},
 	ActFocus:         {"Display", "focus layout: hide pod, thread and class"},
 	ActKafka:         {"Services", "Kafka topics of the service, read only (services marked K)"},
+	ActUsage:         {"Services", "resource usage (CPU, memory) per namespace and service"},
 	ActIsolation:     {"Time and stream", "Kafka isolation: every record, or committed records only"},
 	ActRawRecords:    {"Time and stream", "Kafka records decoded with the Schema Registry, or as their bytes (reads again)"},
 }

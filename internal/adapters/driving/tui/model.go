@@ -35,6 +35,9 @@ type Options struct {
 	// Usage streams resource usage for the usage screen; nil when the
 	// cluster adapter reads no metrics (the key is then inactive).
 	Usage ports.ResourceUsage
+	// UsageThresholds are the percentages of a limit shown as warning and
+	// critical on the usage screen; zero: 80 and 95.
+	UsageThresholds domain.Thresholds
 	// Sessions opens log sessions.
 	Sessions ports.LogSession
 	// Layouts draw entries, by the name of the format that decoded them;

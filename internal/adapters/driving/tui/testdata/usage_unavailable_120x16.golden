@@ -1,0 +1,16 @@
+ huginn  REC  gke_acme_europe-west1_main / app-rec   services / usage                 demo · watching · synced 00:00:00 
+                                                                                                                        
+                                                                                                                        
+                                                No usage for rec: error                                                 
+                                                                                                                        
+                            metrics.k8s.io is not served (is metrics-server installed?)                                 
+                                                                                                                        
+                            This cluster serves no pod metrics: check kubectl get apiservice                            
+                            v1beta1.metrics.k8s.io (metrics-server).                                                    
+                                                                                                                        
+                            retrying automatically · press r to retry now                                               
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+ USAGE   containers all (sidecars included)  ·  sort memory                                                             
+ enter fold / logs  / filter  s sort  A containers  r reload  f2 keys  esc back  q quit  ? help                         
