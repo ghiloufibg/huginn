@@ -1,0 +1,50 @@
+ huginn  REC  gke_huginn-kube-tui_us-east1_huginn-qa / qa-rec   services                                                                                        kubernetes · watching · synced 13:39:41
+ REPO                     WL   PODS  STATUS            RST  LAST  VERSION           AGE  WHY                            │ ─ catalog-indexer ────────────────────────────────────────────────────────────
+ FAILING 4                                                                                                              │ WORKLOADS
+ catalog-indexer           1    0/1  ImagePullBackOff    0     -  1.0                3m  cannot pull catalog-indexer:1.…│   Deployment catalog-indexer  0/1 ready  1/1 updated  1.0
+ order-orchestrator        1    0/1  ImagePullBackOff    0     -  1.0                3m  cannot pull order-orchestrator…│ DEPLOYED
+ payment-service           1    0/2  ImagePullBackOff    0     -  1.0                3m  cannot pull payment-service:1.…│   catalog-indexer  pods since Nov 16 13:35  3m ago
+ payment-service-loadgen   1    0/1  ImagePullBackOff    0     -  1.0                3m  cannot pull payment-service-lo…│ PODS
+ HEALTHY 6                                                                                                              │   55jxw  ImagePullBackOff  0/1 ready  0 restarts  gk3-huginn-qa-nap-v75w5a7g-a
+ noisy-fixture             1    1/1  Healthy             0     -  1.36               3m                                 │ WARNINGS
+ usage-cpu                 1    1/1  Healthy             0     -  1.0.4              3m                                 │   37s  Failed (x4)
+ usage-done                1    0/0  Healthy             0     -  1.36               3m                                 │     Failed to pull image "us-east1-docker.pkg.dev/huginn-kube-tui/huginn-
+ usage-mem                 1    3/3  Healthy             0     -  1.0.4              3m                                 │     qa/catalog-indexer:1.0": failed to pull and unpack image "us-east1-
+ usage-nolimit             1    2/2  Healthy             0     -  1.36               3m                                 │     docker.pkg.dev/huginn-kube-tui/huginn-qa/catalog-indexer:1.0": failed to
+ usage-sidecar             1    2/2  Healthy             0     -  1.36               3m                                 │     resolve reference "us-east1-docker.pkg.dev/huginn-kube-tui/huginn-
+                                                                                                                        │     qa/catalog-indexer:1.0": failed to authorize: failed to fetch oauth token:
+                                                                                                                        │     unexpected status from GET request to https://us-east1-
+                                                                                                                        │     docker.pkg.dev/v2/token?scope=repository%3Ahuginn-kube-tui%2Fhuginn-
+                                                                                                                        │     qa%2Fcatalog-indexer%3Apull&service=us-east1-docker.pkg.dev: 404 Not Found
+                                                                                                                        │   37s  Failed (x4)
+                                                                                                                        │     Error: ErrImagePull
+                                                                                                                        │   49s  Failed (x5)
+                                                                                                                        │     Error: ImagePullBackOff
+                                                                                                                        │   1m  FailedScaleUp
+                                                                                                                        │     Node scale up in zones us-east1-d associated with this pod failed: GCE
+                                                                                                                        │     quota exceeded. Pod is at risk of not being scheduled.
+                                                                                                                        │   2m  FailedScheduling (x9)
+                                                                                                                        │     no nodes available to schedule pods
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+ SERVICES   4 failing · 6 healthy · 10 repos  ·  sort status
+ enter logs  u usage  / filter  s sort  p preview  r resync  ctrl+e env  f2 keys  q quit  ? help

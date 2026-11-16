@@ -1,0 +1,50 @@
+ huginn  REC  gke_huginn-kube-tui_us-east1_huginn-qa / qa-rec   services / payment-service-loadgen / logs / entry 1067                                          kubernetes · watching · synced 13:59:30
+ entry 1067 of 1067   pod payment-service-loadgen-56f5bfcdfd-xb6rk   container payment-service-loadgen
+
+ 2026-11-16T13:59:42.023+01:00  INFO --- [   scheduling-1] com.huginnqa.payment.PaymentWorker       : Payment 527 settled
+
+ FIELDS   tab field · = keep · ! exclude
+   trace_id        d2de0d99439475d0d280a0c187250b34
+   correlationId   17f1e3f4-33d9-41a5-871a-56567d099dd3
+   spanId          23633147fcb1261a
+
+ CONTEXT   same pod, 3 entries before and after
+   13:59:41.871  INFO [   scheduling-1] c.h.payment.PaymentWorker      : Processing payment 526 via mastercard
+   13:59:41.872  INFO [   scheduling-1] c.h.payment.PaymentWorker      : Payment 526 settled
+   13:59:42.023  INFO [   scheduling-1] c.h.payment.PaymentWorker      : Processing payment 527 via mastercard
+   13:59:42.023  INFO [   scheduling-1] c.h.payment.PaymentWorker      : Payment 527 settled   <- this entry
+
+ [+] hidden fields   2 fields · enter to expand
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ ZOOM   structured view  ·  wrap on
+ J/K next/prev entry  j/k scroll  p raw json  tab field  v trace  enter hidden fields  esc back  ? help

@@ -1,0 +1,50 @@
+ huginn  REC  gke_huginn-kube-tui_us-east1_huginn-qa / qa-rec   services / noisy-fixture / logs                                                                 kubernetes · watching · synced 13:44:02
+ pods  all 1    5q8c7 Healthy 1.36
+ 5q8c7 13:41:31.313  INFO Catalog page viewed
+ 5q8c7 13:41:35.313  WARN User signed in (contact alice.debug@example.invalid, token Bearer aaaaaaaaaaaaaaaaaaaa1111)
+ 5q8c7 13:41:39.313 ERROR Payment gateway unreachable
+ 5q8c7 13:41:43.313  INFO Catalog page viewed
+ 5q8c7 13:41:47.313  WARN User signed in (contact alice.debug@example.invalid, token Bearer aaaaaaaaaaaaaaaaaaaa1111)
+ 5q8c7 13:41:51.313 ERROR Payment gateway unreachable
+ 5q8c7 13:41:55.313  INFO Catalog page viewed
+ 5q8c7 13:41:59.313  WARN User signed in (contact alice.debug@example.invalid, token Bearer aaaaaaaaaaaaaaaaaaaa1111)
+ 5q8c7 13:42:03.314 ERROR Payment gateway unreachable
+ 5q8c7 13:42:07.314  INFO Catalog page viewed
+ 5q8c7 13:42:11.314  WARN User signed in (contact alice.debug@example.invalid, token Bearer aaaaaaaaaaaaaaaaaaaa1111)
+ 5q8c7 13:42:15.314 ERROR Payment gateway unreachable
+ 5q8c7 13:42:19.314  INFO Catalog page viewed
+ 5q8c7 13:42:23.314  WARN User signed in (contact alice.debug@example.invalid, token Bearer aaaaaaaaaaaaaaaaaaaa1111)
+ 5q8c7 13:42:27.314 ERROR Payment gateway unreachable
+ 5q8c7 13:42:31.315  INFO Catalog page viewed
+ 5q8c7 13:42:35.315  WARN User signed in (contact alice.debug@example.invalid, token Bearer aaaaaaaaaaaaaaaaaaaa1111)
+ 5q8c7 13:42:39.315 ERROR Payment gateway unreachable
+ 5q8c7 13:42:43.315  INFO Catalog page viewed
+ 5q8c7 13:42:47.315  WARN User signed in (contact alice.debug@example.invalid, token Bearer aaaaaaaaaaaaaaaaaaaa1111)
+ 5q8c7 13:42:51.315 ERROR Payment gateway unreachable
+ 5q8c7 13:42:55.315  INFO Catalog page viewed
+ 5q8c7 13:42:59.315  WARN User signed in (contact alice.debug@example.invalid, token Bearer aaaaaaaaaaaaaaaaaaaa1111)
+ 5q8c7 13:43:03.315 ERROR Payment gateway unreachable
+ 5q8c7 13:43:07.316  INFO Catalog page viewed
+ 5q8c7 13:43:11.316  WARN User signed in (contact alice.debug@example.invalid, token Bearer aaaaaaaaaaaaaaaaaaaa1111)
+ 5q8c7 13:43:15.316 ERROR Payment gateway unreachable
+ 5q8c7 13:43:19.316  INFO Catalog page viewed
+ 5q8c7 13:43:23.316  WARN User signed in (contact alice.debug@example.invalid, token Bearer aaaaaaaaaaaaaaaaaaaa1111)
+ 5q8c7 13:43:27.316 ERROR Payment gateway unreachable
+ 5q8c7 13:43:31.316  INFO Catalog page viewed
+ 5q8c7 13:43:35.316  WARN User signed in (contact alice.debug@example.invalid, token Bearer aaaaaaaaaaaaaaaaaaaa1111)
+ 5q8c7 13:43:39.316 ERROR Payment gateway unreachable
+ 5q8c7 13:43:43.317  INFO Catalog page viewed
+ 5q8c7 13:43:47.317  WARN User signed in (contact alice.debug@example.invalid, token Bearer aaaaaaaaaaaaaaaaaaaa1111)
+ 5q8c7 13:43:51.317 ERROR Payment gateway unreachable
+ 5q8c7 13:43:55.317  INFO Catalog page viewed
+ 5q8c7 13:43:59.317  WARN User signed in (contact alice.debug@example.invalid, token Bearer aaaaaaaaaaaaaaaaaaaa1111)
+ 5q8c7 13:44:03.317 ERROR Payment gateway unreachable
+ 5q8c7 13:44:07.317  INFO Catalog page viewed
+ 5q8c7 13:44:11.317  WARN User signed in (contact alice.debug@example.invalid, token Bearer aaaaaaaaaaaaaaaaaaaa1111)
+ 5q8c7 13:44:15.318 ERROR Payment gateway unreachable
+ 5q8c7 13:44:19.318  INFO Catalog page viewed
+ 5q8c7 13:44:23.318  WARN User signed in (contact alice.debug@example.invalid, token Bearer aaaaaaaaaaaaaaaaaaaa1111)
+ 5q8c7 13:44:27.318 ERROR Payment gateway unreachable
+ 5q8c7 13:44:31.318  INFO Catalog page viewed
+ LIVE 0.2/s   35 errors · 35 warnings  ·  15m  ·  all pods  ·  levels all  ·  oldest first  ·  106/106 lines  ·  buffer 0%  ·  dropped 0
+ / filter  l levels  x mode  n/N match  f follow  space pause  t window  tab pods  c cols  C columns  z focus  enter zoom  ? help

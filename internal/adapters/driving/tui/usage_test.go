@@ -4,10 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/ghiloufibg/huginn/internal/core/domain"
 	"github.com/ghiloufibg/huginn/internal/core/ports"
@@ -555,5 +559,48 @@ func TestUsageSortIgnoresDigitsThatAreNotShown(t *testing.T) {
 	feedUsage(m, s, snap(10*mi, 12*mi)) // a shown difference still sorts, biggest first
 	if got := order(); got != "[beta alpha]" {
 		t.Fatalf("order %s, want [beta alpha]: 12Mi is above 10Mi", got)
+	}
+}
+
+// sgrColor matches a colour in an SGR sequence (foreground, background,
+// bright, 256 or true colour); bold, dim, underline and reverse are not.
+var sgrColor = regexp.MustCompile("\x1b" + `\[(?:[0-9;]*;)?(?:3[0-8]|4[0-8]|9[0-7]|10[0-7])[;m]`)
+
+// The usage screen in every theme (M22 theme review): the words never depend
+// on the theme, so a severity is never carried by colour alone, `none` emits
+// no colour code (bold, dim and reverse remain), and each other theme does style a row at its limit.
+func TestUsageInEveryTheme(t *testing.T) {
+	var plain string
+	for _, name := range ThemeNames {
+		if name == "auto" {
+			continue
+		}
+		for _, dark := range []bool{false, true} {
+			th, err := NewTheme(name, dark)
+			if err != nil {
+				t.Fatal(err)
+			}
+			m, s, _ := openUsage(t, "")
+			m.opts.Theme = th
+			feedUsage(m, s, usageSnapshot())
+			m.Update(tea.WindowSizeMsg{Width: 140, Height: 30})
+			raw := m.View().Content
+			text := ansi.Strip(raw)
+			if plain == "" {
+				plain = text
+			} else if text != plain {
+				t.Errorf("theme %s (dark %v): the words differ from the first theme's", name, dark)
+			}
+			if !strings.Contains(text, "near its limit") && !strings.Contains(text, "of limit") && !strings.Contains(text, "no limit") {
+				t.Errorf("theme %s: no severity words on screen:\n%s", name, text)
+			}
+			colored := sgrColor.MatchString(raw)
+			if name == "none" && colored {
+				t.Errorf("theme none emits a colour code")
+			}
+			if name != "none" && !colored {
+				t.Errorf("theme %s (dark %v) styles nothing", name, dark)
+			}
+		}
 	}
 }

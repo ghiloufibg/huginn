@@ -1,0 +1,4 @@
+== services-start services-end
+== usage-start usage-end
+10	list /apis/metrics.k8s.io/v1beta1/namespaces/*/pods 200
+== logs-start logs-end

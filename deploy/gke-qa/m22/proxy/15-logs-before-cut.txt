@@ -1,0 +1,50 @@
+ huginn  REC  gke_huginn-kube-tui_us-east1_huginn-qa / qa-rec   services / noisy-fixture / logs / entry 190                                                     kubernetes · watching · synced 13:49:19
+ entry 190 of 192   pod noisy-fixture-f6f4f969c-5q8c7   container noisy-fixture
+
+ 13:50:07.328  INFO Catalog page viewed
+
+ FIELDS   tab field · = keep · ! exclude
+   action          browse
+   route           /v1/catalog
+   sev             info
+   status          200
+   user            carol
+
+ CONTEXT   same pod, 3 entries before and after
+   13:49:55.328  INFO Catalog page viewed
+   13:49:59.328  WARN User signed in (contact alice.debug@example.invalid, token Bearer aaaaaaaaaaaaaaaaaaaa1111)
+   13:50:03.328 ERROR Payment gateway unreachable
+   13:50:07.328  INFO Catalog page viewed   <- this entry
+   13:50:11.328  WARN User signed in (contact alice.debug@example.invalid, token Bearer aaaaaaaaaaaaaaaaaaaa1111)
+   13:50:15.328 ERROR Payment gateway unreachable
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ ZOOM   structured view  ·  wrap on
+ J/K next/prev entry  j/k scroll  p raw json  tab field  enter hidden fields  esc back  ? help

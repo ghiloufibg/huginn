@@ -1,0 +1,50 @@
+ huginn  REC  gke_huginn-kube-tui_us-east1_huginn-qa / qa-rec   services / usage                                                                                kubernetes · watching · synced 13:44:02
+ NAMESPACE / SERVICE           PODS     CPU   %REQ   %LIM   MEMORY   %REQ   %LIM  PEAK POD  TREND       NOTE
+ ▾ qa-rec                      9/14    1.00    37%      —    904Mi    13%      —  qvqsc     ██          5 pods not reporting
+   ▸ usage-mem                  3/3      0m     0%     0%    770Mi    50%    50%  qvqsc     ██
+   ▸ usage-sidecar              2/2      2m     0%     0%    129Mi    25%    25%  4nwgl     ██
+   ▸ usage-nolimit              2/2      2m     0%      —      3Mi     0%      —            ██          no limit · over-provisioned
+   ▸ noisy-fixture              1/1      1m     1%      —    424Ki     0%      —            ██          no limit · over-provisioned
+   ▸ usage-cpu                  1/1    1.00   200%   100%    388Ki     0%     0%            ██          CPU 100% of limit
+   ▸ catalog-indexer            0/1       —      —      —        —      —      —                        1 pod not reporting
+   ▸ order-orchestrator         0/1       —      —      —        —      —      —                        1 pod not reporting
+   ▸ payment-service            0/2       —      —      —        —      —      —                        2 pods not reporting
+   ▸ payment-service-loadgen    0/1       —      —      —        —      —      —                        1 pod not reporting
+     usage-done                 0/0       —      —      —        —      —      —                        1 pod completed
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ Averages over the metrics window: peaks between samples are not shown.
+ USAGE   sampled 42s ago · 45s window  ·  containers all (sidecars included)  ·  sort memory
+ enter expand  L logs  p detail  / filter  s sort  A containers  r reload  f2 keys  esc back  q quit  ? help

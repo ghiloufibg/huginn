@@ -346,3 +346,54 @@ The cluster of section 1 was deleted before this batch.
 | O-4 `-race` | `go test -race -count=1 ./...` with the WinLibs `gcc` of the Windows host: 21 packages `ok`, **0 `DATA RACE`**. It covers the unit and integration tests (the usage poller, the shared catalog watch, the logs follow). A race-built binary was **not** driven on a cluster (no Linux C cross-compiler) |
 | O-1 `mouse-test.sh` | built `bin/huginn-linux` from the current tree and ran the script three times in WSL, tmux 3.4: **6 of 6 checks pass each time**. The four failures of section 5 are **not reproduced**; the pre-M21 binary used then is gone, so the cause of those failures is not known (an invocation difference is the likeliest, not proven). Closed as "passes" |
 | O-6 sort swap | **fixed**: the usage sort compares the displayed value (`shownMemory`, `shownCPU`, whole percent), ties by name. `TestUsageSortIgnoresDigitsThatAreNotShown` failed before the change (`[beta alpha]` then `[alpha beta]`) and passes; all goldens unchanged. D-075 notes it |
+
+## 9. Seventh batch: API count, Metrics outage, network cut, Spring trio, themes (2026-11-16)
+
+A new `huginn-qa` Autopilot cluster (us-east1) was created for this batch and deleted afterwards. `tools/m22-apiproxy.go` is a recording reverse proxy between Huginn and the API server (Huginn's kubeconfig points at `https://127.0.0.1:8443`; the client's `Authorization` header is forwarded untouched). It writes one line per request (`m22/proxy/requests.tsv`) and, when a flag file exists, drops every connection (`cut`) or answers 503 for `/apis/metrics.k8s.io` (`metrics503`). This replaces the audit logs, which Autopilot does not give without a project-level IAM change. `m22-drive-proxy.sh` drives it; captures are in `m22/proxy/`.
+
+### O-4: API requests per verb (one namespace, `qa-rec`, 14 pods)
+
+| Screen, steady state | API requests |
+|---|---|
+| services, idle 58 s | **0** (the catalog is held by watches) |
+| usage `u`, idle 146 s | **10**, all `list pods.metrics.k8s.io` (one per 15 s refresh and namespace, status 200) |
+| logs follow, 59 s | **0** (one open stream) |
+| Whole 12-minute run | 20 metrics lists (200) and 4 (503); catalog lists of pods, deployments, statefulsets, daemonsets and cronjobs only at start, when a screen opens logs, and after the cut; 2 `log` streams; 4 event lists; 2 watches |
+
+Verbs seen: `list`, `watch` and `log` (read streams); the only verb on `pods.metrics.k8s.io` is `list`. No `create`, `update`, `patch` or `delete` was sent by Huginn (the proxy records the method of every request). **The usage screen adds nothing while it is not on top.**
+
+### O-4: Metrics API outage (503 for 117 s on the usage screen), then back
+
+| Time | Screen |
+|---|---|
+| 50 s and 120 s into the outage | the last values stay; the status line says `stale since 13:44 (2m) · r retries now · sampled 2m ago`; no error panel |
+| API requests in the 117 s | **4** (backoff, capped at one minute) instead of 8 |
+| 20 s after the 503 stops | still stale (the wait before the next try); after `r` fresh values in 3 s; without `r` fresh 60 s after |
+
+### O-4: network cut (every connection dropped, 67 s on usage; 39 s on a log screen)
+
+| Screen | During the cut | After the cut |
+|---|---|---|
+| usage | header `error: unreachable`, rows stay, `stale since 13:48 (1m) · r retries now` | header back to `watching · sync` within 20 s; fresh values after `r` in 3 s and without it within 50 s |
+| log (a zoomed entry) | header `error: unreachable`, entry stays | the line count kept growing after the cut (192, then 209, then 211): the stream reconnected and caught up with no duplicate or gap seen in the counters. The keys of the driver left the screen in the zoom view, so the list itself was not read after the cut |
+
+### The Spring trio on the real cluster (images rebuilt locally with Docker, pushed to a temporary Artifact Registry repository)
+
+| Screen | Result |
+|---|---|
+| services | `payment-service` 2/2, `order-orchestrator` (OOMKilled fixture, restarts), `catalog-indexer` (crash fixture: failed JDBC connection, deep stack trace), with last restart cause |
+| usage | `payment-service` 14m / 294Mi, `no limit`; `order-orchestrator` `MEM 91% of limit`, the namespace row `pod 57lhl at 91% of its memory limit`; JVM memory from the Metrics API |
+| logs | Logback columns (time, level, thread, logger) read; the stack trace folds to `[+22 lines, enter to open]` and `[+71 lines, ...]`; the zoom shows `trace_id`, `correlationId`, `spanId` and 3 entries of context |
+
+### Theme review of the usage screen (no cluster)
+
+`TestUsageInEveryTheme`: for every theme and both terminal kinds, the text of the usage screen is **identical** (a severity never rests on colour alone), `none` writes no colour code (bold, dim, underline and reverse remain), and each other theme styles the screen. The palette contrast test (`TestThemeContrast`, WCAG 4.5) already covers the light and dark palettes the severity styles use. `accessible` and `classic` have no contrast test: that is unchanged.
+
+### Still open
+
+| # | Item |
+|---|---|
+| O-2 | the SCRAM credential rejected by the broker (broker-side; Huginn's message was clear). The Kafka stack was not rebuilt for this batch |
+| O-3 | clipboard from a plain Windows Terminal session: only the owner can look at the Windows clipboard |
+| O-5 | D-075 status: the owner's call |
+| - | metrics-server **removal** was simulated by the proxy (503), not done on the cluster: kube-system is managed by Autopilot |

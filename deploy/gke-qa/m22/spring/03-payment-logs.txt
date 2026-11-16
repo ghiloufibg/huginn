@@ -1,0 +1,50 @@
+ huginn  REC  gke_huginn-kube-tui_us-east1_huginn-qa / qa-rec   services / payment-service-loadgen / logs                                                       kubernetes · watching · synced 13:59:30
+ pods  all 1    xb6rk Healthy 1 restart 1.0
+ xb6rk 13:59:38.694  INFO [   scheduling-1] c.h.payment.PaymentWorker      : Processing payment 505 via mastercard
+ xb6rk 13:59:38.695 ERROR [   scheduling-1] c.h.payment.PaymentWorker      : Payment 505 failed: acquirer did not respond in time
+    com.huginnqa.payment.PaymentController$AcquirerTimeoutException: acquirer-gateway timed out for payment 505   [+22 lines, enter to open]
+ xb6rk 13:59:38.846  INFO [   scheduling-1] c.h.payment.PaymentWorker      : Processing payment 506 via mastercard
+ xb6rk 13:59:38.847  INFO [   scheduling-1] c.h.payment.PaymentWorker      : Payment 506 settled
+ xb6rk 13:59:38.998  INFO [   scheduling-1] c.h.payment.PaymentWorker      : Processing payment 507 via paypal
+ xb6rk 13:59:38.998  INFO [   scheduling-1] c.h.payment.PaymentWorker      : Payment 507 settled
+ xb6rk 13:59:39.150  INFO [   scheduling-1] c.h.payment.PaymentWorker      : Processing payment 508 via sepa
+ xb6rk 13:59:39.150  INFO [   scheduling-1] c.h.payment.PaymentWorker      : Payment 508 settled
+ xb6rk 13:59:39.301  INFO [   scheduling-1] c.h.payment.PaymentWorker      : Processing payment 509 via sepa
+ xb6rk 13:59:39.301  INFO [   scheduling-1] c.h.payment.PaymentWorker      : Payment 509 settled
+ xb6rk 13:59:39.452  INFO [   scheduling-1] c.h.payment.PaymentWorker      : Processing payment 510 via mastercard
+ xb6rk 13:59:39.452  INFO [   scheduling-1] c.h.payment.PaymentWorker      : Payment 510 settled
+ xb6rk 13:59:39.603  INFO [   scheduling-1] c.h.payment.PaymentWorker      : Processing payment 511 via mastercard
+ xb6rk 13:59:39.603  INFO [   scheduling-1] c.h.payment.PaymentWorker      : Payment 511 settled
+ xb6rk 13:59:39.755  INFO [   scheduling-1] c.h.payment.PaymentWorker      : Processing payment 512 via paypal
+ xb6rk 13:59:39.755  INFO [   scheduling-1] c.h.payment.PaymentWorker      : Payment 512 settled
+ xb6rk 13:59:39.906  INFO [   scheduling-1] c.h.payment.PaymentWorker      : Processing payment 513 via sepa
+ xb6rk 13:59:39.906  INFO [   scheduling-1] c.h.payment.PaymentWorker      : Payment 513 settled
+ xb6rk 13:59:40.057  INFO [   scheduling-1] c.h.payment.PaymentWorker      : Processing payment 514 via mastercard
+ xb6rk 13:59:40.057  INFO [   scheduling-1] c.h.payment.PaymentWorker      : Payment 514 settled
+ xb6rk 13:59:40.208  INFO [   scheduling-1] c.h.payment.PaymentWorker      : Processing payment 515 via mastercard
+ xb6rk 13:59:40.208  INFO [   scheduling-1] c.h.payment.PaymentWorker      : Payment 515 settled
+ xb6rk 13:59:40.359  INFO [   scheduling-1] c.h.payment.PaymentWorker      : Processing payment 516 via mastercard
+ xb6rk 13:59:40.359  INFO [   scheduling-1] c.h.payment.PaymentWorker      : Payment 516 settled
+ xb6rk 13:59:40.510  INFO [   scheduling-1] c.h.payment.PaymentWorker      : Processing payment 517 via sepa
+ xb6rk 13:59:40.511  INFO [   scheduling-1] c.h.payment.PaymentWorker      : Payment 517 settled
+ xb6rk 13:59:40.661  INFO [   scheduling-1] c.h.payment.PaymentWorker      : Processing payment 518 via visa
+ xb6rk 13:59:40.661  INFO [   scheduling-1] c.h.payment.PaymentWorker      : Payment 518 settled
+ xb6rk 13:59:40.812  INFO [   scheduling-1] c.h.payment.PaymentWorker      : Processing payment 519 via paypal
+ xb6rk 13:59:40.813  INFO [   scheduling-1] c.h.payment.PaymentWorker      : Payment 519 settled
+ xb6rk 13:59:40.964  INFO [   scheduling-1] c.h.payment.PaymentWorker      : Processing payment 520 via sepa
+ xb6rk 13:59:40.964 ERROR [   scheduling-1] c.h.payment.PaymentWorker      : Payment 520 failed: acquirer did not respond in time
+    com.huginnqa.payment.PaymentController$AcquirerTimeoutException: acquirer-gateway timed out for payment 520   [+22 lines, enter to open]
+ xb6rk 13:59:41.116  INFO [   scheduling-1] c.h.payment.PaymentWorker      : Processing payment 521 via visa
+ xb6rk 13:59:41.116  INFO [   scheduling-1] c.h.payment.PaymentWorker      : Payment 521 settled
+ xb6rk 13:59:41.267  INFO [   scheduling-1] c.h.payment.PaymentWorker      : Processing payment 522 via sepa
+ xb6rk 13:59:41.267  INFO [   scheduling-1] c.h.payment.PaymentWorker      : Payment 522 settled
+ xb6rk 13:59:41.418  INFO [   scheduling-1] c.h.payment.PaymentWorker      : Processing payment 523 via paypal
+ xb6rk 13:59:41.418  INFO [   scheduling-1] c.h.payment.PaymentWorker      : Payment 523 settled
+ xb6rk 13:59:41.569  INFO [   scheduling-1] c.h.payment.PaymentWorker      : Processing payment 524 via paypal
+ xb6rk 13:59:41.569  INFO [   scheduling-1] c.h.payment.PaymentWorker      : Payment 524 settled
+ xb6rk 13:59:41.720  INFO [   scheduling-1] c.h.payment.PaymentWorker      : Processing payment 525 via paypal
+ xb6rk 13:59:41.720  INFO [   scheduling-1] c.h.payment.PaymentWorker      : Payment 525 settled
+ xb6rk 13:59:41.871  INFO [   scheduling-1] c.h.payment.PaymentWorker      : Processing payment 526 via mastercard
+ xb6rk 13:59:41.872  INFO [   scheduling-1] c.h.payment.PaymentWorker      : Payment 526 settled
+ LIVE 13/s   55 errors  ·  15m  ·  all pods  ·  levels all  ·  oldest first  ·  1065/1065 lines  ·  buffer 2%  ·  dropped 0
+ / filter  l levels  x mode  n/N match  f follow  space pause  t window  tab pods  c cols  C columns  z focus  enter zoom  ? help

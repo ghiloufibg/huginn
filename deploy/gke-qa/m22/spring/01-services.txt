@@ -1,0 +1,50 @@
+ huginn  REC  gke_huginn-kube-tui_us-east1_huginn-qa / qa-rec   services                                                                                        kubernetes · watching · synced 13:58:54
+ REPO                     WL   PODS  STATUS            RST  LAST  VERSION           AGE  WHY                            │ ─ catalog-indexer ────────────────────────────────────────────────────────────
+ HEALTHY 10                                                                                                             │ WORKLOADS
+ catalog-indexer           1    1/1  Healthy             3   30s  1.0               23m  last restart 30s ago (Error)   │   Deployment catalog-indexer  1/1 ready  1/1 updated  1.0
+ noisy-fixture             1    1/1  Healthy             0     -  1.36              22m                                 │ DEPLOYED
+ order-orchestrator        1    1/1  Healthy             1   53s  1.0               23m  last restart 53s ago (OOMKille…│   catalog-indexer  Nov 16 13:56  2m ago
+ payment-service           1    2/2  Healthy             0     -  1.0               23m                                 │ PODS
+ payment-service-loadgen   1    1/1  Healthy             1    1m  1.0               23m  last restart 1m ago (Error)    │   v28v4  Healthy  1/1 ready  3 restarts  last: Error exit 1, 30s ago  gk3-hugi
+ usage-cpu                 1    1/1  Healthy             0     -  1.0.4             22m                                 │ WARNINGS
+ usage-done                1    0/0  Healthy             0     -  1.36              22m                                 │   30s  BackOff (x2)
+ usage-mem                 1    3/3  Healthy             0     -  1.0.4             22m                                 │     Back-off restarting failed container catalog-indexer in pod catalog-
+ usage-nolimit             1    2/2  Healthy             0     -  1.36              22m                                 │     indexer-58b48c85f9-v28v4_qa-rec(0e347acf-2d40-4ed1-b2fa-69715ffe2d0c)
+ usage-sidecar             1    2/2  Healthy             0     -  1.36              22m                                 │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+ SERVICES   10 healthy · 10 repos  ·  sort status
+ enter logs  u usage  / filter  s sort  p preview  r resync  ctrl+e env  f2 keys  q quit  ? help

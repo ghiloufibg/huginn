@@ -1,0 +1,50 @@
+ huginn  REC  gke_huginn-kube-tui_us-east1_huginn-qa / qa-rec   services / catalog-indexer / logs                                                               kubernetes · watching · synced 14:00:05
+ pods  all 1    v28v4 waiting: Error 4 restarts 1.0
+ v28v4 13:59:56.622  INFO [           main] .h.c.CatalogIndexerApplication : Starting CatalogIndexerApplication v1.0.0 using Java 21.0.8 with PID 1 (/app/app.jar started by root in /app)
+ v28v4 13:59:56.688  INFO [           main] .h.c.CatalogIndexerApplication : No active profile set, falling back to 1 default profile: "default"
+ v28v4 13:59:59.092  INFO [           main] epositoryConfigurationDelegate : Bootstrapping Spring Data JPA repositories in DEFAULT mode.
+ v28v4 13:59:59.196  INFO [           main] epositoryConfigurationDelegate : Finished Spring Data repository scanning in 79 ms. Found 0 JPA repository interfaces.
+ v28v4 14:00:00.981  INFO [           main] o.h.j.internal.util.LogHelper  : HHH000204: Processing PersistenceUnitInfo [name: default]
+ v28v4 14:00:01.210  INFO [           main] org.hibernate.Version          : HHH000412: Hibernate ORM core version 6.6.53.Final
+ v28v4 14:00:01.386  INFO [           main] o.h.c.i.RegionFactoryInitiator : HHH000026: Second-level cache disabled
+ v28v4 14:00:02.688  INFO [           main] .j.p.SpringPersistenceUnitInfo : No LoadTimeWeaver setup: ignoring JPA class transformer
+ v28v4 14:00:04.189  WARN [           main] o.h.e.j.spi.SqlExceptionHelper : SQL Error: 0, SQLState: 08001
+ v28v4 14:00:04.190 ERROR [           main] o.h.e.j.spi.SqlExceptionHelper : The connection attempt failed.
+ v28v4 14:00:04.193  WARN [           main] j.e.i.JdbcEnvironmentInitiator : HHH000342: Could not obtain connection to query metadata
+    org.hibernate.exception.JDBCConnectionException: unable to obtain isolated JDBC connection [The connection attempt failed.] [n/a]   [+71 lines, enter to open]
+ v28v4 14:00:04.210 ERROR [           main] tainerEntityManagerFactoryBean : Failed to initialize JPA EntityManagerFactory: Unable to create requested service [org.hibernate.engine.jdbc.env.spi.JdbcE…
+ v28v4 14:00:04.212  WARN [           main] tationConfigApplicationContext : Exception encountered during context initialization - cancelling refresh attempt: org.springframework.beans.factory.BeanCr…
+ v28v4 14:00:04.281  INFO [           main] onditionEvaluationReportLogger :
+
+Error starting ApplicationContext. To display the condition evaluation report re-run your application with 'debug' enabled.
+ v28v4 14:00:04.307 ERROR [           main] o.s.boot.SpringApplication     : Application run failed
+    org.springframework.beans.factory.BeanCreationException: Error creating bean with name 'entityManagerFactory' defined in class path resource [org/springframework/boot/autoconfigure/orm/jpa/Hibern…
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ LIVE 1.4/s   3 errors · 3 warnings  ·  15m  ·  all pods  ·  levels all  ·  muted 1  ·  catalog-indexer-58b48c85f9-v28v4: log stream of catalog-indexer-58b48c85f9-v28v4/catalog-indexer ended: unreac…
+ / filter  l levels  x mode  n/N match  f follow  space pause  t window  tab pods  c cols  C columns  z focus  enter zoom  ? help
