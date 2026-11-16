@@ -13,3 +13,6 @@ environments:
   restricted:
     context: huginn-reader
     namespaces: [qa-rec, qa-prd, qa-restricted]
+  scale:
+    context: gke_huginn-kube-tui_us-east1_huginn-qa
+    namespaces: [qa-s01, qa-s02, qa-s03, qa-s04, qa-s05, qa-s06, qa-s07, qa-s08, qa-s09, qa-s10, qa-s11, qa-s12, qa-s13, qa-s14, qa-s15, qa-s16, qa-s17, qa-s18, qa-s19, qa-s20]

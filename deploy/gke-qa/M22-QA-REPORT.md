@@ -313,3 +313,26 @@ The 64 uncovered TUI functions, by file: mouse handlers (`mouse.go`: tmux could 
 | O-3 | The clipboard was not checked end to end in a plain Windows Terminal session |
 | O-4 | `-race` pass, network cut, `metrics-server` removal, per-verb API count: not run (no `gcc` or root, GKE managed namespaces, no audit logs) |
 | O-5 | D-075 still reads "accepted, pending the real-cluster QA": the owner's call, with F-1, F-2, F-4, F-6 and F-7 fixed and verified, the per-verb API evidence missing, and the report above |
+
+## 7. Fifth batch: scale fixture (20 namespaces x 3 services)
+
+`m22-scale-fixture.sh` created `qa-s01`..`qa-s20`, one single-replica deployment per service (`web`, `api`, `worker`, requests 50m / 64Mi), and `m22-drive-scale.sh` drove the `u` screen against them (200x50, evidence in `m22/scale/`). The fixture was deleted afterwards.
+
+**The fixture ran only partly.** The two 8-vCPU nodes already hold the whole `CPUS_ALL_REGIONS` quota (16), so the scale-up failed ("6 in backoff") and **35 of the 60 pods ran, 25 stayed `Pending`**. The screen therefore also showed the Pending case at scale: namespaces `2/3` and `1/3` with `N pods not reporting`, services `0/1` with `—` instead of numbers, and namespaces `qa-s14`..`qa-s20` at `0/3`. None of those rows showed a zero.
+
+| Measure (usage screen, 20 namespaces, 60 services) | Result |
+|---|---|
+| RSS | 65 MiB on the services screen, 66 MiB when `u` opened, peak 70 MiB (71 928 kB) while navigating, 70 MiB after 2 min idle. At 3 namespaces the plateau was 55-59 MiB |
+| Threads / file descriptors | 19 / 16 (peak 20) |
+| API read volume, idle on `u`, 115 s | +329 KB (`rchar`), about 2.9 KB/s, about 43 KB per 15 s refresh |
+| Terminal bytes, idle on `u`, 117 s | +9.7 KB, about 84 B/s |
+| CPU, idle on `u`, 115 s | 1.64 s (about 1.4 % of one core) |
+| Keys: 12 Down, Enter, `s` x2, filter `qa-s1`, 60 Down, 60 Up | no error text, no blank frame, process alive; the filter kept the namespaces and services that match |
+
+### Observation O-6: rows reorder between refreshes when values are close
+
+The default sort is by memory, on exact bytes. Namespaces that show the same `1Mi` differ by a few KiB and swap places from one 15 s sample to the next (`qa-s03, s07, s11` first, `qa-s06, s08, s04` in the next capture; the services inside a namespace swap too). The selected row stays selected, because the cursor follows the row id (`TestUsageSelectionSurvivesSnapshots`), so the screen does not mis-select; but the row moves under the eye every refresh. Sorting by name (`s`) is stable. **Not changed**: comparing on the rounded, displayed value would make ties fall to the name, but that is a design choice for the owner (it hides real, small differences in the order), not a defect found by a failing expectation.
+
+### Not run, unchanged
+
+`-race` (no `gcc`), network cut and `metrics-server` removal (no root, managed namespaces), per-verb API count (no audit logs), Spring trio, plain-terminal clipboard. See O-1..O-5 in section 6.

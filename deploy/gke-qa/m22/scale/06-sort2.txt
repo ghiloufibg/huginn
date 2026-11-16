@@ -1,0 +1,50 @@
+ huginn  SCALE  gke_huginn-kube-tui_us-east1_huginn-qa / qa-s01,qa-s02,qa-s03,qa-s04,qa-s05,qa-s06,qa-s07,qa-s08,qa-s09,qa-s10,qa-s11,qa-…   services / usage   kubernetes · watching · synced 09:28:54
+ NAMESPACE / SERVICE            PODS     CPU   %REQ   %LIM   MEMORY   %REQ   %LIM  PEAK POD  TREND       NOTE
+   ▸ worker-07                   1/1      1m     2%     1%    424Ki     1%     0%            ██████████  over-provisioned
+   ▸ api-07                      1/1      1m     2%     1%    420Ki     1%     0%            ██████████  over-provisioned
+   ▸ web-07                      1/1      1m     2%     1%    404Ki     1%     0%            ██████████  over-provisioned
+ ▾ qa-s12                        3/3      3m     2%     1%      1Mi     1%     0%  2kgxk     ██████████  over-provisioned
+   ▸ worker-12                   1/1      1m     2%     1%    428Ki     1%     0%            ██████████  over-provisioned
+   ▸ api-12                      1/1      1m     2%     1%    412Ki     1%     0%            ██████████  over-provisioned
+   ▸ web-12                      1/1      1m     2%     1%    408Ki     1%     0%            ██████████  over-provisioned
+ ▾ qa-s02                        2/3      2m     2%     1%    828Ki     1%     0%  jdwgd     ██████████  over-provisioned · 1 pod not reporting
+   ▸ worker-02                   1/1      1m     2%     1%    428Ki     1%     0%            ██████████  over-provisioned
+   ▸ api-02                      1/1      1m     2%     1%    400Ki     1%     0%            ██████████  over-provisioned
+   ▸ web-02                      0/1       —      —      —        —      —      —                        1 pod not reporting
+ ▾ qa-s06                        3/3      3m     2%     1%      1Mi     1%     0%  knwvn     ██████████  over-provisioned
+   ▸ api-06                      1/1      1m     2%     1%    428Ki     1%     0%            ██████████  over-provisioned
+   ▸ worker-06                   1/1      1m     2%     1%    416Ki     1%     0%            ██████████  over-provisioned
+   ▸ web-06                      1/1      1m     2%     1%    396Ki     1%     0%            ██████████  over-provisioned
+ ▾ qa-s08                        3/3      3m     2%     1%      1Mi     1%     0%  v4bc9     ██████████  over-provisioned
+   ▸ worker-08                   1/1      1m     2%     1%    432Ki     1%     0%            ██████████  over-provisioned
+   ▸ api-08                      1/1      1m     2%     1%    416Ki     1%     0%            ██████████  over-provisioned
+   ▸ web-08                      1/1      1m     2%     1%    392Ki     1%     0%            ██████████  over-provisioned
+ ▾ qa-s09                        2/3      2m     2%     1%    812Ki     1%     0%  m4xkb     ██████████  over-provisioned · 1 pod not reporting
+   ▸ worker-09                   1/1      1m     2%     1%    424Ki     1%     0%            ██████████  over-provisioned
+   ▸ web-09                      1/1      1m     2%     1%    388Ki     1%     0%            ██████████  over-provisioned
+   ▸ api-09                      0/1       —      —      —        —      —      —                        1 pod not reporting
+ ▾ qa-s04                        3/3      3m     2%     1%      1Mi     1%     0%  6v7vc     ██████████  over-provisioned
+   ▸ web-04                      1/1      1m     2%     1%    432Ki     1%     0%            ██████████  over-provisioned
+   ▸ api-04                      1/1      1m     2%     1%    404Ki     1%     0%            ██████████  over-provisioned
+   ▸ worker-04                   1/1      1m     2%     1%    380Ki     1%     0%            ██████████  over-provisioned
+ ▾ qa-s05                        3/3      3m     2%     1%      1Mi     1%     0%  6bpsb     ██████████  over-provisioned
+   ▸ web-05                      1/1      1m     2%     1%    412Ki     1%     0%            ██████████  over-provisioned
+   ▸ worker-05                   1/1      1m     2%     1%    388Ki     1%     0%            ██████████  over-provisioned
+   ▸ api-05                      1/1      1m     2%     1%    380Ki     1%     0%            ██████████  over-provisioned
+ ▾ qa-s14                        0/3       —      —      —        —      —      —                        3 pods not reporting
+   ▸ api-14                      0/1       —      —      —        —      —      —                        1 pod not reporting
+   ▸ web-14                      0/1       —      —      —        —      —      —                        1 pod not reporting
+   ▸ worker-14                   0/1       —      —      —        —      —      —                        1 pod not reporting
+ ▾ qa-s15                        0/3       —      —      —        —      —      —                        3 pods not reporting
+   ▸ api-15                      0/1       —      —      —        —      —      —                        1 pod not reporting
+   ▸ web-15                      0/1       —      —      —        —      —      —                        1 pod not reporting
+   ▸ worker-15                   0/1       —      —      —        —      —      —                        1 pod not reporting
+ ▾ qa-s16                        0/3       —      —      —        —      —      —                        3 pods not reporting
+   ▸ api-16                      0/1       —      —      —        —      —      —                        1 pod not reporting
+   ▸ web-16                      0/1       —      —      —        —      —      —                        1 pod not reporting
+   ▸ worker-16                   0/1       —      —      —        —      —      —                        1 pod not reporting
+ ▾ qa-s17                        0/3       —      —      —        —      —      —                        3 pods not reporting
+   ▾ api-17                      0/1       —      —      —        —      —      —                        1 pod not reporting
+ Averages over the metrics window: peaks between samples are not shown.
+ sort memory % of limit   USAGE   sampled 56s ago · 43s window  ·  containers all (sidecars included)  ·  sort memory % of limit
+ enter expand  L logs  p detail  / filter  s sort  A containers  r reload  f2 keys  esc back  q quit  ? help

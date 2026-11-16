@@ -1,0 +1,50 @@
+ huginn  SCALE  gke_huginn-kube-tui_us-east1_huginn-qa / qa-s01,qa-s02,qa-s03,qa-s04,qa-s05,qa-s06,qa-s07,qa-s08,qa-s09,qa-s10,qa-s11,qa-s12,qa-s…   services   kubernetes · watching · synced 09:29:37
+ REPO              WL   PODS  STATUS            RST  LAST  VERSION           AGE  WHY                                   │ ─ api-14 ─────────────────────────────────────────────────────────────────────
+ api-09             1    0/1  Pending             0     -  1.36              13m  1 pod pending: 0/2 nodes are availabl…│ WORKLOADS
+ api-13             1    0/1  Pending             0     -  1.36              13m  1 pod pending: 0/2 nodes are availabl…│   Deployment api  0/1 ready  1/1 updated  1.36
+ api-14             1    0/1  Pending             0     -  1.36              13m  1 pod pending: 0/2 nodes are availabl…│ DEPLOYED
+ api-15             1    0/1  Pending             0     -  1.36              13m  1 pod pending: 0/2 nodes are availabl…│   api  pods since Nov 16 09:18  13m ago
+ api-16             1    0/1  Pending             0     -  1.36              12m  1 pod pending: 0/2 nodes are availabl…│ PODS
+ api-17             1    0/1  Pending             0     -  1.36              12m  1 pod pending: 0/2 nodes are availabl…│   9f9gw  Pending  0/1 ready  0 restarts  -  13m
+ api-18             1    0/1  Pending             0     -  1.36              12m  1 pod pending: 0/2 nodes are availabl…│ WARNINGS
+ api-19             1    0/1  Pending             0     -  1.36              12m  1 pod pending: 0/2 nodes are availabl…│   4m  FailedScheduling (x2)
+ api-20             1    0/1  Pending             0     -  1.36              12m  1 pod pending: 0/2 nodes are availabl…│     0/2 nodes are available: 1 Insufficient cpu, 1 Too many pods, 2
+ web-02             1    0/1  Pending             0     -  1.36              15m  1 pod pending: 0/2 nodes are availabl…│     Insufficient memory. no new claims to deallocate, preemption: 0/2 nodes
+ web-14             1    0/1  Pending             0     -  1.36              13m  1 pod pending: 0/2 nodes are availabl…│     are available: 2 No preemption victims found for incoming pod.
+ web-15             1    0/1  Pending             0     -  1.36              13m  1 pod pending: 0/2 nodes are availabl…│   5m  FailedScaleUp
+ web-16             1    0/1  Pending             0     -  1.36              13m  1 pod pending: 0/2 nodes are availabl…│     Node scale up in zones us-east1-c associated with this pod failed: GCE
+ web-17             1    0/1  Pending             0     -  1.36              12m  1 pod pending: 0/2 nodes are availabl…│     quota exceeded. Pod is at risk of not being scheduled.
+ web-18             1    0/1  Pending             0     -  1.36              12m  1 pod pending: 0/2 nodes are availabl…│   10m  FailedScheduling
+ web-19             1    0/1  Pending             0     -  1.36              12m  1 pod pending: 0/2 nodes are availabl…│     0/2 nodes are available: 1 Insufficient cpu, 1 Insufficient memory, 1
+ web-20             1    0/1  Pending             0     -  1.36              12m  1 pod pending: 0/2 nodes are availabl…│     node(s) had untolerated taint(s). no new claims to deallocate, preemption:
+ worker-13          1    0/1  Pending             0     -  1.36              13m  1 pod pending: 0/2 nodes are availabl…│     0/2 nodes are available: 1 No preemption victims found for incoming pod, 1
+ worker-14          1    0/1  Pending             0     -  1.36              13m  1 pod pending: 0/2 nodes are availabl…│     Preemption is not helpful for scheduling.
+ worker-15          1    0/1  Pending             0     -  1.36              13m  1 pod pending: 0/2 nodes are availabl…│   10m  FailedScheduling (x2)
+ worker-16          1    0/1  Pending             0     -  1.36              12m  1 pod pending: 0/2 nodes are availabl…│     0/2 nodes are available: 1 Insufficient cpu, 2 Insufficient memory. no new
+ worker-17          1    0/1  Pending             0     -  1.36              12m  1 pod pending: 0/2 nodes are availabl…│     claims to deallocate, preemption: 0/2 nodes are available: 2 No preemption
+ worker-18          1    0/1  Pending             0     -  1.36              12m  1 pod pending: 0/2 nodes are availabl…│     victims found for incoming pod.
+ worker-19          1    0/1  Pending             0     -  1.36              12m  1 pod pending: 0/2 nodes are availabl…│   11m  FailedScaleUp
+ worker-20          1    0/1  Pending             0     -  1.36              12m  1 pod pending: 0/2 nodes are availabl…│     Node scale up in zones us-east1-c, us-east1-d, us-east1-b associated with
+ api-01             1    1/1  Healthy             0     -  1.36              15m                                        │     this pod failed: GCE quota exceeded. Pod is at risk of not being
+ api-02             1    1/1  Healthy             0     -  1.36              15m                                        │     scheduled.
+ api-03             1    1/1  Healthy             0     -  1.36              14m                                        │
+ api-04             1    1/1  Healthy             0     -  1.36              14m                                        │
+ api-05             1    1/1  Healthy             0     -  1.36              14m                                        │
+ api-06             1    1/1  Healthy             0     -  1.36              14m                                        │
+ api-07             1    1/1  Healthy             0     -  1.36              14m                                        │
+ api-08             1    1/1  Healthy             0     -  1.36              14m                                        │
+ api-10             1    1/1  Healthy             0     -  1.36              13m                                        │
+ api-11             1    1/1  Healthy             0     -  1.36              13m                                        │
+ api-12             1    1/1  Healthy             0     -  1.36              13m                                        │
+ web-01             1    1/1  Healthy             0     -  1.36              15m                                        │
+ web-03             1    1/1  Healthy             0     -  1.36              14m                                        │
+ web-04             1    1/1  Healthy             0     -  1.36              14m                                        │
+ web-05             1    1/1  Healthy             0     -  1.36              14m                                        │
+ web-06             1    1/1  Healthy             0     -  1.36              14m                                        │
+ web-07             1    1/1  Healthy             0     -  1.36              14m                                        │
+ web-08             1    1/1  Healthy             0     -  1.36              14m                                        │
+ web-09             1    1/1  Healthy             0     -  1.36              14m                                        │
+ web-10             1    1/1  Healthy             0     -  1.36              13m                                        │
+ web-11             1    1/1  Healthy             0     -  1.36              13m                                        │
+ SERVICES   25 degraded/pending · 35 healthy · 60 repos  ·  sort status
+ enter logs  u usage  / filter  s sort  p preview  r resync  ctrl+e env  f2 keys  q quit  ? help
