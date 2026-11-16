@@ -700,6 +700,7 @@ Status: accepted.
 - **Left out on purpose.** Node and cluster views (cluster-scoped read), disk and network, cost, recommendations, history kept beyond the screen's life, `ResourceQuota` (a later, separate read permission), a `sparkline` switch (`usage.history: 0s` removes the trend).
 - **Deviations from the design document.** Namespaces with pods the catalog does not list show no share (their requests and limits are unknown); `usage.enabled` replaces a `metrics:` adapter selector, since the only adapters are the cluster ones.
 - **Found on the real cluster (M22, 2026-11-15) and fixed:** a pod in phase `Succeeded` is counted in `Rollup.Done`, not as a pod that fails to report (a service with only such pods reads `completed`); the services of a namespace with no usage no longer read as pod faults; the retry wait after a failure is capped at one minute (it was eight ticks, which is eight minutes at a 60 s refresh) and the stale mark names the retry key.
+- **Sort ties (M22 O-6, 2026-11-16).** The usage screen sorts on the value as displayed (`1Mi` and `1Mi` are equal, ties fall to the name), so rows do not swap at every refresh when only digits that are not shown move.
 - **Not verified here.** Per-verb API load on a real cluster (no source on Autopilot without audit logs, see `deploy/gke-qa/M22-QA-REPORT.md`), and `govulncheck` of the new `k8s.io/metrics` module.
 
 Status: accepted, pending the real-cluster QA.

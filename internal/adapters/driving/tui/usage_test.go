@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -34,6 +35,7 @@ func (f *fakeUsage) last() ports.UsageQuery {
 }
 
 const (
+	ki = int64(1) << 10
 	mi = int64(1) << 20
 	gi = int64(1) << 30
 )
@@ -520,5 +522,38 @@ func TestUsageNoLimitComesFirstInTheNote(t *testing.T) {
 		if strings.Contains(l, "idle-no-limit") && !strings.Contains(l, "no limit") {
 			t.Errorf("at 80 columns the dash has no explanation: %q", l)
 		}
+	}
+}
+
+// Rows that read the same must not swap places when their hidden digits move
+// from one sample to the next (M22 O-6): the sort compares what is displayed.
+func TestUsageSortIgnoresDigitsThatAreNotShown(t *testing.T) {
+	snap := func(memA, memB int64) ports.UsageSnapshot {
+		svc := func(name string, mem int64) domain.ServiceUsage {
+			return domain.ServiceUsage{Repo: name, Rollup: rollup(1, 1, 1, 50, 100, mem, 64*mi, 128*mi)}
+		}
+		return ports.UsageSnapshot{Env: "rec", Synced: true, SampledAt: t0, Window: time.Minute, Namespaces: []domain.NamespaceUsage{
+			{Name: "ns", Total: rollup(2, 2, 2, 100, 200, memA+memB, 128*mi, 256*mi), Services: []domain.ServiceUsage{svc("alpha", memA), svc("beta", memB)}},
+		}}
+	}
+	m, s, _ := openUsage(t, "")
+	order := func() string {
+		var out []string
+		for _, r := range s.rows {
+			if r.kind == usageService {
+				out = append(out, r.name)
+			}
+		}
+		return fmt.Sprint(out)
+	}
+	feedUsage(m, s, snap(10*mi+100*ki, 10*mi+900*ki)) // both read 10Mi
+	first := order()
+	feedUsage(m, s, snap(10*mi+900*ki, 10*mi+100*ki)) // the hidden digits swap
+	if got := order(); got != first || first != "[alpha beta]" {
+		t.Fatalf("order %s then %s, want [alpha beta] both times: equal readings fall back to the name", first, got)
+	}
+	feedUsage(m, s, snap(10*mi, 12*mi)) // a shown difference still sorts, biggest first
+	if got := order(); got != "[beta alpha]" {
+		t.Fatalf("order %s, want [beta alpha]: 12Mi is above 10Mi", got)
 	}
 }

@@ -336,3 +336,13 @@ The default sort is by memory, on exact bytes. Namespaces that show the same `1M
 ### Not run, unchanged
 
 `-race` (no `gcc`), network cut and `metrics-server` removal (no root, managed namespaces), per-verb API count (no audit logs), Spring trio, plain-terminal clipboard. See O-1..O-5 in section 6.
+
+## 8. Sixth batch: closing items that need no cluster (2026-11-16)
+
+The cluster of section 1 was deleted before this batch.
+
+| Item | Result |
+|---|---|
+| O-4 `-race` | `go test -race -count=1 ./...` with the WinLibs `gcc` of the Windows host: 21 packages `ok`, **0 `DATA RACE`**. It covers the unit and integration tests (the usage poller, the shared catalog watch, the logs follow). A race-built binary was **not** driven on a cluster (no Linux C cross-compiler) |
+| O-1 `mouse-test.sh` | built `bin/huginn-linux` from the current tree and ran the script three times in WSL, tmux 3.4: **6 of 6 checks pass each time**. The four failures of section 5 are **not reproduced**; the pre-M21 binary used then is gone, so the cause of those failures is not known (an invocation difference is the likeliest, not proven). Closed as "passes" |
+| O-6 sort swap | **fixed**: the usage sort compares the displayed value (`shownMemory`, `shownCPU`, whole percent), ties by name. `TestUsageSortIgnoresDigitsThatAreNotShown` failed before the change (`[beta alpha]` then `[alpha beta]`) and passes; all goldens unchanged. D-075 notes it |

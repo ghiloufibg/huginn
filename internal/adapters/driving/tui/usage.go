@@ -413,16 +413,19 @@ func (s *usageScreen) rebuild() {
 	}
 }
 
-// compare orders rows by the sort key, biggest first; ties by name.
+// compare orders rows by the sort key, biggest first; ties by name. The key is
+// the value as the screen shows it: two rows that read the same keep their
+// order (by name) when the digits behind the display move from one sample to
+// the next, instead of swapping at every refresh (M22 O-6).
 func (s *usageScreen) compare(a, b usageRow) int {
 	var x, y float64
 	switch s.sort {
 	case usageSortMemory:
-		x, y = float64(a.r.Use.MemBytes), float64(b.r.Use.MemBytes)
+		x, y = float64(shownMemory(a.r.Use.MemBytes)), float64(shownMemory(b.r.Use.MemBytes))
 	case usageSortCPU:
-		x, y = float64(a.r.Use.CPUMilli), float64(b.r.Use.CPUMilli)
+		x, y = float64(shownCPU(a.r.Use.CPUMilli)), float64(shownCPU(b.r.Use.CPUMilli))
 	case usageSortMemLimit:
-		x, y = memLimitPct(a.r), memLimitPct(b.r)
+		x, y = math.Floor(memLimitPct(a.r)), math.Floor(memLimitPct(b.r))
 	case usageSortName:
 		return strings.Compare(a.name, b.name)
 	}
@@ -792,6 +795,31 @@ func formatCPU(milli int64) string {
 		return fmt.Sprintf("%.2f", float64(milli)/1000)
 	}
 	return fmt.Sprintf("%.1f", float64(milli)/1000)
+}
+
+// shownMemory is b as formatMemory shows it, in bytes.
+func shownMemory(b int64) int64 {
+	const ki = 1024
+	switch {
+	case b < ki*ki:
+		return b / ki * ki
+	case b < ki*ki*ki:
+		return b / (ki * ki) * ki * ki
+	case b < 10*ki*ki*ki:
+		return int64(math.Round(float64(b)/(ki*ki*ki)*10)) * (ki * ki * ki / 10)
+	}
+	return b / (ki * ki * ki) * ki * ki * ki
+}
+
+// shownCPU is milli as formatCPU shows it, in millicores.
+func shownCPU(milli int64) int64 {
+	switch {
+	case milli < 1000:
+		return milli
+	case milli < 10_000:
+		return int64(math.Round(float64(milli)/10)) * 10
+	}
+	return int64(math.Round(float64(milli)/100)) * 100
 }
 
 // formatMemory writes bytes in binary units: "512Mi", "7.2Gi".
