@@ -1,0 +1,50 @@
+ huginn  REC  gke_huginn-kube-tui_us-east1_huginn-qa / qa-rec   services                                                                                        kubernetes · watching · synced 23:22:58
+ REPO              WL   PODS  STATUS            RST  LAST  VERSION           AGE  WHY                                   │ ─ catalog ────────────────────────────────────────────────────────────────────
+ HEALTHY 1                                                                                                              │ WORKLOADS
+ catalog K          1    1/1  Healthy             0     -  1.36               6m                                        │   Deployment catalog  1/1 ready  1/1 updated  1.36
+                                                                                                                        │ DEPLOYED
+                                                                                                                        │   catalog  Nov 15 23:16  6m ago
+                                                                                                                        │ PODS
+                                                                                                                        │   4kk7f  Healthy  1/1 ready  0 restarts  gk3-huginn-qa-nap-cfdoj1zq-7fb0cc7d-l
+                                                                                                                        │ WARNINGS
+                                                                                                                        │   6m  FailedScheduling (x2)
+                                                                                                                        │     0/2 nodes are available: 1 node(s) had untolerated taint(s), 1 node(s)
+                                                                                                                        │     were unschedulable. no new claims to deallocate, preemption: 0/2 nodes are
+                                                                                                                        │     available: 2 Preemption is not helpful for scheduling.
+                                                                                                                        │   6m  FailedScheduling
+                                                                                                                        │     0/2 nodes are available: 1 Insufficient memory, 1 node(s) were
+                                                                                                                        │     unschedulable. no new claims to deallocate, preemption: 0/2 nodes are
+                                                                                                                        │     available: 1 No preemption victims found for incoming pod, 1 Preemption is
+                                                                                                                        │     not helpful for scheduling.
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+                                                                                                                        │
+ /  catalog
+ SERVICES   1 healthy · 1 repo  ·  sort status  ·  filter catalog
+ enter logs  M kafka  u usage  / filter  s sort  p preview  r resync  ctrl+e env  f2 keys  q quit  ? help

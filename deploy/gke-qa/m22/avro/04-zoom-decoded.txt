@@ -1,0 +1,50 @@
+ huginn  REC  gke_huginn-kube-tui_us-east1_huginn-qa / qa-rec   services / catalog / kafka / topic-a / p0 #0                                                    kubernetes · watching · synced 01:11:50
+ topic      topic-a
+ partition  0   offset 0
+ time       2026-11-16 01:08:54.401 CET  (producer time)
+ key        ∅
+ value      70 B
+
+ VALUE
+   avro, schema 1 (com.huginnqa.catalog.Order)
+   {
+     "id": "order-1",
+     "total": "19.99",
+     "placedAt": "2026-11-16T00:08:54.401Z"
+   }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ RECORD   read only
+ J/K next/previous record  j/k scroll  y copy value  esc back

@@ -1,0 +1,50 @@
+ huginn  REC  gke_huginn-kube-tui_us-east1_huginn-qa / qa-rec   services / catalog / kafka / topic-b / help                                                     kubernetes · watching · synced 23:22:58
+ KAFKA RECORDS
+   Move
+     k  up                  up
+     j  down                down
+     pgup  ctrl+b           page up
+     pgdown  ctrl+d         page down
+     g  home                top
+     G  end                 bottom (on logs: back to the live tail)
+   Time and stream
+     1  &                   window 15m
+     2  é                   window 30m
+     3  "                   window 40m
+     4  '                   window 45m
+     5  (                   window 1h
+     6  -                   window 1d
+     7  è                   window 2d
+     0  à                   tail (last lines)
+     b                      from/to: a range between two dates and times (empty end: until now, following)
+     ]                      next page of a range that holds more lines than the buffer
+     [                      previous page of a range
+     f                      follow on/off (in a head or a closed range: back to the default window, following)
+     space                  pause / resume (keeps buffering)
+     i                      Kafka isolation: every record, or committed records only
+     D                      Kafka records decoded with the Schema Registry, or as their bytes (reads again)
+   Filter
+     /  ctrl+f              filter as you type
+   Inspect
+     enter                  open / zoom / apply
+     y  ctrl+y              copy the selected lines, or the cursor line, as shown (uncolored, whole, with stack traces)
+   Display
+     o                      newest or oldest first
+   Services
+     r                      resync the watches (on a logs error: reload the logs)
+
+ GLOBAL
+     ?  f1                  help for this screen
+     f2  ctrl+k             key bar: compact, full, hidden
+     esc                    back, close, exit fullscreen, clear the last filter
+     ctrl+e                 switch environment
+     q  ctrl+c              quit
+
+ IN THE FILTER PROMPT
+     key=<text>             the key contains text
+     partition=<n>          records of partition n
+     header.<name>=<text>   a header contains text
+     <text>                 key, value or a header contains text (upper case: exact case)
+
+ HELP   keys follow keymap in ui.yaml
+ j/k scroll  / search  esc close

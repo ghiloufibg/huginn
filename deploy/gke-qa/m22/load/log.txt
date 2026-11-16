@@ -1,0 +1,3 @@
+sampled: sampled 32s ago
+requests issued by the other clients: 362
+session alive

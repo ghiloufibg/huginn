@@ -1,0 +1,50 @@
+ huginn  REC  gke_huginn-kube-tui_us-east1_huginn-qa / qa-rec   services / usage                                                                                kubernetes · watching · synced 00:56:49
+ NAMESPACE / SERVICE     PODS     CPU   %REQ   %LIM   MEMORY   %REQ   %LIM  PEAK POD  TREND       NOTE
+ ▾ qa-rec               25/25    1.04    26%      —    1.3Gi    15%      —  f8lw8     ████
+   ▸ usage-mem            3/3      0m     0%     0%    770Mi    50%    50%  f8lw8     ████
+   ▸ kafka-qa             1/1     14m     3%      —    456Mi    30%    22%            ████
+   ▸ usage-sidecar        2/2      2m     0%     0%    129Mi    25%    25%  nwdgw     ████
+   ▸ deploy-pair          2/2      2m     2%      —      2Mi     2%      —            ████        no limit · over-provisioned
+   ▸ deploy-probe         2/2      2m     2%      —      1Mi     2%      —            ████        no limit · over-provisioned
+   ▸ trace-emitter        2/2      4m     4%      —      1Mi     1%      —            ████        no limit · over-provisioned
+   ▸ deploy-sts           2/2      2m     2%      —    844Ki     1%      —            ████        no limit · over-provisioned
+   ▸ range-emitter        2/2     10m    10%      —    828Ki     1%      —            ████        no limit · over-provisioned
+   ▸ usage-nolimit        2/2      1m     0%      —    820Ki     0%      —            ████        no limit · over-provisioned
+   ▸ deploy-auto          1/1      1m     2%      —    432Ki     1%      —            ████        no limit · over-provisioned
+   ▸ deploy-ds            1/1      1m    10%      —    424Ki     3%      —            ████        no limit · over-provisioned
+   ▸ catalog              1/1      1m     1%      —    416Ki     0%      —            ████        no limit · over-provisioned
+   ▸ named-pod-fixture    1/1      1m     2%      —    416Ki     1%      —            ████        no limit · over-provisioned
+   ▸ orders               1/1      1m     1%      —    416Ki     0%      —            ████        no limit · over-provisioned
+   ▸ redact-emitter       1/1      1m     2%      —    392Ki     1%      —            ████        no limit · over-provisioned
+   ▸ usage-cpu            1/1    998m   200%   100%    384Ki     0%     0%            ████        CPU 100% of limit
+     deploy-cron          0/0       —      —      —        —      —      —                        1 pod completed
+     usage-done           0/0       —      —      —        —      —      —                        1 pod completed
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ Averages over the metrics window: peaks between samples are not shown.
+ USAGE   sampled 24s ago · 44s window  ·  containers all (sidecars included)  ·  sort memory
+ enter expand  L logs  p detail  / filter  s sort  A containers  r reload  f2 keys  esc back  q quit  ? help

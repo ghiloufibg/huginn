@@ -1,0 +1,50 @@
+ huginn  REC  gke_huginn-kube-tui_us-east1_huginn-qa / qa-rec   services / catalog / kafka / topic-b                                                            kubernetes · watching · synced 23:22:58
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                    no record in topic-b, since 15m
+
+                                                                               5 longer window  ·  f follow  ·  esc back
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ PAUSED   since 15m  ·  0 records  ·  uncommitted  ·  200 waiting
+ enter zoom  / filter  1-7 window  0 tail  b range  f follow  space pause  i isolation  y copy  esc back

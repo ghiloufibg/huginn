@@ -1,0 +1,50 @@
+ huginn  REC  gke_huginn-kube-tui_us-east1_huginn-qa / qa-rec   services / catalog / kafka / range-topic                                                        kubernetes · watching · synced 23:25:24
+ TIME         P   OFFSET    KEY                      VALUE
+ 23:19:32.481 p3  #292      k23                      {"n":2923,"msg":"record number 2923"}
+ 23:19:32.481 p3  #293      k34                      {"n":2934,"msg":"record number 2934"}
+ 23:19:32.481 p3  #294      k39                      {"n":2939,"msg":"record number 2939"}
+ 23:19:32.481 p3  #295      k2                       {"n":2952,"msg":"record number 2952"}
+ 23:19:32.481 p3  #296      k12                      {"n":2962,"msg":"record number 2962"}
+ 23:19:32.481 p3  #297      k23                      {"n":2973,"msg":"record number 2973"}
+ 23:19:32.481 p3  #298      k34                      {"n":2984,"msg":"record number 2984"}
+ 23:19:32.481 p4  #642      k20                      {"n":2920,"msg":"record number 2920"}
+ 23:19:32.481 p4  #643      k21                      {"n":2921,"msg":"record number 2921"}
+ 23:19:32.481 p4  #644      k29                      {"n":2929,"msg":"record number 2929"}
+ 23:19:32.481 p4  #645      k32                      {"n":2932,"msg":"record number 2932"}
+ 23:19:32.481 p4  #646      k36                      {"n":2936,"msg":"record number 2936"}
+ 23:19:32.481 p4  #647      k45                      {"n":2945,"msg":"record number 2945"}
+ 23:19:32.481 p4  #648      k46                      {"n":2946,"msg":"record number 2946"}
+ 23:19:32.481 p4  #649      k3                       {"n":2953,"msg":"record number 2953"}
+ 23:19:32.481 p4  #650      k4                       {"n":2954,"msg":"record number 2954"}
+ 23:19:32.481 p4  #651      k7                       {"n":2957,"msg":"record number 2957"}
+ 23:19:32.481 p4  #652      k10                      {"n":2960,"msg":"record number 2960"}
+ 23:19:32.481 p4  #653      k20                      {"n":2970,"msg":"record number 2970"}
+ 23:19:32.481 p4  #654      k21                      {"n":2971,"msg":"record number 2971"}
+ 23:19:32.481 p4  #655      k29                      {"n":2979,"msg":"record number 2979"}
+ 23:19:32.481 p4  #656      k32                      {"n":2982,"msg":"record number 2982"}
+ 23:19:32.481 p4  #657      k36                      {"n":2986,"msg":"record number 2986"}
+ 23:19:32.481 p5  #407      k16                      {"n":2916,"msg":"record number 2916"}
+ 23:19:32.481 p5  #408      k22                      {"n":2922,"msg":"record number 2922"}
+ 23:19:32.481 p5  #409      k26                      {"n":2926,"msg":"record number 2926"}
+ 23:19:32.481 p5  #410      k37                      {"n":2937,"msg":"record number 2937"}
+ 23:19:32.481 p5  #411      k44                      {"n":2944,"msg":"record number 2944"}
+ 23:19:32.481 p5  #412      k0                       {"n":2950,"msg":"record number 2950"}
+ 23:19:32.481 p5  #413      k1                       {"n":2951,"msg":"record number 2951"}
+ 23:19:32.481 p5  #414      k16                      {"n":2966,"msg":"record number 2966"}
+ 23:19:32.481 p5  #415      k22                      {"n":2972,"msg":"record number 2972"}
+ 23:19:32.481 p5  #416      k26                      {"n":2976,"msg":"record number 2976"}
+ 23:19:32.481 p5  #417      k37                      {"n":2987,"msg":"record number 2987"}
+ 23:19:32.482 p0  #479      k40                      {"n":2990,"msg":"record number 2990"}
+ 23:19:32.482 p1  #539      k49                      {"n":2999,"msg":"record number 2999"}
+ 23:19:32.482 p2  #595      k41                      {"n":2991,"msg":"record number 2991"}
+ 23:19:32.482 p2  #596      k42                      {"n":2992,"msg":"record number 2992"}
+ 23:19:32.482 p2  #597      k43                      {"n":2993,"msg":"record number 2993"}
+ 23:19:32.482 p2  #598      k47                      {"n":2997,"msg":"record number 2997"}
+ 23:19:32.482 p2  #599      k48                      {"n":2998,"msg":"record number 2998"}
+ 23:19:32.482 p3  #299      k39                      {"n":2989,"msg":"record number 2989"}
+ 23:19:32.482 p4  #658      k45                      {"n":2995,"msg":"record number 2995"}
+ 23:19:32.482 p4  #659      k46                      {"n":2996,"msg":"record number 2996"}
+ 23:19:32.482 p5  #418      k44                      {"n":2994,"msg":"record number 2994"}
+ 23:19:32.482 p5  #419      k0                       {"n":3000,"msg":"record number 3000"}
+ STOPPED   last 100 per partition  ·  600 records  ·  uncommitted
+ enter zoom  / filter  1-7 window  0 tail  b range  f follow  space pause  i isolation  y copy  esc back

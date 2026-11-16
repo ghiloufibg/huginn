@@ -1,0 +1,50 @@
+ huginn  REC  gke_huginn-kube-tui_us-east1_huginn-qa / qa-rec   services / catalog / kafka / topic-a / p0 #3                                                    kubernetes · watching · synced 01:11:50
+ topic      topic-a
+ partition  0   offset 3
+ time       2026-11-16 01:08:56.180 CET  (producer time)
+ key        ∅
+ value      15 B
+
+ VALUE
+   schema 999999: schema 999999: registry answered 404 Schema not found: not found
+   00000000  00 00 0f 42 3f 69 72 72  65 6c 65 76 61 6e 74     |...B?irrelevant|
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ RECORD   read only
+ J/K next/previous record  j/k scroll  y copy value  esc back

@@ -228,3 +228,88 @@ At 20×6 the screen shows a truncated header, the first rows and `? help`, no cr
 ### Updated list of what was not run
 
 Spring trio and Karapace (so Avro/JSON Schema decoding and the SASL/TLS Kafka tier); the `-race` pass; the secrets scan of artefacts; the clipboard; chaos beyond a revoked permission, a scale-to-zero, a deleted followed pod and an unreachable API (no network cut mid-session, no metrics-server removal, no throttling); 3-run medians for the performance numbers outside the latency table; the per-verb API count.
+
+## 5. Fourth batch: Kafka decoding, SASL/TLS tier, redaction, clipboard, load, final coverage
+
+### Kafka with Karapace (Avro, JSON Schema), against the real broker and registry
+
+`schema-registration/` (M14's tool, unchanged) registered an Avro and a JSON Schema and produced Confluent-framed records on `topic-a` and `topic-c`, including one with schema id 999999 and one with a plain numeric key.
+
+| Case | Result |
+|---|---|
+| `kafka check catalog` | `schema registry: ready (records written by its serializers are decoded)` |
+| TUI `topic-a`, decoded | `avro 1 · {"id":"order-1","total":"19.99","placedAt":"2026-11-16T00:08:54.401Z"}` (decimal and `timestamp-millis` rendered as documented); the bogus id shows `schema 999999, 15 B · schema 999999: registry answered 404 Schema not found: not found`; the numeric key reads `binary 8 B` |
+| `D` | toggles to `schema 1, 22 B` per record and `not decoded` in the status line, and back |
+| zoom of a decoded record, and of the bogus one | `avro, schema 1 (com.huginnqa.catalog.Order)`; the bogus one shows the 404 text |
+| `topic-c` (JSON Schema) | `json 2 · {"inStock":true,"sku":"SKU-001"}` |
+| shell `kafka read … --no-decode` | the framed bytes, `schema 1, 22 B` |
+
+The record times and `placedAt` values (the tool writes each record one hour apart) and the registry's own correctness are not judged here.
+
+### SASL_SSL / SCRAM-SHA-512 / private CA / sops+age (tier 2)
+
+The CA and broker certificate of M12 **expired on 2026-10-17**. The error Huginn gave was exact: `TLS: x509: certificate has expired or is not yet valid: current time 2026-11-16T01:13:47+01:00 is after 2026-10-17T19:45:10Z (localhost:9094): unreachable`. A new CA, broker certificate, keystore and truststore were generated locally (`m22-tier2-certs.sh`, 30 days), the broker restarted on its volume, and the SCRAM password and the sops file re-created (`m22-tier2-creds.sh`; the password is never printed).
+
+| Case | Result |
+|---|---|
+| `kafka check orders` | `topic-a` in 1 partition ready, `topic-b` out 3 partitions ready, `topic-c` 2 ready, `topic-restricted` `not found` (never created); exit 1 because one topic is unreadable |
+| `kafka read orders topic-b --tail 1` | records read through TLS + SASL |
+| wrong truststore password | `truststore …/client.truststore.p12: wrong password: configuration` |
+| sops cannot decrypt (no age key) | `sops cannot decrypt …: Failed to get the data key required to decrypt the SOPS file · failed to load age identities` |
+| `security: sasl_plaintext` against the TLS port | `invalid large response size 352518912 > limit 104857600; the first three bytes received appear to be a tls alert record for TLS v1.2; is this a plaintext…` |
+| SCRAM credential set from the *old* sops password (first attempt) | `the brokers closed the connection during authentication: check connection.sasl (credentials rejected?)…`; **cause not found** (the username matched; the old password was applied with `kafka-configs`); replaced by a known alphanumeric password, after which authentication worked |
+
+### Kafka shell flags (C-7), with the instrumented binary
+
+`check`, `read --tail`, `--since`, `--raw`, `--no-decode`, `--committed`, `--from/--to` (an empty range and a relative one), `-f` (a record produced during the follow appeared), an unknown topic and an unknown repo (both exit 1 with a one-line reason): all as documented. Exit codes `141` in the run log are the harness's `head` closing the pipe, not Huginn.
+
+### Redaction, clipboard and secrets scan (N-17, L-8, T-4)
+
+Fixture `redact-emitter` logs `alice.smith@example.com` and `Bearer eyJhbGciOi.QA-TOKEN-n.sig` on every line.
+
+| Case | Result |
+|---|---|
+| screen | shows the line as logged (redaction is for copy and save) |
+| `ctrl+s` | the saved file has `user [redacted] called with [redacted]`; **0** occurrences of the e-mail or the token in the file |
+| `y` (as shown), `Y` (raw JSON), range copy of 3 lines | all delivered through OSC 52 to tmux's buffer (with `set-clipboard on`), redacted, byte for byte the same text as the saved file; the status line says `copied 3 lines (312 bytes, as shown)` |
+| Windows clipboard from the tmux session | **unchanged**: tmux did not forward OSC 52 to Windows Terminal in this setup; whether `clipboard: auto` reaches the Windows clipboard from a plain Windows Terminal + WSL session without tmux was **not tested** |
+| debug log (`--log-level debug`, 78 lines, mode 0600) and saved files | **0** occurrences of the e-mail, `QA-TOKEN`, `eyJhbGciOi`, `ya29.`, `Authorization`, `BEGIN PRIVATE KEY`, `client-certificate-data`, the keystore password (`m22-scan-secrets.sh`; the control, `kubectl logs`, does contain them) |
+
+Not scanned: the raw terminal records of earlier runs (they hold the unredacted log lines, which the screen shows by design) and the GKE auth plugin's token cache file (`~/m22/gke_gcloud_auth_plugin_cache`, written by the plugin with mode 0600, not by Huginn).
+
+### Other checks
+
+| Case | Result |
+|---|---|
+| R-5, 12 parallel clients (362 requests in 90 s: pod lists and the Metrics API) while the usage screen is open | no error text, process alive, samples still refreshing (age 24–46 s); the load was modest and Autopilot did not throttle |
+| `mouse-test.sh` (M9.3), unchanged, `--demo`, tmux 3.4 | plain click **ok**; shift+click, drag, wheel and the "mouse enabled" check **FAIL**; the pre-M21 binary fails the same four, and Huginn does emit `?1002h` and `?1006h` (observed), so this is the script or tmux 3.4, not a regression. **Unresolved** |
+
+### Final merged statement coverage of the real-cluster runs (services, usage, logs, Kafka, Avro, SASL/TLS, shell)
+
+| Package | Statements |
+|---|---|
+| `adapters/driving/cli` | 85.9 % |
+| `adapters/driven/kafka` | 77.9 % |
+| `adapters/driven/kubernetes` | 71.0 % |
+| `adapters/driving/tui` | 70.0 % (64 of 458 functions at 0 %) |
+| `adapters/driven/layout` | 68.7 % |
+| `core/app` | 68.4 % |
+| `bootstrap` | 66.1 % |
+| `adapters/driven/schemaregistry` | 63.3 % (`avrojson` 34.1 %) |
+| `core/domain` | 58.6 % |
+| `config` | 58.1 % |
+| `adapters/driven/sops` | 17.4 % |
+| `adapters/driven/demo` | 0 % (by design) |
+| **whole module** | **60.5 %** |
+
+The 64 uncovered TUI functions, by file: mouse handlers (`mouse.go`: tmux could not send mouse events through the pipe used), error panels and their key hints (`errpanel.go`, `kafka.go`, `usage.go` `usageFix`: the unreachable-API test ran on the uninstrumented binary), the range popup editor (`rangepicker.go`), the trace view's enter and exit helpers (`trace.go`: run with the uninstrumented binary), theme builders other than the one in use (`theme.go`), `columns.go` toggles, `logfilter.go` context helpers, `zoom.go` stack and raw lines, Kafka paging (`kafkarecords.go`: a topic that fits one page). The instrumented binary predates the fixes of §4, so `settled` and the new usage paths show as uncovered although their unit tests pass. **This is reach on a real cluster, not correctness**: most of those functions have unit tests.
+
+## 6. Open items
+
+| # | Item |
+|---|---|
+| O-1 | `mouse-test.sh` fails four checks identically on the pre-M21 and the current binary (§5); cause not found |
+| O-2 | A SCRAM credential set with `kafka-configs` from an existing password was rejected; cause not found (the working path was a newly generated alphanumeric password) |
+| O-3 | The clipboard was not checked end to end in a plain Windows Terminal session |
+| O-4 | `-race` pass, network cut, `metrics-server` removal, per-verb API count: not run (no `gcc` or root, GKE managed namespaces, no audit logs) |
+| O-5 | D-075 still reads "accepted, pending the real-cluster QA": the owner's call, with F-1, F-2, F-4, F-6 and F-7 fixed and verified, the per-verb API evidence missing, and the report above |

@@ -1,0 +1,50 @@
+ huginn  REC  gke_huginn-kube-tui_us-east1_huginn-qa / qa-rec   services / catalog / kafka / topic-b                                                            kubernetes · watching · synced 23:22:58
+ TIME         P   OFFSET    KEY                      VALUE
+ 23:19:36.355 p2  #19       k0                       {"n":50}
+ 23:19:36.361 p2  #59       k0                       {"n":150}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ /  50
+ STOPPED   since 15m  ·  2 records  ·  uncommitted  ·  filter 50
+ enter zoom  / filter  1-7 window  0 tail  b range  f follow  space pause  i isolation  y copy  esc back

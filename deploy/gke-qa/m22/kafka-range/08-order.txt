@@ -1,0 +1,50 @@
+ huginn  REC  gke_huginn-kube-tui_us-east1_huginn-qa / qa-rec   services / catalog / kafka / range-topic                                                        kubernetes · watching · synced 23:26:32
+ TIME         P   OFFSET    KEY                      VALUE
+ 23:19:32.407 p1  #8        k49                      {"n":49,"msg":"record number 49"}
+ 23:19:32.407 p0  #8        k5                       {"n":55,"msg":"record number 55"}
+ 23:19:32.406 p5  #5        k44                      {"n":44,"msg":"record number 44"}
+ 23:19:32.406 p5  #4        k37                      {"n":37,"msg":"record number 37"}
+ 23:19:32.406 p4  #8        k36                      {"n":36,"msg":"record number 36"}
+ 23:19:32.406 p3  #4        k39                      {"n":39,"msg":"record number 39"}
+ 23:19:32.406 p3  #3        k34                      {"n":34,"msg":"record number 34"}
+ 23:19:32.406 p2  #7        k43                      {"n":43,"msg":"record number 43"}
+ 23:19:32.406 p2  #6        k42                      {"n":42,"msg":"record number 42"}
+ 23:19:32.406 p2  #5        k41                      {"n":41,"msg":"record number 41"}
+ 23:19:32.406 p1  #7        k38                      {"n":38,"msg":"record number 38"}
+ 23:19:32.406 p1  #6        k35                      {"n":35,"msg":"record number 35"}
+ 23:19:32.406 p1  #5        k33                      {"n":33,"msg":"record number 33"}
+ 23:19:32.406 p0  #7        k40                      {"n":40,"msg":"record number 40"}
+ 23:19:32.405 p5  #3        k26                      {"n":26,"msg":"record number 26"}
+ 23:19:32.405 p4  #7        k32                      {"n":32,"msg":"record number 32"}
+ 23:19:32.405 p4  #6        k29                      {"n":29,"msg":"record number 29"}
+ 23:19:32.405 p2  #4        k28                      {"n":28,"msg":"record number 28"}
+ 23:19:32.405 p1  #4        k27                      {"n":27,"msg":"record number 27"}
+ 23:19:32.405 p0  #6        k31                      {"n":31,"msg":"record number 31"}
+ 23:19:32.405 p0  #5        k30                      {"n":30,"msg":"record number 30"}
+ 23:19:32.405 p0  #4        k25                      {"n":25,"msg":"record number 25"}
+ 23:19:32.404 p5  #2        k22                      {"n":22,"msg":"record number 22"}
+ 23:19:32.404 p5  #1        k16                      {"n":16,"msg":"record number 16"}
+ 23:19:32.404 p4  #5        k21                      {"n":21,"msg":"record number 21"}
+ 23:19:32.404 p4  #4        k20                      {"n":20,"msg":"record number 20"}
+ 23:19:32.404 p3  #2        k23                      {"n":23,"msg":"record number 23"}
+ 23:19:32.404 p2  #3        k19                      {"n":19,"msg":"record number 19"}
+ 23:19:32.404 p1  #3        k18                      {"n":18,"msg":"record number 18"}
+ 23:19:32.404 p1  #2        k17                      {"n":17,"msg":"record number 17"}
+ 23:19:32.404 p0  #3        k24                      {"n":24,"msg":"record number 24"}
+ 23:19:32.403 p4  #3        k10                      {"n":10,"msg":"record number 10"}
+ 23:19:32.403 p4  #2        k7                       {"n":7,"msg":"record number 7"}
+ 23:19:32.403 p3  #1        k12                      {"n":12,"msg":"record number 12"}
+ 23:19:32.403 p2  #2        k13                      {"n":13,"msg":"record number 13"}
+ 23:19:32.403 p2  #1        k9                       {"n":9,"msg":"record number 9"}
+ 23:19:32.403 p2  #0        k8                       {"n":8,"msg":"record number 8"}
+ 23:19:32.403 p1  #1        k14                      {"n":14,"msg":"record number 14"}
+ 23:19:32.403 p1  #0        k6                       {"n":6,"msg":"record number 6"}
+ 23:19:32.403 p0  #2        k15                      {"n":15,"msg":"record number 15"}
+ 23:19:32.403 p0  #1        k11                      {"n":11,"msg":"record number 11"}
+ 23:19:32.402 p4  #1        k4                       {"n":4,"msg":"record number 4"}
+ 23:19:32.402 p4  #0        k3                       {"n":3,"msg":"record number 3"}
+ 23:19:32.402 p3  #0        k2                       {"n":2,"msg":"record number 2"}
+ 23:19:32.402 p0  #0        k5                       {"n":5,"msg":"record number 5"}
+ 23:19:32.386 p5  #0        k1                       {"n":1,"msg":"record number 1"}
+ STOPPED   since 1d  ·  3000 records  ·  uncommitted  ·  newest first  ·  2954 newer
+ enter zoom  / filter  1-7 window  0 tail  b range  f follow  space pause  i isolation  y copy  esc back

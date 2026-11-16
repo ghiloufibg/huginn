@@ -1,0 +1,50 @@
+ huginn  REC  gke_huginn-kube-tui_us-east1_huginn-qa / qa-rec   services / catalog / kafka / topic-a                                                            kubernetes · watching · synced 01:11:50
+ TIME         P   OFFSET    KEY                      VALUE
+ 01:08:54.401 p0  #0        ∅                        avro 1 · {"id":"order-1","total":"19.99","placedAt":"2026-11-16T00:08:54.401Z"}
+ 01:08:55.959 p0  #1        ∅                        avro 1 · {"id":"order-2","total":"20.99","placedAt":"2026-11-15T23:08:55.959Z"}
+ 01:08:56.073 p0  #2        ∅                        avro 1 · {"id":"order-3","total":"21.99","placedAt":"2026-11-15T22:08:56.073Z"}
+ 01:08:56.180 p0  #3        ∅                        schema 999999, 15 B · schema 999999: registry answered 404 Schema not found: not found
+ 01:08:56.303 p0  #4        binary 8 B               {"note":"plain numeric key, unframed value"}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ STOPPED   since 2d  ·  5 records  ·  uncommitted  ·  schema registry: schema 999999: registry answered 404 Schema not found: not found
+ enter zoom  / filter  1-7 window  0 tail  b range  f follow  space pause  i isolation  D bytes  y copy  esc back
