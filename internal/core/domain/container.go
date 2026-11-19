@@ -66,15 +66,24 @@ func (f ContainerFilter) LogContainers(p Pod) []Container {
 
 // PrimaryApp returns the main application container of p: the one named
 // like its workload, else the first application container.
+// It allocates nothing: the services preview calls it for every pod of the
+// selected service on every frame.
 func (f ContainerFilter) PrimaryApp(p Pod) (Container, bool) {
-	apps := f.AppContainers(p)
-	for _, c := range apps {
+	first := -1
+	for i := range p.Containers {
+		c := &p.Containers[i]
+		if !f.IsApp(*c, p.OwnerName) {
+			continue
+		}
 		if c.Name == p.OwnerName {
-			return c, true
+			return *c, true
+		}
+		if first < 0 {
+			first = i
 		}
 	}
-	if len(apps) > 0 {
-		return apps[0], true
+	if first >= 0 {
+		return p.Containers[first], true
 	}
 	return Container{}, false
 }

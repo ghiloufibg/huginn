@@ -154,3 +154,44 @@ func TestShortSHA(t *testing.T) {
 		t.Error("ShortSHA")
 	}
 }
+
+func BenchmarkRunningImages(b *testing.B) {
+	f := ContainerFilter{Deny: []string{"istio-proxy"}}
+	settled := make([]Pod, 0, 2000)
+	rollout := make([]Pod, 0, 2000)
+	for i := range 2000 {
+		settled = append(settled, ipod("p", "r1", "1.0", digA, i%900))
+		if i%2 == 0 {
+			rollout = append(rollout, ipod("p", "r1", "1.0", digA, i%900))
+		} else {
+			rollout = append(rollout, ipod("p", "r2", "1.1", digB, 1000+i%900))
+		}
+	}
+	w := deployment()
+	b.Run("settled, 2000 pods", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			_, _ = RunningImages(w, settled, f)
+		}
+	})
+	b.Run("rollout, 2000 pods", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			_, _ = RunningImages(w, rollout, f)
+		}
+	})
+}
+
+// TestRunningImagesAllocatesNothing: it runs for every workload of the
+// selected service when a snapshot arrives.
+func TestRunningImagesAllocatesNothing(t *testing.T) {
+	f := ContainerFilter{Deny: []string{"istio-proxy"}}
+	pods := []Pod{ipod("a", "r1", "1.0", digA, 0), ipod("c", "r2", "1.1", digB, 10), ipod("d", "r2", "1.1", "", 11)}
+	w := deployment()
+	if n := testing.AllocsPerRun(50, func() { _, _ = RunningImages(w, pods, f) }); n != 0 {
+		t.Errorf("%v allocations per call, want 0", n)
+	}
+	if n := testing.AllocsPerRun(50, func() { _, _ = f.PrimaryApp(pods[0]) }); n != 0 {
+		t.Errorf("PrimaryApp: %v allocations per call, want 0", n)
+	}
+}

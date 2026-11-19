@@ -74,12 +74,38 @@ type Releases struct {
 
 	mu      sync.Mutex
 	found   map[releaseKey]ports.Deployment // a digest's release never changes
-	missed  map[releaseKey]time.Time        // "not recent", re-checked after Refresh
+	missed  map[releaseKey]miss             // "not recent", re-checked after Refresh
 	fetched map[string]time.Time            // last refresh of each remote
 	locks   map[string]*sync.Mutex          // one search per project and environment
+	// A finished job's log and a pipeline's jobs do not change: a digest
+	// is never searched twice in the same log, and a pipeline's jobs are
+	// listed once. Both are bounded (cleared past maxRemembered).
+	absent map[logKey]struct{}
+	jobs   map[pipelineKey][]ports.Job
 }
 
 type releaseKey struct{ project, env, digest string }
+
+// miss is a search that found no deployment: when, and the newest
+// deployment it read, so that the next search stops there.
+type miss struct {
+	at   time.Time
+	upTo int64
+}
+
+type logKey struct {
+	project string
+	job     int64
+	digest  string
+}
+
+type pipelineKey struct {
+	project  string
+	pipeline int64
+}
+
+// maxRemembered bounds the logs and pipelines remembered in a session.
+const maxRemembered = 4096
 
 // Running implements ports.Releases.
 func (r *Releases) Running(ctx context.Context, q ports.ReleaseQuery) (map[string]domain.RunningRelease, error) {
@@ -258,19 +284,27 @@ func (r *Releases) searchEnv(ctx context.Context, repo string, p ports.ReleasePr
 	if m := r.Settings.Repos[repo].MaxDeployments; m > 0 {
 		limit = m
 	}
-	jobsOf := map[int64][]ports.Job{} // pipeline jobs, read once per pipeline
-	read := map[int64]bool{}          // job logs already read
-	scanned := 0
-	for page := 1; scanned < limit && len(remaining) > 0; page++ {
+	// A digest searched before was searched down to upTo: the next search
+	// reads only the deployments made since, then stops.
+	floor := r.searchedUpTo(p.Path, env, remaining)
+	read := map[int64]bool{} // job logs already read
+	scanned, newest := 0, int64(0)
+	stop := false
+	for page := 1; scanned < limit && len(remaining) > 0 && !stop; page++ {
 		ds, err := r.History.Deployments(ctx, p, env, page, r.Settings.PerPage)
 		if err != nil {
 			return fmt.Errorf("read the %s deployments: %w", env, err)
 		}
 		for _, d := range ds {
+			if floor > 0 && d.ID <= floor {
+				stop = true
+				break
+			}
 			if scanned++; scanned > limit || len(remaining) == 0 {
 				break
 			}
-			jobs, err := r.promoteJobs(ctx, p, d, remaining, jobOf, jobsOf)
+			newest = max(newest, d.ID)
+			jobs, err := r.promoteJobs(ctx, p, d, remaining, jobOf)
 			if err != nil {
 				return err
 			}
@@ -279,10 +313,20 @@ func (r *Releases) searchEnv(ctx context.Context, repo string, p ports.ReleasePr
 					continue
 				}
 				read[j.ID] = true
-				needles := slices.DeleteFunc(slices.Clone(remaining), func(dg string) bool { return jobOf[dg] != j.Name })
+				needles := slices.DeleteFunc(slices.Clone(remaining), func(dg string) bool {
+					return jobOf[dg] != j.Name || r.knownAbsent(logKey{p.Path, j.ID, dg})
+				})
+				if len(needles) == 0 {
+					continue
+				}
 				hits, err := r.History.LogFind(ctx, p, j.ID, needles, r.Settings.MaxLogBytes)
 				if err != nil {
 					return fmt.Errorf("read the log of job %s: %w", j.Name, err)
+				}
+				for _, n := range needles {
+					if !slices.Contains(hits, n) {
+						r.markAbsent(logKey{p.Path, j.ID, n})
+					}
 				}
 				for _, h := range hits {
 					found[h] = d
@@ -297,7 +341,7 @@ func (r *Releases) searchEnv(ctx context.Context, repo string, p ports.ReleasePr
 	}
 	for _, dg := range remaining {
 		searched[dg] = true
-		r.missedNow(releaseKey{p.Path, env, dg})
+		r.missedNow(releaseKey{p.Path, env, dg}, newest)
 	}
 	return nil
 }
@@ -307,7 +351,7 @@ func (r *Releases) searchEnv(ctx context.Context, repo string, p ports.ReleasePr
 // otherwise those of its pipeline with a wanted name. A deployment of
 // another service (a monorepo) has none, and its log is never read.
 func (r *Releases) promoteJobs(ctx context.Context, p ports.ReleaseProject, d ports.Deployment, remaining []string,
-	jobOf map[string]string, jobsOf map[int64][]ports.Job,
+	jobOf map[string]string,
 ) ([]ports.Job, error) {
 	wanted := map[string]bool{}
 	for _, dg := range remaining {
@@ -319,13 +363,21 @@ func (r *Releases) promoteJobs(ctx context.Context, p ports.ReleaseProject, d po
 	if d.Pipeline == 0 {
 		return nil, nil
 	}
-	jobs, ok := jobsOf[d.Pipeline]
+	pk := pipelineKey{p.Path, d.Pipeline}
+	r.mu.Lock()
+	jobs, ok := r.jobs[pk]
+	r.mu.Unlock()
 	if !ok {
 		var err error
 		if jobs, err = r.History.PipelineJobs(ctx, p, d.Pipeline); err != nil {
 			return nil, fmt.Errorf("read the jobs of pipeline %d: %w", d.Pipeline, err)
 		}
-		jobsOf[d.Pipeline] = jobs
+		r.mu.Lock()
+		if r.jobs == nil || len(r.jobs) >= maxRemembered {
+			r.jobs = map[pipelineKey][]ports.Job{}
+		}
+		r.jobs[pk] = jobs
+		r.mu.Unlock()
 	}
 	var out []ports.Job
 	for _, j := range jobs {
@@ -411,7 +463,7 @@ func (r *Releases) cached(k releaseKey) (ports.Deployment, bool) {
 func (r *Releases) remember(k releaseKey, d ports.Deployment) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.found == nil {
+	if r.found == nil || len(r.found) >= maxRemembered {
 		r.found = map[releaseKey]ports.Deployment{}
 	}
 	r.found[k] = d
@@ -421,15 +473,51 @@ func (r *Releases) remember(k releaseKey, d ports.Deployment) {
 func (r *Releases) recentlyMissed(k releaseKey) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	at, ok := r.missed[k]
-	return ok && r.Clock.Now().Sub(at) < r.Settings.Refresh
+	m, ok := r.missed[k]
+	return ok && r.Clock.Now().Sub(m.at) < r.Settings.Refresh
 }
 
-func (r *Releases) missedNow(k releaseKey) {
+// missedNow records a search that found nothing; newest is the newest
+// deployment it read (0 when it read none).
+func (r *Releases) missedNow(k releaseKey, newest int64) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.missed == nil {
-		r.missed = map[releaseKey]time.Time{}
+	if r.missed == nil || len(r.missed) >= maxRemembered {
+		r.missed = map[releaseKey]miss{}
 	}
-	r.missed[k] = r.Clock.Now()
+	r.missed[k] = miss{at: r.Clock.Now(), upTo: max(newest, r.missed[k].upTo)}
+}
+
+// searchedUpTo returns the deployment down to which every digest was
+// already searched: 0 when one never was.
+func (r *Releases) searchedUpTo(project, env string, digests []string) int64 {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	floor := int64(-1)
+	for _, dg := range digests {
+		m, ok := r.missed[releaseKey{project, env, dg}]
+		if !ok || m.upTo == 0 {
+			return 0
+		}
+		if floor < 0 || m.upTo < floor {
+			floor = m.upTo
+		}
+	}
+	return max(floor, 0)
+}
+
+func (r *Releases) knownAbsent(k logKey) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	_, ok := r.absent[k]
+	return ok
+}
+
+func (r *Releases) markAbsent(k logKey) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.absent == nil || len(r.absent) >= maxRemembered {
+		r.absent = map[logKey]struct{}{}
+	}
+	r.absent[k] = struct{}{}
 }

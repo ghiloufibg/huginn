@@ -101,7 +101,7 @@ func TestReleasesFoundFurtherBackThroughPipelineJobs(t *testing.T) {
 func TestReleasesNotRecentFallsBackToTheImageTag(t *testing.T) {
 	var ds []ports.Deployment
 	logs := map[int64]string{}
-	for i := int64(1); i <= 10; i++ {
+	for i := int64(10); i >= 1; i-- { // newest first, as GitLab lists them
 		ds = append(ds, deploy("b", i, "promote-prd", i*100))
 		logs[i*10] = dig("9")
 	}
@@ -121,10 +121,47 @@ func TestReleasesNotRecentFallsBackToTheImageTag(t *testing.T) {
 	if _, _, logsRead, _ := h.Calls(); logsRead != 6 {
 		t.Errorf("re-searched before Refresh: %d logs", logsRead)
 	}
+	// After Refresh, only the deployments made since are read: here none,
+	// so one list request and no log.
 	clock.Advance(time.Minute)
 	_, _ = r.Running(context.Background(), query(img("payment-service", dig("1"), "2.14.3-9f03b11")))
-	if _, _, logsRead, _ := h.Calls(); logsRead != 12 {
-		t.Errorf("not re-searched after Refresh: %d logs", logsRead)
+	if pages, _, logsRead, _ := h.Calls(); logsRead != 6 || pages != 4 {
+		t.Errorf("re-check read %d logs and %d pages in all, want 6 and 4 (3 + 1)", logsRead, pages)
+	}
+	// A new deployment of that image: its log alone is read, and found.
+	h.Fixture.Deployments["prd"] = append([]ports.Deployment{deploy("c", 11, "promote-prd", 1100)}, ds...)
+	h.Fixture.Logs[110] = dig("1")
+	clock.Advance(time.Minute)
+	got, _ = r.Running(context.Background(), query(img("payment-service", dig("1"), "2.14.3-9f03b11")))
+	if res := got[dig("1")]; res.State != domain.ReleaseFound || res.Release.SHA != sha("c") {
+		t.Errorf("release = %+v", res)
+	}
+	if _, _, logsRead, jobs := h.Calls(); logsRead != 7 || jobs[6] != 110 {
+		t.Errorf("read %d logs %v, want only the new one", logsRead, jobs)
+	}
+}
+
+func TestReleasesNeverReadsALogTwiceForTheSameDigest(t *testing.T) {
+	// Two digests searched one after the other in the same deployments:
+	// each log is read once per digest, and a pipeline's jobs listed once.
+	h := &portstest.FakeReleaseHistory{Fixture: portstest.ReleaseFixture{
+		Deployments: map[string][]ports.Deployment{"prd": {deploy("b", 2, "deploy", 200), deploy("a", 1, "deploy", 100)}},
+		Jobs:        map[int64][]ports.Job{200: {{ID: 21, Name: "promote-prd"}}, 100: {{ID: 11, Name: "promote-prd"}}},
+		Logs:        map[int64]string{21: dig("2"), 11: dig("1")},
+	}}
+	r, clock := newReleases(h, &portstest.FakeCommitLog{})
+	_, _ = r.Running(context.Background(), query(img("api", dig("1"), "")))
+	_, lists, logs, _ := h.Calls()
+	if lists != 2 || logs != 2 {
+		t.Fatalf("first search: %d job lists, %d logs", lists, logs)
+	}
+	clock.Advance(time.Minute)
+	got, _ := r.Running(context.Background(), query(img("api", dig("1"), ""), img("worker", dig("2"), "")))
+	if got[dig("2")].Release.SHA != sha("b") {
+		t.Errorf("release = %+v", got[dig("2")])
+	}
+	if _, lists, logs, _ := h.Calls(); lists != 2 || logs != 3 {
+		t.Errorf("in all %d job lists and %d logs, want 2 and 3: pipeline jobs are listed once", lists, logs)
 	}
 }
 

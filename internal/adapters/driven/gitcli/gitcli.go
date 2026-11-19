@@ -36,9 +36,24 @@ type Git struct {
 	// Getenv reads the environment (GIT_SSH_COMMAND, GIT_SSH); nil means os.Getenv.
 	Getenv func(string) string
 
-	mu    sync.Mutex
-	locks map[string]*sync.Mutex
+	mu      sync.Mutex
+	locks   map[string]*sync.Mutex
+	urls    map[ports.GitRepo]cachedURL // a clone's remote, read once a minute
+	headSet map[string]time.Time        // last update of each copy's origin/HEAD
 }
+
+type cachedURL struct {
+	url string
+	at  time.Time
+}
+
+// urlTTL is how long a clone's remote URL is reused: every read needs it,
+// and it is one process each time.
+const urlTTL = time.Minute
+
+// headTTL is how often the remote's default branch (origin/HEAD) is asked
+// again: it costs a round trip and almost never changes.
+const headTTL = time.Hour
 
 // Timeouts of one git command.
 const (
@@ -56,6 +71,12 @@ func (g *Git) RemoteURL(ctx context.Context, r ports.GitRepo) (string, error) {
 	if !remoteName.MatchString(r.Remote) {
 		return "", domain.KindError(domain.ErrConfig, "invalid remote name "+strconv.Quote(r.Remote))
 	}
+	g.mu.Lock()
+	c, ok := g.urls[r]
+	g.mu.Unlock()
+	if ok && time.Since(c.at) < urlTTL {
+		return c.url, nil
+	}
 	if st, err := os.Stat(r.Dir); err != nil || !st.IsDir() {
 		return "", domain.KindError(domain.ErrNotFound, "no folder "+r.Dir)
 	}
@@ -67,6 +88,12 @@ func (g *Git) RemoteURL(ctx context.Context, r ports.GitRepo) (string, error) {
 	if url == "" || strings.HasPrefix(url, "-") {
 		return "", domain.KindError(domain.ErrConfig, "invalid remote URL")
 	}
+	g.mu.Lock()
+	if g.urls == nil {
+		g.urls = map[ports.GitRepo]cachedURL{}
+	}
+	g.urls[r] = cachedURL{url, time.Now()}
+	g.mu.Unlock()
 	return url, nil
 }
 
@@ -85,10 +112,13 @@ func (g *Git) Refresh(ctx context.Context, r ports.GitRepo, trees bool) error {
 	if trees {
 		filter = "blob:none" // and trees: needed to count by paths
 	}
-	if current, err := g.run(ctx, localTimeout, nil, cache, "config", "--get", "remote.origin.partialclonefilter"); err == nil &&
-		strings.TrimSpace(current) == "tree:0" && trees {
-		if err := os.RemoveAll(cache); err != nil { // a commits-only copy cannot count by paths: start again
-			return fmt.Errorf("replace the git copy %s: %w", cache, err)
+	if trees {
+		if current, err := g.run(ctx, localTimeout, nil, cache, "config", "--get", "remote.origin.partialclonefilter"); err == nil &&
+			strings.TrimSpace(current) == "tree:0" {
+			if err := os.RemoveAll(cache); err != nil { // a commits-only copy cannot count by paths: start again
+				return fmt.Errorf("replace the git copy %s: %w", cache, err)
+			}
+			g.forgetHead(cache)
 		}
 	}
 	if _, err := os.Stat(filepath.Join(cache, "HEAD")); errors.Is(err, fs.ErrNotExist) {
@@ -101,8 +131,34 @@ func (g *Git) Refresh(ctx context.Context, r ports.GitRepo, trees bool) error {
 	if _, err := g.run(ctx, networkTimeout, env, cache, "fetch", "--quiet", "--prune", "--no-tags", "--filter="+filter, "origin"); err != nil {
 		return err
 	}
-	_, err = g.run(ctx, networkTimeout, env, cache, "remote", "set-head", "origin", "--auto")
-	return err
+	if !g.headDue(cache) {
+		return nil
+	}
+	if _, err := g.run(ctx, networkTimeout, env, cache, "remote", "set-head", "origin", "--auto"); err != nil {
+		return err
+	}
+	g.mu.Lock()
+	if g.headSet == nil {
+		g.headSet = map[string]time.Time{}
+	}
+	g.headSet[cache] = time.Now()
+	g.mu.Unlock()
+	return nil
+}
+
+// headDue tells whether origin/HEAD of a copy must be asked again: never
+// set in this run, or more than headTTL ago.
+func (g *Git) headDue(cache string) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	at, ok := g.headSet[cache]
+	return !ok || time.Since(at) >= headTTL
+}
+
+func (g *Git) forgetHead(cache string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	delete(g.headSet, cache)
 }
 
 func (g *Git) create(ctx context.Context, cache, url, filter string) error {
@@ -176,27 +232,41 @@ func (g *Git) Count(ctx context.Context, r ports.GitRepo, sha, ref string, paths
 	var behind int
 	var onRef bool
 	stale, err := g.read(ctx, r, func(dir string) error {
-		args := append([]string{"rev-list", "--count", "--end-of-options", sha + ".." + ref, "--"}, paths...)
-		out, err := g.run(ctx, localTimeout, nil, dir, args...)
+		// One walk counts both sides: the commits only sha has (none when
+		// it is on ref) and those only ref has (not deployed).
+		out, err := g.run(ctx, localTimeout, nil, dir, "rev-list", "--count", "--left-right", "--end-of-options", sha+"..."+ref)
 		if err != nil {
+			return err
+		}
+		ahead, all, ok := twoCounts(out)
+		if !ok {
+			return fmt.Errorf("rev-list answered %q", out)
+		}
+		onRef, behind = ahead == 0, all
+		if len(paths) == 0 {
+			return nil
+		}
+		args := append([]string{"rev-list", "--count", "--end-of-options", sha + ".." + ref, "--"}, paths...)
+		if out, err = g.run(ctx, localTimeout, nil, dir, args...); err != nil {
 			return err
 		}
 		if behind, err = strconv.Atoi(strings.TrimSpace(out)); err != nil {
 			return fmt.Errorf("rev-list answered %q", out)
 		}
-		_, err = g.run(ctx, localTimeout, nil, dir, "merge-base", "--is-ancestor", sha, ref)
-		var ee *exitError
-		switch {
-		case err == nil:
-			onRef = true
-		case errors.As(err, &ee) && ee.code == 1:
-			onRef = false
-		default:
-			return err
-		}
 		return nil
 	})
 	return behind, onRef, stale, err
+}
+
+// twoCounts reads "<left>\t<right>" from rev-list --left-right --count.
+func twoCounts(out string) (left, right int, ok bool) {
+	l, r, found := strings.Cut(strings.TrimSpace(out), "\t")
+	if !found {
+		return 0, 0, false
+	}
+	left, err1 := strconv.Atoi(l)
+	right, err2 := strconv.Atoi(r)
+	return left, right, err1 == nil && err2 == nil
 }
 
 // read runs fn in Huginn's copy of the remote, else in the user's clone,

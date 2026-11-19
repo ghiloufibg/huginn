@@ -52,29 +52,48 @@ type releasesMsg struct {
 
 // releases is the preview's state of the COMMIT section.
 type releases struct {
-	target  relKey
-	images  []domain.WorkloadImage // of target
+	want    relKey
+	images  []domain.WorkloadImage // of want
 	seq     int
 	pending bool // a rest is scheduled for target
 	cache   map[relKey]relEntry
+	memo    relMemo
 }
 
-// workloadImages returns the current and previous images of each workload
-// of svc, in workload order.
-func workloadImages(m *Model, svc domain.ServiceSummary) (cur, prev []domain.WorkloadImage) {
+// relMemo keeps the images of the selected service for the snapshot they
+// were read from: they change only with the cluster, while the preview is
+// drawn on every frame (2 000 pods take about 0.4 ms per workload).
+type relMemo struct {
+	snap      *ports.CatalogSnapshot
+	env       string
+	repo      string
+	key       relKey
+	imgs      []domain.WorkloadImage
+	cur, prev []domain.WorkloadImage
+}
+
+// target returns the lookup the selected service needs, its images, and
+// the current and previous image of each workload, in workload order.
+// They are computed once per snapshot.
+func (r *releases) target(m *Model, svc *domain.ServiceSummary) (key relKey, imgs, cur, prev []domain.WorkloadImage) {
+	if svc == nil || svc.Unassigned || m.opts.Releases == nil {
+		return relKey{}, nil, nil, nil
+	}
+	mm := &r.memo
+	if mm.snap != nil && mm.snap == m.snap && mm.env == m.env.Name && mm.repo == svc.Repo {
+		return mm.key, mm.imgs, mm.cur, mm.prev
+	}
 	for _, w := range svc.WorkloadStates {
 		c, p := domain.RunningImages(w, svc.Pods, m.opts.Filter)
 		cur, prev = append(cur, c), append(prev, p)
 	}
-	return cur, prev
+	key, imgs = releaseKey(m, svc.Repo, cur, prev)
+	*mm = relMemo{snap: m.snap, env: m.env.Name, repo: svc.Repo, key: key, imgs: imgs, cur: cur, prev: prev}
+	return key, imgs, cur, prev
 }
 
-// releaseTarget returns the lookup the selected service needs.
-func releaseTarget(m *Model, svc *domain.ServiceSummary) (relKey, []domain.WorkloadImage) {
-	if svc == nil || svc.Unassigned || m.opts.Releases == nil {
-		return relKey{}, nil
-	}
-	cur, prev := workloadImages(m, *svc)
+// releaseKey returns the lookup of a service's images: each digest once.
+func releaseKey(m *Model, repo string, cur, prev []domain.WorkloadImage) (relKey, []domain.WorkloadImage) {
 	var imgs []domain.WorkloadImage
 	var digests []string
 	for _, img := range append(cur, prev...) {
@@ -86,15 +105,15 @@ func releaseTarget(m *Model, svc *domain.ServiceSummary) (relKey, []domain.Workl
 		return relKey{}, nil
 	}
 	slices.Sort(digests)
-	return relKey{domain.Env(m.env.Name), svc.Repo, strings.Join(digests, ",")}, imgs
+	return relKey{domain.Env(m.env.Name), repo, strings.Join(digests, ",")}, imgs
 }
 
 // watch schedules a lookup once the cursor rests on a service whose images
 // were not looked up within the TTL (never while scrolling).
 func (r *releases) watch(m *Model, svc *domain.ServiceSummary) tea.Cmd {
-	key, imgs := releaseTarget(m, svc)
-	if key != r.target {
-		r.target, r.images, r.pending = key, imgs, false
+	key, imgs, _, _ := r.target(m, svc)
+	if key != r.want {
+		r.want, r.images, r.pending = key, imgs, false
 		r.seq++
 	}
 	if key.repo == "" || r.pending || r.fresh(m, key) {
@@ -112,7 +131,7 @@ func (r *releases) fresh(m *Model, key relKey) bool {
 
 // rest looks up the releases of the service the cursor rested on.
 func (r *releases) rest(m *Model, msg releasesRestMsg) tea.Cmd {
-	if msg.seq != r.seq || msg.key != r.target {
+	if msg.seq != r.seq || msg.key != r.want {
 		return nil
 	}
 	r.pending = false
@@ -151,7 +170,7 @@ func (r *releases) store(m *Model, msg releasesMsg) {
 // lines returns the COMMIT lines of svc: one when every workload runs the
 // same commit, else one per workload, prefixed with its name.
 func (r *releases) lines(m *Model, svc domain.ServiceSummary) []string {
-	key, _ := releaseTarget(m, &svc)
+	key, _, cur, prev := r.target(m, &svc)
 	if key.repo == "" {
 		return nil
 	}
@@ -163,7 +182,6 @@ func (r *releases) lines(m *Model, svc domain.ServiceSummary) []string {
 	if e.err != nil {
 		return []string{t.Dim.Render(safeText(e.err.Error()))}
 	}
-	cur, prev := workloadImages(m, svc)
 	var names, texts []string
 	width := 0
 	for i, w := range svc.WorkloadStates {

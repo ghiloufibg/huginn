@@ -131,7 +131,10 @@ func (c *Client) getJSON(ctx context.Context, p ports.ReleaseProject, path strin
 	if err != nil {
 		return "", err
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer func() {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10)) // read to the end: the connection is reused
+		_ = resp.Body.Close()
+	}()
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 16<<20)).Decode(v); err != nil {
 		return "", fmt.Errorf("read GitLab's answer to %s: %w", path, err)
 	}

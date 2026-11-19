@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -207,4 +208,47 @@ func TestBatchModeUnlessTheUserChoseAnSSHCommand(t *testing.T) {
 	if env := g.sshEnv(ctx, f.work); env != nil {
 		t.Errorf("env = %v: GIT_SSH_COMMAND must win", env)
 	}
+}
+
+// TestProcessesPerLookup counts the git processes a minute of lookups
+// costs: they are the adapter's whole cost.
+func TestProcessesPerLookup(t *testing.T) {
+	f := newFixture(t)
+	dir := t.TempDir()
+	logFile := filepath.Join(dir, "calls")
+	wrapper := filepath.Join(dir, "git")
+	script := "#!/bin/sh\necho \"$*\" >> " + logFile + "\nexec git \"$@\"\n"
+	if err := os.WriteFile(wrapper, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	f.git.Binary = wrapper
+	calls := func() []string {
+		b, _ := os.ReadFile(logFile)
+		_ = os.Remove(logFile)
+		return strings.FieldsFunc(string(b), func(r rune) bool { return r == '\n' })
+	}
+	ctx := context.Background()
+	if err := f.git.Refresh(ctx, f.repo, false); err != nil {
+		t.Fatal(err)
+	}
+	first := calls()
+	// A refresh within the hour: the fetch only (plus the ssh check), no set-head.
+	if err := f.git.Refresh(ctx, f.repo, false); err != nil {
+		t.Fatal(err)
+	}
+	again := calls()
+	if slices.ContainsFunc(again, func(c string) bool { return strings.Contains(c, "set-head") }) || len(again) > 2 {
+		t.Errorf("second refresh ran %d processes: %q", len(again), again)
+	}
+	// A lookup: the subject and the count, with the remote URL cached.
+	if _, _, err := f.git.Commit(ctx, f.repo, f.third); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := f.git.Count(ctx, f.repo, f.third, "origin/HEAD", nil); err != nil {
+		t.Fatal(err)
+	}
+	if lookup := calls(); len(lookup) != 2 {
+		t.Errorf("a lookup ran %d processes, want 2 (log, rev-list): %q", len(lookup), lookup)
+	}
+	t.Logf("first refresh: %d processes", len(first))
 }

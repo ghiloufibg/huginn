@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -125,7 +126,7 @@ func TestCommitText(t *testing.T) {
 // restReleases delivers the rest of the COMMIT lookup.
 func restReleases(m *Model) {
 	r := &m.stack[0].(*servicesScreen).preview.rel
-	_, cmd := m.Update(releasesRestMsg{key: r.target, seq: r.seq})
+	_, cmd := m.Update(releasesRestMsg{key: r.want, seq: r.seq})
 	run(m, cmd)
 }
 
@@ -232,5 +233,41 @@ func TestNoticeInStatusBar(t *testing.T) {
 	o.Notice = ".env is readable by others (chmod 600 .env)"
 	if !strings.Contains(ansi.Strip(render(NewModel(o), 160, 30)), ".env is readable by others") {
 		t.Error("the notice is not in the status bar")
+	}
+}
+
+// BenchmarkPreviewCommitFrame draws the services screen with the preview of
+// a service of 3 workloads and 2 000 pods, with and without the COMMIT line.
+func BenchmarkPreviewCommitFrame(b *testing.B) {
+	ws := []domain.Workload{workload("catalog-indexer"), workload("catalog-worker"), workload("catalog-cleanup")}
+	var pods []domain.Pod
+	for i := range 2000 {
+		owner := ws[i%3].Ref.Name
+		pods = append(pods, imgPod(owner, fmt.Sprintf("%s-%d", owner, i), "h1", "1.3.7", digest("1"), time.Duration(i)*time.Minute))
+	}
+	sha := strings.Repeat("a", 40)
+	for _, withCommit := range []bool{false, true} {
+		b.Run(fmt.Sprintf("commit=%v", withCommit), func(b *testing.B) {
+			m, _ := newTestModel(b, 1, "")
+			if withCommit {
+				m.opts.Releases = &fakeReleases{res: map[string]domain.RunningRelease{digest("1"): found(sha, "s", 1)}}
+			}
+			snap := mockupSnapshot("rec")
+			for i := range snap.Services {
+				if snap.Services[i].Repo == "catalog-indexer" {
+					snap.Services[i].WorkloadStates, snap.Services[i].Pods = ws, pods
+				}
+			}
+			snapshot(m, snap)
+			if withCommit {
+				restReleases(m)
+			}
+			render(m, 160, 40)
+			b.ReportAllocs()
+			for b.Loop() {
+				m.Update(clockMsg{})
+				_ = m.View()
+			}
+		})
 	}
 }
