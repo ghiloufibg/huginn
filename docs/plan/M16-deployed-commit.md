@@ -213,14 +213,14 @@ Fakes in `portstest`; `RunReleaseHistoryContract` and `RunCommitLogContract` sui
 
 ### 7.3 Application (`internal/core/app/releases.go`)
 
-The algorithm of §1 lives here, as a mechanism (no names): pages through `Deployments`, asks `PromoteJob` and `LogContains`, stops at the first match, then the fallback of §5 and the count of §6. Caches, **in memory only** (owner: no disk cache for now): `(project, env, digest) → Release` for the session (immutable); a "not recent" result re-checked after `refresh`; one lookup in flight per project and environment, which collects all wanted digests. Clock injected.
+The algorithm of §1 lives here, as a mechanism (no names): pages through `Deployments`, asks `PromoteJob` and `LogFind`, stops when every wanted digest is found, then the fallback of §5 and the count of §6. Caches, **in memory only** (owner: no disk cache for now): `(project, env, digest) → Release` for the session (immutable); a "not recent" result re-checked after `refresh`; one lookup in flight per project and environment, which collects all wanted digests. Clock injected.
 
 ### 7.4 Driven adapters
 
 - **`adapters/driven/gitlab`** (new): `net/http` with the proxy and CA settings of the environment, `GET` only, token from bootstrap as a `domain.Secret`, streaming log search, error classification of §4. Base URL from `releases.yaml` `url` or the remote's host.
 - **`adapters/driven/gitcli`** (new): §6.
 - **`kubernetes`**: `ImageID` copied from the container status.
-- **`demo`**: fakes for both ports with deterministic releases (latest, two behind, being deployed, not recent with a tag fallback, no token) so `--demo` and the goldens show every state.
+- **`demo`**: fakes for both ports with deterministic releases (latest, two behind, a rollout in the cluster, a monorepo, not recent with a tag fallback, no token) so `--demo` and the goldens show every state.
 - Two new `archtest` rules; `examples/config` gets a `releases.yaml` and `gitlab:` keys with placeholder names; nothing GitLab-specific about the company in code.
 
 ### 7.5 TUI (`adapters/driving/tui/preview.go`): a COMMIT section after DEPLOYED
