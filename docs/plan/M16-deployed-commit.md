@@ -1,4 +1,4 @@
-# M16 — The commit running in an environment, and its message, in the services preview  (status: design; owner decisions of 2026-11-19 applied, two still open §11)
+# M16 — The commit running in an environment, and its message, in the services preview  (status: design; owner decisions of 2026-11-19 applied, one still open §11)
 
 **Goal:** when a microservice is selected on the services screen, its preview shows **which commit is running** in the current environment and, when it can be found, **that commit's message** (subject, author, date). With trunk-based development every deploy comes from the same branch, so a version like `v2.14.3`, or a timestamp, does not say which code is live; the commit does. Optionally, how far that commit is **behind the trunk** ("12 commits not deployed").
 
@@ -176,8 +176,6 @@ revision:
   refresh: 1m                                 # optional; default 1m: how old the cache copy may be
   repos:                                      # optional per-repository overrides
     billing-gateway: { compare_ref: origin/release }
-repos:                                        # optional; open point §11.2
-  payment-service: { path: ~/work/monorepo }
 ```
 
 Validation at load, with positions: the pattern compiles and has a `commit` group; `compare_ref` is a valid ref name; `refresh` is at least 10 s; `revision` without `repos_root` and without any `path` is allowed (the commit is shown, the message says `no clone configured`). No default for any key. The examples (`examples/config*`) show the common conventions. `origin` and `origin/HEAD` are git's own conventions, not application knowledge, so they may be defaults (to record in D-074).
@@ -296,11 +294,11 @@ Answered by the owner on 2026-11-19:
 | 4 | `git fetch` | Never into the user's clone; only into Huginn's cache copy |
 | 6 | Copy / open keys | None: the terminal's selection copies the SHA |
 | 7 | Placement | The COMMIT line of the preview, subject only |
+| 5 | Finding each clone | `repos_root/<repository name>` only (the existing setting). No per-repository `path` in the first cut; a repository whose clone is not there shows `no clone of this repository` |
 
 Still open (explained to the owner in plain terms):
 
 1. **Where the running commit is written by the pipeline (§3).** Kubernetes only knows the image, for example `europe-docker.pkg.dev/acme/apps/payment-service:2.14.3-9f03b11`. Huginn needs one real example of a production image reference and, if its tag has no commit in it, whether the pipeline writes the commit elsewhere (a label or annotation, an environment variable like `GIT_COMMIT`). This decides which `from:` rules the example config shows and which the first cut must support.
-2. **Finding each repository's local clone (§5.5).** Huginn reads the remote URL from the clone at `repos_root/<repository name>` (the setting already used by the `manifests` rule and Kafka). If every clone sits there under the service's name, nothing more is needed. If some do not (another folder name, a monorepo), a per-repository `path` is needed; today that setting only exists inside Kafka profiles, and the proposal is to move it to `services.yaml` so both features share it.
 8. **Numbering:** M16, decision D-074.
 
 ## 12. Done when (this design)
