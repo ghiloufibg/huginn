@@ -1,4 +1,4 @@
-# M16 — The commit running in an environment, and its message, in the services preview  (status: design, awaiting owner decisions §11)
+# M16 — The commit running in an environment, and its message, in the services preview  (status: design; owner decisions of 2026-11-19 applied, two still open §11)
 
 **Goal:** when a microservice is selected on the services screen, its preview shows **which commit is running** in the current environment and, when it can be found, **that commit's message** (subject, author, date). With trunk-based development every deploy comes from the same branch, so a version like `v2.14.3`, or a timestamp, does not say which code is live; the commit does. Optionally, how far that commit is **behind the trunk** ("12 commits not deployed").
 
@@ -13,14 +13,14 @@ This is a design only. Nothing below is implemented. Facts come from the code (c
 | `Container.Image` is the image reference of the spec (`…/payment-service:v2.14.3`); `ImageTag()` parses it | `domain/container.go:94`, `kubernetes/convert.go:46` | A commit embedded in the tag can be read with no new request. |
 | The **digest** actually running (`status.containerStatuses[].imageID`) is **not** converted | `kubernetes/convert.go` `setStatus` | Needed only for a registry source (phase 2, §6). |
 | `Pod` carries `Labels`, but **no annotations**; `Workload` carries `Labels` and `Annotations` | `domain/pod.go:22`, `domain/workload.go` | A pipeline-written commit in pod annotations needs the adapter to copy the configured keys (and only those). |
-| `huginn.yaml` `repos_root` points at the user's local clones; `{repo_dir}` = `repos_root/<repo>` or a `path` override (Kafka profiles only today) | `config/config.go:51`, `core/app/kafka.go:142` | The commit message can be read **offline from the user's own clone**, no token, no network. |
+| `huginn.yaml` `repos_root` points at the user's local clones; `{repo_dir}` = `repos_root/<repo>` or a `path` override (Kafka profiles only today) | `config/config.go:51`, `core/app/kafka.go:142` | Each clone gives the **remote URL** (GitLab); the remote gives a fresh commit message and trunk, with the user's own git access, no token in Huginn. |
 | Huginn already runs one external CLI behind a port (`sops`) with a context and a timeout | `adapters/driven/sops/sops.go:97` | A `git` CLI adapter follows an existing, reviewed precedent. |
 | RBAC: pods, events, deployments, statefulsets, daemonsets — get/list/watch | `deploy/gke-qa/rbac.yaml` | Every cluster source below works with no new permission. |
 
 ## 2. Two questions, two different answers
 
 1. **Which commit is running?** Only the cluster (or the image) knows; but **Kubernetes itself does not record a commit**. Something in the build or deploy pipeline must have put it somewhere: the image tag, a label or annotation, an environment variable, or an OCI label inside the image. *Where* is application knowledge, so it is **configured**, never guessed in code (`ARCHITECTURE.md` rule 4).
-2. **What is that commit?** (message, author, date, how far behind the trunk.) Only git knows. The cleanest source is the **user's local clone** (already configured through `repos_root`); a hosting API (GitHub, GitLab, Bitbucket) is a later adapter behind the same port.
+2. **What is that commit?** (message, author, date, how far behind the trunk.) Only git knows. The **remote** (GitLab) is read with the `git` CLI, read only, found through the user's local clone (already configured through `repos_root`), since the clone itself may be stale (§4).
 
 They are kept apart on purpose: question 1 is pure and synchronous (it reads what is already watched, on every frame, like `LastDeployment`); question 2 is I/O, asynchronous, cached.
 
@@ -48,25 +48,51 @@ All cluster sources read objects already watched: **no new permission, informer 
 | ReplicaSet / ControllerRevision metadata | Same pod template data, plus a permission the adapter avoids (D-072) |
 | Hard-coded conventions (`GIT_COMMIT`, `app.kubernetes.io/version`, "a 7–40 hex tag is a SHA") | Application knowledge in code, forbidden even as a default (`CLAUDE.md`, `archtest`). The example folders show them instead |
 
-## 4. Question 2 — the commit message, cleanly
+## 4. Question 2 — the commit message, from the remote, read only
 
-| # | Source | Verdict |
+**Owner's choice:** the `git` CLI (like `sops`), reading the **remote** (GitLab), because the user's local clone may be stale. The local clone is used only to learn **where the remote is**; it is never written to.
+
+### 4.1 How the remote is read without touching the user's repository
+
+`git` cannot read a commit message from a remote without downloading the commit object: `git ls-remote` only lists refs (branch → SHA), and GitLab, like most servers, does not serve `git archive`/single-object reads. So Huginn keeps **its own cache copy** of each repository, separate from the user's clone:
+
+| Step | Command (all with `GIT_TERMINAL_PROMPT=0`, stdin closed, timeout) | Writes to |
 |---|---|---|
-| A | **Local clone, `git` CLI, read-only** (`repos_root/<repo>` or a `path`) | **Recommended first cut.** No token, no network, no new secret; works on a laptop with VPN down; honours the user's own git setup (worktrees, partial clones). |
-| B | Hosting API (GitHub/GitLab/Bitbucket REST) | Phase 2, same port. Needs a token (via `SecretsProvider`), network, rate limits; URL and auth are enterprise-specific → config + adapter. |
-| C | A second annotation written by the pipeline with the subject (`commit-subject: …`) | Possible as one more `label` key, but discouraged: stale-prone, size-limited, escaping issues. Not designed further unless the owner wants it. |
-| D | OCI labels (`org.opencontainers.image.description`) | Rarely the commit message; no. |
+| Find the remote | `git -C <user clone> remote get-url <remote>` | nothing |
+| First time | `git init --bare <cache>/<id>.git` then `git -C <cache> remote add origin <url>` | Huginn's cache only |
+| Refresh | `git -C <cache> fetch --filter=tree:0 --prune origin '+refs/heads/*:refs/remotes/origin/*'` then `git -C <cache> remote set-head origin --auto` | Huginn's cache only |
+| Message | `git -C <cache> log -1 --no-walk --format=%H%x00%h%x00%an%x00%aI%x00%s --end-of-options <sha>` | nothing |
+| Not deployed | `git -C <cache> rev-list --count --end-of-options <sha>..<compare_ref>` | nothing |
 
-**Freshness of a local clone.** A commit made on the trunk and deployed before the user's last `git fetch` is not in the clone. Huginn **never fetches by itself** (network, credential prompts, writing into the user's repository; Huginn is read-only). It shows `9f03b11  not in your clone — git fetch` instead, which is honest and actionable. Whether a key may run `git fetch` on demand is an owner decision (§11.4).
+- **Read only on the remote:** a fetch only *reads* the server (git's `upload-pack`); nothing is ever pushed. Same credentials the user already has (SSH agent or credential helper); no token in Huginn's config.
+- **The user's clone is never modified:** no fetch, no ref, no `FETCH_HEAD`, no lock in it.
+- **Small:** `--filter=tree:0` (a *treeless* partial clone) downloads commits only, no files and no trees; the message and the count need nothing else. A large history is tens of MB, once. **To measure** on the biggest real repository (§10).
+- **Where:** `<user cache dir>/huginn/git/<hash of the URL>.git` (`~/.cache/huginn` on Linux). Shared by every repository with the same remote (a monorepo is fetched once). Deleting it is always safe; Huginn rebuilds it.
+- **When:** the first time a service's COMMIT line is needed, then again when the selected service's copy is older than `revision.refresh` (default 1 minute), in the background; one fetch per remote at a time. The line shows the last known result meanwhile, so the panel never waits on the network.
+- **Fallback (VPN down, remote unreachable):** the message is read from the user's local clone instead, if it has the commit, and the count is marked `(local, may be stale)`. Never an error screen.
+- **Never prompts:** a prompt would break the TUI. `GIT_TERMINAL_PROMPT=0`, no stdin, and SSH in batch mode (`-c core.sshCommand="ssh -o BatchMode=yes"` unless the user configured their own `core.sshCommand`, **to verify** with the real GitLab). An authentication failure reads `cannot reach the remote (authentication)`.
 
-**Exact git calls** (all read-only, `GIT_TERMINAL_PROMPT=0`, `GIT_OPTIONAL_LOCKS=0`, timeout 2 s, the SHA validated as `^[0-9a-f]{7,40}$` before it reaches argv, plus `--end-of-options`):
+### 4.2 "Not deployed", defaulting to `origin/HEAD`
 
-```
-git -C <dir> log -1 --no-walk --format=%H%x00%an%x00%aI%x00%s --end-of-options <sha>
-git -C <dir> rev-list --count --end-of-options <sha>..<compare_ref>      # "N not deployed", optional
-```
+`origin/HEAD` is the remote's default branch (set by `remote set-head --auto`), so the default works for any repository whatever its trunk is called; it is git's own convention, not application knowledge. `revision.compare_ref` changes it (`origin/main`, `origin/release/2026.11`, …), globally or per repository. The count is `git rev-list --count <deployed>..<compare_ref>`: commits on the trunk that are not in production.
 
-`%s` is the subject only (first line): that is the "user-friendly" part. The body is not read in the first cut (it can be long, and the preview has one line).
+| Result | Line |
+|---|---|
+| 0 | `up to date with origin/HEAD` (dim) |
+| N > 0 | `N not deployed` |
+| The deployed commit is not on the trunk (hotfix branch, reverted, force-pushed) | `not on origin/HEAD` (warning style): an important thing to know in trunk-based development |
+
+Only the subject (first line of the message) is read: the body can be long and the preview gives the commit one line.
+
+### 4.3 Rejected
+
+| Rejected | Why |
+|---|---|
+| `git fetch` into the user's clone | Writes to the user's repository (refs, objects, `FETCH_HEAD`, can conflict with their own git commands); the owner wants read-only |
+| Reading only the user's local clone | Stale: a commit deployed after the last `git pull` is unknown, and the count would be wrong (owner's point) |
+| `git ls-remote` alone | Gives the trunk's SHA but no message and no count |
+| GitLab REST API | Needs a token in the config and an HTTP adapter; the git CLI reuses the user's existing access. Can be added later behind the same port |
+| A full clone, or `--filter=blob:none` | Downloads trees or files that are never read |
 
 ## 5. Design
 
@@ -94,6 +120,8 @@ type Commit struct {
     SHA, Author, Subject string
     At                   time.Time
     Behind               int  // commits on compare_ref not in SHA; -1 unknown
+    OnTrunk              bool // SHA is an ancestor of compare_ref
+    Stale                bool // read from the user's local clone, the remote being unreachable
 }
 ```
 
@@ -104,9 +132,12 @@ type Commit struct {
 ```go
 // CommitLog reads commits from a source repository. Driven port.
 type CommitLog interface {
-    // Commit describes sha in the repository at dir. ErrNotFound when the
-    // clone does not have it, ErrAmbiguous for an ambiguous short SHA.
-    Commit(ctx context.Context, dir, sha, compareRef string) (domain.Commit, error)
+    // Refresh brings Huginn's cache copy of the remote of the clone at dir
+    // up to date (read only on the remote, never writes to dir).
+    Refresh(ctx context.Context, dir, remote string) error
+    // Commit describes sha from the cache copy, else from the clone at dir.
+    // ErrNotFound when neither has it, ErrAmbiguous for an ambiguous short SHA.
+    Commit(ctx context.Context, dir, remote, sha, compareRef string) (domain.Commit, error)
 }
 
 // Revisions is the use case the TUI calls (driving port).
@@ -120,12 +151,13 @@ Fake in `portstest` plus a contract suite (`RunCommitLogContract`) that builds a
 ### 5.3 Application (`internal/core/app/revisions.go`)
 
 - Maps a repository to its folder: `path` override, else `repos_root/<repo>`; no folder → `ErrNoClone` (shown, not an error screen).
-- **Cache**: a commit is immutable, so `(dir, full SHA) → Commit` is kept for the run; `Behind` changes after a fetch, so it is re-read after 30 s. Misses (`not in your clone`) are retried after 30 s, so a `git fetch` in another terminal shows up without restarting. One call in flight per key.
+- **Refresh schedule**: asks `Refresh` when the selected service's remote copy is older than `revision.refresh` (default 1 minute); one refresh per remote at a time; a failure is retried after the same delay, not in a loop.
+- **Cache**: a commit's subject, author and date are immutable, so `(remote, full SHA)` is kept for the run; `Behind`/`OnTrunk` are re-read after each refresh. A miss is re-read after the next refresh.
 - No I/O of its own; the clock is injected.
 
 ### 5.4 Driven adapters
 
-- **`adapters/driven/gitcli`** (new): runs the two commands of §4, parses NUL-separated output, classifies errors (`unknown revision` → not found, `ambiguous argument`/`short object ID … is ambiguous` → ambiguous, missing binary → `ErrUnavailable`). Registered as `git` in bootstrap; covered by a new `archtest` rule.
+- **`adapters/driven/gitcli`** (new): runs the commands of §4.1, owns the cache folder (path injected by bootstrap from `os.UserCacheDir`), parses NUL-separated output, classifies errors (`unknown revision` → not found, `ambiguous` → ambiguous, `Permission denied`/`Authentication failed` → unauthorized, `Could not resolve host`/timeout → unreachable, missing binary → unavailable). Registered as `git` in bootstrap; covered by a new `archtest` rule.
 - **`kubernetes`**: copies the configured pod annotation keys and literal env values; nothing else changes.
 - **`demo`**: a fake `CommitLog` with deterministic commits for the demo services (one ahead/behind, one not in the clone, one with no rule match) so `--demo` and the goldens show every state.
 
@@ -139,13 +171,16 @@ revision:
     - label: deploy.example.com/commit       # pod first, then workload; label or annotation
     - env: GIT_COMMIT                         # literal values only
   container: app                              # optional; default: first non-sidecar container
-  compare_ref: origin/main                    # optional; enables "N not deployed"
-  commit_url: https://git.example.com/acme/{repo}/commit/{sha}   # optional; for the open/copy key
-repos:                                        # optional; when the clone is not repos_root/<repo>
+  remote: origin                              # optional; default origin: the remote of the local clone to read
+  compare_ref: origin/HEAD                    # optional; default origin/HEAD (the remote's default branch)
+  refresh: 1m                                 # optional; default 1m: how old the cache copy may be
+  repos:                                      # optional per-repository overrides
+    billing-gateway: { compare_ref: origin/release }
+repos:                                        # optional; open point §11.2
   payment-service: { path: ~/work/monorepo }
 ```
 
-Validation at load, with positions: the pattern compiles and has a `commit` group; `{repo}`/`{sha}` are the only placeholders; `revision` without `repos_root` and without any `path` is allowed (the commit is shown, the message says `no clone configured`). No default for any key. The examples (`examples/config*`) show the common conventions.
+Validation at load, with positions: the pattern compiles and has a `commit` group; `compare_ref` is a valid ref name; `refresh` is at least 10 s; `revision` without `repos_root` and without any `path` is allowed (the commit is shown, the message says `no clone configured`). No default for any key. The examples (`examples/config*`) show the common conventions. `origin` and `origin/HEAD` are git's own conventions, not application knowledge, so they may be defaults (to record in D-074).
 
 ### 5.6 TUI (`adapters/driving/tui/preview.go`)
 
@@ -154,25 +189,30 @@ A new section **COMMIT**, right after DEPLOYED:
 ```
 WORKLOADS  Deployment payment-service  2/2 ready  2/2 updated  2.14.3-9f03b11
 DEPLOYED   payment-service  Nov 1 14:32  3h ago
-COMMIT     9f03b11  fix(payment): retry 3DS callback on timeout  · Jane Doe, Oct 31  · 12 not deployed
+COMMIT     9f03b11  fix(payment): retry 3DS callback on timeout  · Jane Doe, Oct 31  · 12 not deployed on origin/HEAD
 PODS       …
 ```
 
 | State | Line (dim = secondary) |
 |---|---|
 | Found, message read | `9f03b11  <subject>  · <author>, <date>  · N not deployed` (the tail is dropped first when narrow; the subject is cut with `…`) |
-| Up to date with the trunk | `… · up to date with origin/main` (dim) |
+| Up to date with the trunk | `… · up to date with origin/HEAD` (dim) |
+| Not on the trunk | `… · not on origin/HEAD` (warning style) |
+| First fetch of the remote running | `9f03b11  fetching from the remote…` (dim) |
+| Remote unreachable, local clone used | `… · 12 not deployed (local, may be stale)` (dim tail) |
+| Remote refuses the credentials | `9f03b11  <subject from the local clone, if any>  · cannot reach the remote (authentication)` (dim) |
 | Rollout in progress | `9f03b11→c27e4d0  <new subject>` in the warning style, like WORKLOADS' `old→new` |
 | Loading | `9f03b11  …` |
-| Not in the clone | `9f03b11  not in your clone — git fetch` (dim) |
+| Not on the remote nor in the clone | `9f03b11  unknown to the remote` (dim): an image built from an unpushed or deleted commit |
 | Ambiguous short SHA | `9f03b11  ambiguous in your clone` (dim) |
-| No clone / git missing | `9f03b11  no clone configured` / `git not found` (dim) |
+| No local clone (so no remote URL) / git missing | `9f03b11  no clone of this repository` / `git not found` (dim) |
 | No rule matched | `no commit found (tag 2.14.3)` (dim): tells the user *why*, and the doc says how to configure it |
 | No `revision` section | the section is not shown at all (zero change for existing users) |
 
 - **Several workloads**: one line when they all run the same commit (the usual case for one repository), else one line per workload prefixed with its name, as DEPLOYED does.
 - **Room**: one line, given after DEPLOYED and before PODS (same reasoning as D-072: it is why the panel is opened).
-- **Keys** (services screen): `y` copies the full SHA (existing `Clipboard` port, existing `ActCopy` binding); `o` opens `commit_url` if configured (**needs an `Opener` port**, which `ARCHITECTURE.md` lists but does not exist yet — owner decision §11.6).
+- **No new key** (owner's decision): the SHA is selected and copied with the terminal's own selection. The short SHA shown is git's `%h`, which git keeps unambiguous in that repository, so it is enough to paste into `git show`.
+- **Only the subject** of the message, on the one line, cut with `…` at the panel's width (owner's decision: the preview, not a table column, because messages can be long).
 - Loaded asynchronously with the same pattern as pod events (`preview.watch` / `eventsTTL`): render never waits for git.
 
 ### 5.7 What does not change
@@ -182,7 +222,7 @@ The services table (VERSION and AGE columns), the logs and Kafka screens, existi
 ## 6. Phase 2 (designed so it is an adapter, not a redesign)
 
 - **Registry source** (`oci_label`): convert `imageID` (digest), new `ImageMetadata` port, Artifact Registry adapter; credentials through `SecretsProvider` or ADC.
-- **Hosting API** `CommitLog` adapter (GitHub/GitLab) selected by name: `revision.log: git | github | gitlab`.
+- **GitLab API** `CommitLog` adapter, selected by name (`revision.log: git | gitlab`), if the git CLI turns out not to be enough.
 - **"What is not deployed"**: a small list (`git log --oneline <sha>..<compare_ref>`, max 20) on a key, answering "will my merged fix be in the next deploy?".
 - **Compare environments**: `rec 9f03b11 · prd 4c1a77e (8 behind rec)` — needs the catalog of another environment; a later milestone.
 
@@ -197,9 +237,13 @@ The services table (VERSION and AGE columns), the logs and Kafka screens, existi
 | Rollback | The old commit again (pods of the old template are the newest revision) |
 | Label on the workload differs from the pods' (stamp updated without a rollout) | The pods' value wins |
 | Two containers both non-sidecar | First in spec, unless `container:` is set |
-| SHA not in the clone, then `git fetch` elsewhere | Shown within 30 s without restarting |
+| Commit pushed and deployed after the user's last `git pull` | Found through the cache copy (the reason for reading the remote) |
+| Remote unreachable (VPN down) | Message from the local clone if it has it; count marked `(local, may be stale)` |
+| SSH key not loaded / token expired | `cannot reach the remote (authentication)`; no prompt ever appears in the terminal |
+| Trunk renamed (`master` → `main`) | `origin/HEAD` follows it after the next refresh (`remote set-head --auto`) |
+| Deployed commit not on the trunk (hotfix branch, force-push) | `not on origin/HEAD` |
 | Ambiguous 7-char SHA | `ambiguous in your clone` |
-| Clone missing / not a git repo / git not installed | Dim reason, never an error screen |
+| Clone missing / not a git repo / no such remote / git not installed | Dim reason, never an error screen |
 | Monorepo: several repositories share one clone | `repos.<name>.path` → same dir; cache shared |
 | Subject with control characters or wide runes | Sanitized (existing `ansi` width handling) |
 | A crafted label value (`--upload-pack=…`) | Rejected by the hex check before argv; `--end-of-options` as a second guard |
@@ -208,8 +252,10 @@ The services table (VERSION and AGE columns), the logs and Kafka screens, existi
 
 | Aspect | Design |
 |---|---|
-| Permissions | None added on the cluster. Locally, read-only git commands only; no fetch, no write, no lock (`GIT_OPTIONAL_LOCKS=0`) |
-| Latency | `git log -1` on a local clone is a few ms (**to measure** on a large monorepo); async, cached, timeout 2 s |
+| Permissions | None added on the cluster. The remote is only read (fetch); the user's clone is only read (`remote get-url`, and `log` as a fallback, with `GIT_OPTIONAL_LOCKS=0`); writes go only to Huginn's own cache folder |
+| Latency | First fetch: seconds to tens of seconds for a large history (**to measure**), shown as `fetching…`; later fetches are incremental (a few KB). `log`/`rev-list` on the cache copy: milliseconds. All asynchronous; timeouts 60 s for a fetch, 2 s for a read |
+| Network | One incremental fetch per remote per `refresh` (1 min) and only for the selected service: negligible for GitLab |
+| Disk | Commits only (treeless); **to measure** on the largest repository; the folder is documented and safe to delete |
 | CPU per frame | `DeployedRevision` is pure and runs for the selected service only, like `LastDeployment`; the regexp runs on the tag of the newest revision only, with the result memoized per tag |
 | Memory | Configured annotation/env keys only; one cache entry (~200 B) per commit seen |
 | Security | The SHA is validated before reaching argv; env values other than the configured names are never copied; the subject is user data and is sanitized before render; nothing goes to the diagnostic log beyond the SHA |
@@ -218,7 +264,7 @@ The services table (VERSION and AGE columns), the logs and Kafka screens, existi
 ## 9. Test plan
 
 - **Domain**: table tests for every rule kind and order, rollout/rollback, sidecar skip, digest-pinned images, zero pods.
-- **gitcli**: contract suite on a temporary repository (commit, short SHA, ambiguous SHA via a crafted object set or a mocked runner, unknown SHA, not a repo, missing binary, timeout); skipped with a message if `git` is absent.
+- **gitcli**: contract suite against a temporary bare repository used as the "remote" (`file://` URL) and a clone of it: first fetch, incremental fetch, a commit pushed to the remote after the clone (found), `origin/HEAD` after renaming the default branch, a commit not on the trunk, unreachable remote → local fallback, unknown SHA, not a repo, missing binary, timeout, and **the user's clone is byte-for-byte unchanged afterwards**; skipped with a message if `git` is absent.
 - **App**: cache hit/miss/expiry with the fake clock; one call in flight per key.
 - **Config**: schema, validation errors with positions, examples load.
 - **TUI goldens**: each state of §5.6 at 80, 120, 200+ columns, bottom and side panel; existing goldens change only where a `revision` section is configured (the demo folder).
@@ -232,21 +278,30 @@ The services table (VERSION and AGE columns), the logs and Kafka screens, existi
 | C-2 | Same with a pipeline annotation on the pod template | Same, source `label` |
 | C-3 | Roll out a new commit; watch during and after | `old→new`, then new |
 | C-4 | `kubectl rollout undo` | Old commit again |
-| C-5 | Deploy a commit, do not fetch locally | `not in your clone — git fetch`; after a fetch, the subject within 30 s |
-| C-6 | `compare_ref: origin/main` with 3 newer commits merged | `3 not deployed`; `up to date` after deploying the head |
+| C-5 | Deploy a commit pushed after the local clone's last pull | Subject shown from the remote; the local clone unchanged (`git status`, refs, `FETCH_HEAD` mtime) |
+| C-6 | Default `origin/HEAD` with 3 newer commits merged on the trunk | `3 not deployed on origin/HEAD`; `up to date` after deploying the head; same with `compare_ref: origin/<other>` |
+| C-6b | Real GitLab over SSH and over HTTPS (credential helper); SSH agent stopped | Works with the user's access; with no agent, `cannot reach the remote (authentication)` and no prompt |
+| C-6c | VPN off | Local fallback, `(local, may be stale)` |
 | C-7 | `huginn-reader` RBAC | Works unchanged |
-| C-8 | Large monorepo clone | `git log -1` latency measured; preview never stalls |
+| C-8 | Largest real repository | First treeless fetch: time and disk measured; preview never stalls |
 
-## 11. Decisions needed from the owner
+## 11. Decisions
 
-1. **First cut sources:** `image_tag` + `label` + `env` (recommended), or fewer. Registry (`oci_label`) in phase 2 (recommended) or now.
-2. **Commit message source:** local clone via `git` CLI (recommended) vs go-git library (no external binary, but a sizeable dependency and different behaviour from the user's git config) vs hosting API first.
-3. **"N not deployed":** include with a configured `compare_ref` (recommended), or leave for later. No default ref (rule 4), or allow git's own `origin/HEAD` as a generic default?
-4. **`git fetch`:** never (recommended), or on an explicit key with a confirmation.
-5. **Repository folders:** move `repos.<name>.path` from Kafka profiles to a single place (`services.yaml` `repos:`) shared by Kafka and this feature (recommended, with Kafka's key kept as an alias), or duplicate it.
-6. **Keys:** `y` copy SHA (recommended); `o` open in browser — needs a new `Opener` port (small, but a new adapter per OS). Include now or later?
-7. **Placement:** a COMMIT section (recommended) vs a column of the services table (useful for scanning all services; not designed here — the table's VERSION column could show the short SHA when a rule matches).
-8. **Numbering:** this is M16; its decision would be D-074.
+Answered by the owner on 2026-11-19:
+
+| # | Question | Decision |
+|---|---|---|
+| 2 | Where the message comes from | The `git` CLI, like `sops`, reading the **remote** (the local clone may be stale), read only. Done through Huginn's own treeless cache copy (§4.1), since git cannot read a message from a remote without fetching it, and fetching into the user's clone would write to it |
+| 3 | "Not deployed" | Shown; default `origin/HEAD`, changed by `revision.compare_ref` (globally or per repository) |
+| 4 | `git fetch` | Never into the user's clone; only into Huginn's cache copy |
+| 6 | Copy / open keys | None: the terminal's selection copies the SHA |
+| 7 | Placement | The COMMIT line of the preview, subject only |
+
+Still open (explained to the owner in plain terms):
+
+1. **Where the running commit is written by the pipeline (§3).** Kubernetes only knows the image, for example `europe-docker.pkg.dev/acme/apps/payment-service:2.14.3-9f03b11`. Huginn needs one real example of a production image reference and, if its tag has no commit in it, whether the pipeline writes the commit elsewhere (a label or annotation, an environment variable like `GIT_COMMIT`). This decides which `from:` rules the example config shows and which the first cut must support.
+2. **Finding each repository's local clone (§5.5).** Huginn reads the remote URL from the clone at `repos_root/<repository name>` (the setting already used by the `manifests` rule and Kafka). If every clone sits there under the service's name, nothing more is needed. If some do not (another folder name, a monorepo), a per-repository `path` is needed; today that setting only exists inside Kafka profiles, and the proposal is to move it to `services.yaml` so both features share it.
+8. **Numbering:** M16, decision D-074.
 
 ## 12. Done when (this design)
 
