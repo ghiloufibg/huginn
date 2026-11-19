@@ -294,7 +294,7 @@ Answered by the owner on 2026-11-19:
 | 4 | `git fetch` | Never into the user's clone; only into Huginn's cache copy |
 | 6 | Copy / open keys | None: the terminal's selection copies the SHA |
 | 7 | Placement | The COMMIT line of the preview, subject only |
-| 5 | Finding each clone | `repos_root/<repository name>` only (the existing setting). No per-repository `path` in the first cut; a repository whose clone is not there shows `no clone of this repository` |
+| 5 | Finding each clone | `repos_root/<repository name>` only (the existing setting). No per-repository `path` in the first cut; with the `manifests` rule of `services.yaml` (the owner's setup) a service is only listed when its clone is under `repos_root`, so every listed service has one. The `no clone of this repository` line stays only for setups that name repositories by `labels` or `explicit` (Huginn is generic), and for `(no repo)` rows, which show the commit without a message |
 
 Still open (explained to the owner in plain terms):
 
