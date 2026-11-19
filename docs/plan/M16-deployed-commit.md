@@ -1,306 +1,303 @@
-# M16 — The commit running in an environment, and its message, in the services preview  (status: design; owner decisions of 2026-11-19 applied, one still open §11)
+# M16 — The release running in an environment, and its commit, in the services preview  (status: design; owner's algorithm adopted 2026-11-19; open points §12)
 
-**Goal:** when a microservice is selected on the services screen, its preview shows **which commit is running** in the current environment and, when it can be found, **that commit's message** (subject, author, date). With trunk-based development every deploy comes from the same branch, so a version like `v2.14.3`, or a timestamp, does not say which code is live; the commit does. Optionally, how far that commit is **behind the trunk** ("12 commits not deployed").
+**Goal:** when a microservice is selected on the services screen, its preview shows **which commit is running** in the current environment, with its **message** (subject), who deployed it and when, and **how many trunk commits are not deployed yet**. With trunk-based development every deploy comes from the same branch, so a version or a date does not say which code is live; the commit does.
 
-This is a design only. Nothing below is implemented. Facts come from the code (cited) or from the Kubernetes / OCI / git documentation; anything assumed is marked **to verify** and goes into the real-GKE QA (§10).
+This is a design only. Nothing below is implemented. Facts come from the code (cited), the GitLab and Kubernetes documentation, or the owner's own check; anything assumed is marked **to verify** and goes into the QA (§11).
 
-## 1. What exists today, and what is missing
+## 1. The algorithm (the owner's, 2026-11-19)
+
+```
+1. Running pod  → status.containerStatuses[].imageID  → digest  sha256:…            (Kubernetes, already watched)
+2. Digest already resolved in this session?  → done                                   (a digest never changes release)
+3. GitLab: deployments of the project to the environment, status success, newest first, a few per page
+4. For each deployment: its pipeline's promote job (e.g. promote-prd) → its log
+       the log prints the pod's digest?  → that deployment's sha is the running commit. Stop.
+5. No match within the limit → the pod is not on a recent release (rollback beyond the limit, or a manual rollout)
+       → say so, and fall back to the image tag checked by git (§5)
+6. The commit → subject, author (from GitLab's deployment); "N not deployed" (git, §6)
+```
+
+**Why this is the right source:** GitLab records, for every deployment to an environment, the exact commit (`sha`) the pipeline deployed. Matching the digest the cluster actually runs against the digest the promote job printed **proves** which deployment is live, instead of trusting a tag that can be moved. **Checked by the owner on a real pod:** the `promote-prd` log prints the same `sha256:…` as the pod's `imageID` (so the multi-architecture "index vs platform digest" mismatch does not occur in this setup).
+
+## 2. What exists today, and what is missing
 
 | Fact | Where | Consequence |
 |---|---|---|
-| The preview has WORKLOADS, DEPLOYED, PODS, WARNINGS, SIDECARS; WORKLOADS ends with the image tag, DEPLOYED with the date of the last rollout (M15.1) | `tui/preview.go` `workloads()`, `deployed()` | The commit fits as a section next to DEPLOYED: same per-workload shape, same room allocation. |
-| `domain.WorkloadVersion` already finds the version of a workload from its pods, grouped by template revision, and says `old→new` during a rollout | `domain/status.go:159` | The commit is found the same way, so a rollout shows `a41c9e2→9f03b11`. |
-| `Container.Image` is the image reference of the spec (`…/payment-service:v2.14.3`); `ImageTag()` parses it | `domain/container.go:94`, `kubernetes/convert.go:46` | A commit embedded in the tag can be read with no new request. |
-| The **digest** actually running (`status.containerStatuses[].imageID`) is **not** converted | `kubernetes/convert.go` `setStatus` | Needed only for a registry source (phase 2, §6). |
-| `Pod` carries `Labels`, but **no annotations**; `Workload` carries `Labels` and `Annotations` | `domain/pod.go:22`, `domain/workload.go` | A pipeline-written commit in pod annotations needs the adapter to copy the configured keys (and only those). |
-| `huginn.yaml` `repos_root` points at the user's local clones; `{repo_dir}` = `repos_root/<repo>` or a `path` override (Kafka profiles only today) | `config/config.go:51`, `core/app/kafka.go:142` | Each clone gives the **remote URL** (GitLab); the remote gives a fresh commit message and trunk, with the user's own git access, no token in Huginn. |
-| Huginn already runs one external CLI behind a port (`sops`) with a context and a timeout | `adapters/driven/sops/sops.go:97` | A `git` CLI adapter follows an existing, reviewed precedent. |
-| RBAC: pods, events, deployments, statefulsets, daemonsets — get/list/watch | `deploy/gke-qa/rbac.yaml` | Every cluster source below works with no new permission. |
+| The preview has WORKLOADS, DEPLOYED, PODS, WARNINGS, SIDECARS | `tui/preview.go` | The commit becomes a section after DEPLOYED (owner's choice: the preview, since messages can be long). |
+| `Container.Image` (spec reference) is converted; the running **digest** (`status.containerStatuses[].imageID`) is **not** | `kubernetes/convert.go:46`, `setStatus` | One field added to the adapter; no new request or permission. |
+| `domain.WorkloadVersion` finds a workload's version from its pods by template revision, with `old→new` during a rollout | `domain/status.go:159` | The digest(s) are picked the same way, so a rollout shows both releases. |
+| Every listed service has a local clone at `repos_root/<repo>` (the owner's `manifests` rule) | `config/config.go:51`, `docs/CONFIG.md` §5 | The clone's `origin` URL gives the GitLab host and project path: nothing configured per repository. |
+| Hidden files of the config folder are ignored by the fixed-names check | `docs/CONFIG.md` §2 | A `.env` next to the config files is allowed as is. |
+| A dotenv reader and a `domain.Secret` type (never printed) already exist | `adapters/driven/localfiles` `ReadEnv`, `domain/secret.go` | The token is read and carried with existing, reviewed code. |
+| `sops` is already run behind a port with a context and timeout | `adapters/driven/sops` | The `git` CLI adapter (§6) follows the same pattern. |
 
-## 2. Two questions, two different answers
+## 3. Configuration (all application knowledge here, none in code)
 
-1. **Which commit is running?** Only the cluster (or the image) knows; but **Kubernetes itself does not record a commit**. Something in the build or deploy pipeline must have put it somewhere: the image tag, a label or annotation, an environment variable, or an OCI label inside the image. *Where* is application knowledge, so it is **configured**, never guessed in code (`ARCHITECTURE.md` rule 4).
-2. **What is that commit?** (message, author, date, how far behind the trunk.) Only git knows. The **remote** (GitLab) is read with the `git` CLI, read only, found through the user's local clone (already configured through `repos_root`), since the clone itself may be stale (§4).
-
-They are kept apart on purpose: question 1 is pure and synchronous (it reads what is already watched, on every frame, like `LastDeployment`); question 2 is I/O, asynchronous, cached.
-
-## 3. Question 1 — where the running commit comes from
-
-All cluster sources read objects already watched: **no new permission, informer or request.** The user lists the ones their pipeline uses, in order; the first that yields a commit wins (like `resolve` in `services.yaml`).
-
-| # | Source (`from:` kind) | Example of what pipelines do | Strength | Weakness |
-|---|---|---|---|---|
-| 1 | **`image_tag`**: a regular expression on the tag of the workload's application container, with a named group `commit` | `:9f03b11`, `:main-9f03b11`, `:2.14.3-9f03b11`, `:20261119.1-9f03b11c4e…` | Zero setup for teams that already tag images by SHA (common in trunk-based CI); the tag is what the kubelet pulled | A tag can be moved (`:latest`, re-pushed); a version-only tag has no commit |
-| 2 | **`label`**: a label or annotation key, read on the **pods** of the newest revision first, then on the workload | `commit: 9f03b11…` put by Kustomize `commonAnnotations`, Helm `--set`, or the CD job | Exact; per revision, so a rollout shows old→new | Needs the pipeline to write it; a value on the workload object only (not the pod template) can change without a rollout, so pods are read first |
-| 3 | **`env`**: a literal environment variable of the application container's spec | `GIT_COMMIT=9f03b11…` | Often already there for the app's own `/info` endpoint | Only literal `value:`, never `valueFrom` (no Secret/ConfigMap read); the adapter copies **only the configured names**, so no other variable ever leaves it |
-| 4 | **`oci_label`** *(phase 2)*: `org.opencontainers.image.revision` from the image config in the registry, looked up by the running digest | Set by `docker buildx --label`, Jib, ko, Buildpacks (**to verify** per tool) | Standard (OCI image-spec annotations); immune to moved tags | Needs registry network access and credentials (Artifact Registry): a new driven adapter, out of the first cut |
-
-**The application container**: the one the existing `ContainerFilter` keeps (sidecars from `containers.yaml` are skipped); with several, the first one in the spec, unless `revision.container` names one. Same rule `WorkloadVersion` uses today.
-
-**A short SHA is fine**: git resolves 7+ hex characters; an ambiguous one is reported as such (§5), never guessed.
-
-**Rejected, with the reason:**
-
-| Rejected | Why |
-|---|---|
-| `kubectl exec` into the pod to read a file or call `/info`/`/actuator/info` | Needs `pods/exec` or a port-forward: a write-capable permission and traffic into production. Huginn is read-only (D-057 spirit) |
-| The image digest alone, shown as "the version" | Exact but meaningless to a human; kept as a fallback identity (§7) and as the key of the phase-2 registry source |
-| ReplicaSet / ControllerRevision metadata | Same pod template data, plus a permission the adapter avoids (D-072) |
-| Hard-coded conventions (`GIT_COMMIT`, `app.kubernetes.io/version`, "a 7–40 hex tag is a SHA") | Application knowledge in code, forbidden even as a default (`CLAUDE.md`, `archtest`). The example folders show them instead |
-
-## 4. Question 2 — the commit message, from the remote, read only
-
-**Owner's choice:** the `git` CLI (like `sops`), reading the **remote** (GitLab), because the user's local clone may be stale. The local clone is used only to learn **where the remote is**; it is never written to.
-
-### 4.1 How the remote is read without touching the user's repository
-
-`git` cannot read a commit message from a remote without downloading the commit object: `git ls-remote` only lists refs (branch → SHA), and GitLab, like most servers, does not serve `git archive`/single-object reads. So Huginn keeps **its own cache copy** of each repository, separate from the user's clone:
-
-| Step | Command (all with `GIT_TERMINAL_PROMPT=0`, stdin closed, timeout) | Writes to |
-|---|---|---|
-| Find the remote | `git -C <user clone> remote get-url <remote>` | nothing |
-| First time | `git init --bare <cache>/<id>.git` then `git -C <cache> remote add origin <url>` | Huginn's cache only |
-| Refresh | `git -C <cache> fetch --filter=tree:0 --prune origin '+refs/heads/*:refs/remotes/origin/*'` then `git -C <cache> remote set-head origin --auto` | Huginn's cache only |
-| Message | `git -C <cache> log -1 --no-walk --format=%H%x00%h%x00%an%x00%aI%x00%s --end-of-options <sha>` | nothing |
-| Not deployed | `git -C <cache> rev-list --count --end-of-options <sha>..<compare_ref>` | nothing |
-
-- **Read only on the remote:** a fetch only *reads* the server (git's `upload-pack`); nothing is ever pushed. Same credentials the user already has (SSH agent or credential helper); no token in Huginn's config.
-- **The user's clone is never modified:** no fetch, no ref, no `FETCH_HEAD`, no lock in it.
-- **Small:** `--filter=tree:0` (a *treeless* partial clone) downloads commits only, no files and no trees; the message and the count need nothing else. A large history is tens of MB, once. **To measure** on the biggest real repository (§10).
-- **Where:** `<user cache dir>/huginn/git/<hash of the URL>.git` (`~/.cache/huginn` on Linux). Shared by every repository with the same remote (a monorepo is fetched once). Deleting it is always safe; Huginn rebuilds it.
-- **When:** the first time a service's COMMIT line is needed, then again when the selected service's copy is older than `revision.refresh` (default 1 minute), in the background; one fetch per remote at a time. The line shows the last known result meanwhile, so the panel never waits on the network.
-- **Fallback (VPN down, remote unreachable):** the message is read from the user's local clone instead, if it has the commit, and the count is marked `(local, may be stale)`. Never an error screen.
-- **Never prompts:** a prompt would break the TUI. `GIT_TERMINAL_PROMPT=0`, no stdin, and SSH in batch mode (`-c core.sshCommand="ssh -o BatchMode=yes"` unless the user configured their own `core.sshCommand`, **to verify** with the real GitLab). An authentication failure reads `cannot reach the remote (authentication)`.
-
-### 4.2 "Not deployed", defaulting to `origin/HEAD`
-
-`origin/HEAD` is the remote's default branch (set by `remote set-head --auto`), so the default works for any repository whatever its trunk is called; it is git's own convention, not application knowledge. `revision.compare_ref` changes it (`origin/main`, `origin/release/2026.11`, …), globally or per repository. The count is `git rev-list --count <deployed>..<compare_ref>`: commits on the trunk that are not in production.
-
-| Result | Line |
-|---|---|
-| 0 | `up to date with origin/HEAD` (dim) |
-| N > 0 | `N not deployed` |
-| The deployed commit is not on the trunk (hotfix branch, reverted, force-pushed) | `not on origin/HEAD` (warning style): an important thing to know in trunk-based development |
-
-Only the subject (first line of the message) is read: the body can be long and the preview gives the commit one line.
-
-### 4.3 Rejected
-
-| Rejected | Why |
-|---|---|
-| `git fetch` into the user's clone | Writes to the user's repository (refs, objects, `FETCH_HEAD`, can conflict with their own git commands); the owner wants read-only |
-| Reading only the user's local clone | Stale: a commit deployed after the last `git pull` is unknown, and the count would be wrong (owner's point) |
-| `git ls-remote` alone | Gives the trunk's SHA but no message and no count |
-| GitLab REST API | Needs a token in the config and an HTTP adapter; the git CLI reuses the user's existing access. Can be added later behind the same port |
-| A full clone, or `--filter=blob:none` | Downloads trees or files that are never read |
-
-## 5. Design
-
-### 5.1 Domain (`internal/core/domain`, stdlib only)
-
-```go
-// RevisionRule is one configured way to find the commit of a workload.
-type RevisionRule struct {
-    Kind    RevisionKind   // RevImageTag | RevLabel | RevEnv
-    Key     string         // label/annotation key or env name
-    Pattern *regexp.Regexp // RevImageTag only; has a "commit" group
-}
-
-type RevisionInfo struct {
-    Commit, Previous string        // Previous set during a rollout (old→new)
-    Source           RevisionKind  // where it came from, shown dim when not exact
-}
-
-// DeployedRevision is pure, like LastDeployment: it reads the workload and
-// its pods as watched, calls nothing, and allocates nothing in the common case.
-func DeployedRevision(w Workload, pods []Pod, f ContainerFilter, rules []RevisionRule) RevisionInfo
-
-// Commit is what git says about one commit.
-type Commit struct {
-    SHA, Author, Subject string
-    At                   time.Time
-    Behind               int  // commits on compare_ref not in SHA; -1 unknown
-    OnTrunk              bool // SHA is an ancestor of compare_ref
-    Stale                bool // read from the user's local clone, the remote being unreachable
-}
-```
-
-`Pod` gains `Annotations map[string]string` and `Container` gains `Env map[string]string`, **filled only with the configured keys** (nil otherwise: no memory cost for users who do not configure them).
-
-### 5.2 Ports (`internal/core/ports`)
-
-```go
-// CommitLog reads commits from a source repository. Driven port.
-type CommitLog interface {
-    // Refresh brings Huginn's cache copy of the remote of the clone at dir
-    // up to date (read only on the remote, never writes to dir).
-    Refresh(ctx context.Context, dir, remote string) error
-    // Commit describes sha from the cache copy, else from the clone at dir.
-    // ErrNotFound when neither has it, ErrAmbiguous for an ambiguous short SHA.
-    Commit(ctx context.Context, dir, remote, sha, compareRef string) (domain.Commit, error)
-}
-
-// Revisions is the use case the TUI calls (driving port).
-type Revisions interface {
-    Describe(ctx context.Context, repo, sha string) (domain.Commit, error)
-}
-```
-
-Fake in `portstest` plus a contract suite (`RunCommitLogContract`) that builds a temporary git repository in the test.
-
-### 5.3 Application (`internal/core/app/revisions.go`)
-
-- Maps a repository to its folder: `path` override, else `repos_root/<repo>`; no folder → `ErrNoClone` (shown, not an error screen).
-- **Refresh schedule**: asks `Refresh` when the selected service's remote copy is older than `revision.refresh` (default 1 minute); one refresh per remote at a time; a failure is retried after the same delay, not in a loop.
-- **Cache**: a commit's subject, author and date are immutable, so `(remote, full SHA)` is kept for the run; `Behind`/`OnTrunk` are re-read after each refresh. A miss is re-read after the next refresh.
-- No I/O of its own; the clock is injected.
-
-### 5.4 Driven adapters
-
-- **`adapters/driven/gitcli`** (new): runs the commands of §4.1, owns the cache folder (path injected by bootstrap from `os.UserCacheDir`), parses NUL-separated output, classifies errors (`unknown revision` → not found, `ambiguous` → ambiguous, `Permission denied`/`Authentication failed` → unauthorized, `Could not resolve host`/timeout → unreachable, missing binary → unavailable). Registered as `git` in bootstrap; covered by a new `archtest` rule.
-- **`kubernetes`**: copies the configured pod annotation keys and literal env values; nothing else changes.
-- **`demo`**: a fake `CommitLog` with deterministic commits for the demo services (one ahead/behind, one not in the clone, one with no rule match) so `--demo` and the goldens show every state.
-
-### 5.5 Config (`services.yaml`, plus `make schema` and `docs/CONFIG.md`)
+### 3.1 `environments.yaml`: the GitLab environment of each Huginn environment
 
 ```yaml
-revision:
-  # Tried in order; the first that yields a commit wins.
-  from:
-    - image_tag: '^(?:.+-)?(?P<commit>[0-9a-f]{7,40})$'
-    - label: deploy.example.com/commit       # pod first, then workload; label or annotation
-    - env: GIT_COMMIT                         # literal values only
-  container: app                              # optional; default: first non-sidecar container
-  remote: origin                              # optional; default origin: the remote of the local clone to read
-  compare_ref: origin/HEAD                    # optional; default origin/HEAD (the remote's default branch)
-  refresh: 1m                                 # optional; default 1m: how old the cache copy may be
-  repos:                                      # optional per-repository overrides
-    billing-gateway: { compare_ref: origin/release }
+environments:
+  rec:
+    context: gke_acme_europe-west1_main
+    namespaces: [app-rec]
+    gitlab:
+      environment: rec          # GitLab environment name for this Huginn environment
+      job: promote-rec          # the job whose log prints the deployed digest
+  prd:
+    context: gke_acme_europe-west1_main
+    namespace_from: sops:../infra/overlays/prd/config.env#K8S_NAMESPACE
+    production: true
+    gitlab:
+      environment: prd
+      job: promote-prd
 ```
 
-Validation at load, with positions: the pattern compiles and has a `commit` group; `compare_ref` is a valid ref name; `refresh` is at least 10 s; `revision` without `repos_root` and without any `path` is allowed (the commit is shown, the message says `no clone configured`). No default for any key. The examples (`examples/config*`) show the common conventions. `origin` and `origin/HEAD` are git's own conventions, not application knowledge, so they may be defaults (to record in D-074).
+An environment without `gitlab` shows the commit from the fallback only (§5). Both keys are required when `gitlab` is present; no default (they are the company's names).
 
-### 5.6 TUI (`adapters/driving/tui/preview.go`)
+### 3.2 `releases.yaml` (new, optional; absent = feature off)
 
-A new section **COMMIT**, right after DEPLOYED:
+```yaml
+version: 1
+provider: gitlab
+url: https://gitlab.acme.com      # optional; default: the host of each clone's origin URL, over https
+token:
+  file: .env                      # relative to the config folder
+  key: GITLAB_TOKEN
+remote: origin                    # optional; default origin: the clone's remote naming the GitLab project
+per_page: 5                       # deployments read per request (owner: "a few")
+max_deployments: 20               # how far back before saying "not a recent release"
+max_log_bytes: 20MB               # a job log is read up to this size
+compare_ref: origin/HEAD          # optional; default origin/HEAD (the remote's default branch)
+refresh: 1m                       # optional; how old the git cache copy may be (§6)
+repos:                            # optional per-repository overrides
+  billing-gateway: { compare_ref: origin/release }
+```
+
+### 3.3 The token: `.env` in the config folder
 
 ```
-WORKLOADS  Deployment payment-service  2/2 ready  2/2 updated  2.14.3-9f03b11
-DEPLOYED   payment-service  Nov 1 14:32  3h ago
-COMMIT     9f03b11  fix(payment): retry 3DS callback on timeout  · Jane Doe, Oct 31  · 12 not deployed on origin/HEAD
-PODS       …
+# <config folder>/.env
+GITLAB_TOKEN=glpat-…
+```
+
+- A personal or project access token with scope **`read_api`** and at least the **Reporter** role (needed for job logs). Huginn only sends `GET` requests.
+- Read with the existing dotenv reader, wrapped in `domain.Secret` immediately; never logged, never in an error message, never in a bug report (`B`); the diagnostic log's redactor knows it.
+- **Checks at start-up, as warnings, not errors:** the file is readable by others (mode not `0600` on Unix) → warning with the `chmod` to run; the config folder is a git repository (`docs/CONFIG.md` §12 suggests sharing it) and `.env` is **not** git-ignored (`git check-ignore`) → warning with the line to add to `.gitignore`. A token committed by accident is the main risk of this choice.
+- Missing file or key → the COMMIT line says `no GitLab token (.env GITLAB_TOKEN)`; the rest of Huginn is unaffected.
+
+## 4. GitLab, exactly
+
+The project is the clone's `origin` URL path (`git@gitlab.acme.com:payments/payment-service.git` → `payments/payment-service`, URL-encoded as the project id). Calls (REST v4, header `PRIVATE-TOKEN`):
+
+| Step | Request | Reads |
+|---|---|---|
+| Deployments | `GET /projects/:id/deployments?environment=<env>&status=success&order_by=finished_at&sort=desc&per_page=<n>&page=<p>` | per deployment: `sha`, `ref`, `finished_at`, `user`, `deployable` (the job, with its `pipeline` and the commit's `title`, `author_name`, `created_at`) |
+| Promote job | if the deployment's own job (`deployable.name`) is the configured `job`, use it; else `GET /projects/:id/pipelines/:pipeline_id/jobs?per_page=100` and pick it by name | job id |
+| Log | `GET /projects/:id/jobs/:job_id/trace`, **streamed**, searched for the full `sha256:<64 hex>`, stopped at the first match or `max_log_bytes` | match or not |
+
+- The search is a streaming substring match that also catches a digest split across two read buffers; the log is never kept in memory or on disk.
+- **A rollout from the pipeline still in progress:** the pod may already run the new digest while GitLab's deployment is still `running`. When no success matches, one more request with `status=running` (first page) lets the line say `being deployed by pipeline #48211` instead of "not a recent release". **To verify** with the owner's pipeline (§12.2).
+- **Errors are classified** at the adapter boundary into the existing domain kinds: 401 → `ErrUnauthorized` (token invalid or expired), 403 → `ErrForbidden` (role too low for logs), 404 → project not found (the clone's remote is not this GitLab), 429 → rate limited (stop, retry after `Retry-After`), network → `ErrUnreachable` (VPN down).
+
+**Cost:** only for the selected service, in the background, once per digest per session. Worst case for a digest not found: `max_deployments / per_page` list calls + up to `max_deployments` job lists + logs; typical case (running the latest release): 1 list call + 1 log. Requests are sequential per project, never in parallel bursts.
+
+## 5. When no deployment matches: the fallback
+
+Shown with what was tried, never as an error:
+
+| Situation | Line |
+|---|---|
+| No match in the last `max_deployments` | `not a recent prd release (rollback or manual rollout)` in the warning style, then the fallback's commit if any |
+| Fallback 1: a hash in the image tag (`2.14.3-9f03b11` → `9f03b11`) that git confirms is a commit of this repository | `≈ 9f03b11 <subject> (from the image tag)` |
+| Fallback 2: the image tag is a git tag (`2.14.3`, then `v2.14.3`) | `≈ 9f03b11 <subject> (from git tag v2.14.3)` |
+| Neither | `commit unknown (tag 2.14.3)` |
+
+A guess is shown only when **git confirms** it, so a version like `1.0.10` is never taken for a hash; the `≈` and the source in brackets say it is not proven by a deployment.
+
+## 6. Git: the message fallback and "N not deployed"
+
+GitLab's deployment already gives the subject, author and date, so git is needed for **the count** and for the fallback of §5. The owner wants fresh data, not the possibly stale local clone, and nothing written to the user's repository, so Huginn keeps **its own copy** (decided earlier, unchanged):
+
+| Step | Command (`GIT_TERMINAL_PROMPT=0`, stdin closed, SSH in batch mode, timeout) | Writes to |
+|---|---|---|
+| Find the remote | `git -C <clone> remote get-url <remote>` | nothing |
+| First time | `git init --bare <cache>` + `git -C <cache> remote add origin <url>` | Huginn's cache only (`<user cache dir>/huginn/git/<hash of URL>.git`) |
+| Refresh (when older than `refresh`) | `git -C <cache> fetch --filter=tree:0 --prune origin '+refs/heads/*:refs/remotes/origin/*'` + `remote set-head origin --auto` | Huginn's cache only; commits only, no files |
+| Not deployed | `git -C <cache> rev-list --count --end-of-options <sha>..<compare_ref>` | nothing |
+| Subject (fallback only) | `git -C <cache> log -1 --no-walk --format=%H%x00%h%x00%an%x00%aI%x00%s --end-of-options <sha>` | nothing |
+
+`compare_ref` defaults to `origin/HEAD` (the remote's default branch) and is configurable globally or per repository. Results: `up to date with origin/HEAD`, `N not deployed on origin/HEAD`, or `not on origin/HEAD` (warning: a hotfix branch or a force-push). Remote unreachable → the user's clone is read instead and the count is marked `(local, may be stale)`. Every SHA is checked as `^[0-9a-f]{7,40}$` before it reaches argv.
+
+## 7. Design by layer
+
+### 7.1 Domain (`internal/core/domain`, stdlib only)
+
+```go
+// Container gains: ImageID string // the digest the kubelet runs, "sha256:…"; empty before the pull
+
+// Release is a deployment of a commit to an environment, as the CI recorded it.
+type Release struct {
+    SHA, Ref, Subject, Author string
+    CommittedAt, DeployedAt   time.Time
+    DeployedBy                string
+    Pipeline                  int    // pipeline number, for the line
+}
+
+type ReleaseState int // ReleaseFound | ReleaseDeploying | ReleaseNotRecent | ReleaseGuessed | ReleaseUnknown
+
+type RunningRelease struct {
+    State    ReleaseState
+    Release  Release
+    Guess    string        // where a guessed commit came from: "image tag", "git tag v2.14.3"
+    Behind   int           // commits on compare_ref not deployed; -1 unknown
+    OnTrunk  bool
+    Stale    bool          // count read from the local clone
+}
+
+// RunningDigests is pure, like LastDeployment: the digests of the
+// application container (ContainerFilter skips sidecars) of w's newest
+// revision, and of the previous one during a rollout.
+func RunningDigests(w Workload, pods []Pod, f ContainerFilter) (current, previous string)
+
+// MatchDigest reports whether s is a full "sha256:<64 hex>" digest.
+func MatchDigest(s string) bool
+```
+
+### 7.2 Ports (`internal/core/ports`)
+
+Shaped by what the core needs, not by GitLab's API (rule 5):
+
+```go
+// ReleaseHistory reads the deployments a CI system recorded. Driven port;
+// read only.
+type ReleaseHistory interface {
+    // Deployments lists successful (or running) deployments of project to
+    // env, newest first, one page at a time.
+    Deployments(ctx context.Context, project, env string, status DeployStatus, page, perPage int) ([]Deployment, error)
+    // PromoteJob returns the id of the job named name in the deployment's pipeline.
+    PromoteJob(ctx context.Context, project string, d Deployment, name string) (int64, error)
+    // LogContains streams a job's log and reports whether it contains needle,
+    // reading at most limit bytes.
+    LogContains(ctx context.Context, project string, job int64, needle string, limit int64) (bool, error)
+}
+
+// CommitLog: the git cache copy (§6). Driven port.
+type CommitLog interface {
+    Refresh(ctx context.Context, dir, remote string) error
+    Commit(ctx context.Context, dir, remote, sha, compareRef string) (domain.Commit, error)
+    TagCommit(ctx context.Context, dir, remote, tag string) (string, error)
+}
+
+// Releases is the use case the TUI calls (driving port).
+type Releases interface {
+    Running(ctx context.Context, repo string, env domain.Env, digest, imageTag string) (domain.RunningRelease, error)
+}
+```
+
+Fakes in `portstest`; `RunReleaseHistoryContract` and `RunCommitLogContract` suites.
+
+### 7.3 Application (`internal/core/app/releases.go`)
+
+The algorithm of §1 lives here, as a mechanism (no names): pages through `Deployments`, asks `PromoteJob` and `LogContains`, stops at the first match, then the fallback of §5 and the count of §6. Caches: `(project, env, digest) → Release` for the session (immutable); a "not recent" result re-checked after `refresh` (a release may finish meanwhile); one lookup in flight per digest. Clock injected.
+
+### 7.4 Driven adapters
+
+- **`adapters/driven/gitlab`** (new): `net/http` with the proxy and CA settings of the environment, `GET` only, token from bootstrap as a `domain.Secret`, streaming log search, error classification of §4. Base URL from `releases.yaml` `url` or the remote's host.
+- **`adapters/driven/gitcli`** (new): §6.
+- **`kubernetes`**: `ImageID` copied from the container status.
+- **`demo`**: fakes for both ports with deterministic releases (latest, two behind, being deployed, not recent with a tag fallback, no token) so `--demo` and the goldens show every state.
+- Two new `archtest` rules; `examples/config` gets a `releases.yaml` and `gitlab:` keys with placeholder names; nothing GitLab-specific about the company in code.
+
+### 7.5 TUI (`adapters/driving/tui/preview.go`): a COMMIT section after DEPLOYED
+
+```
+DEPLOYED   payment-service  Nov 18 16:02  3h ago
+COMMIT     9f03b11  fix(payment): retry 3DS callback on timeout  · jdoe, pipeline #48211  · 12 not deployed on origin/HEAD
 ```
 
 | State | Line (dim = secondary) |
 |---|---|
-| Found, message read | `9f03b11  <subject>  · <author>, <date>  · N not deployed` (the tail is dropped first when narrow; the subject is cut with `…`) |
-| Up to date with the trunk | `… · up to date with origin/HEAD` (dim) |
-| Not on the trunk | `… · not on origin/HEAD` (warning style) |
-| First fetch of the remote running | `9f03b11  fetching from the remote…` (dim) |
-| Remote unreachable, local clone used | `… · 12 not deployed (local, may be stale)` (dim tail) |
-| Remote refuses the credentials | `9f03b11  <subject from the local clone, if any>  · cannot reach the remote (authentication)` (dim) |
-| Rollout in progress | `9f03b11→c27e4d0  <new subject>` in the warning style, like WORKLOADS' `old→new` |
-| Loading | `9f03b11  …` |
-| Not on the remote nor in the clone | `9f03b11  unknown to the remote` (dim): an image built from an unpushed or deleted commit |
-| Ambiguous short SHA | `9f03b11  ambiguous in your clone` (dim) |
-| No local clone (so no remote URL) / git missing | `9f03b11  no clone of this repository` / `git not found` (dim) |
-| No rule matched | `no commit found (tag 2.14.3)` (dim): tells the user *why*, and the doc says how to configure it |
-| No `revision` section | the section is not shown at all (zero change for existing users) |
+| Found | `9f03b11  <subject>  · <deployer>, pipeline #N  · N not deployed on origin/HEAD` (tail dropped first when narrow; subject cut with `…`) |
+| Up to date | `… · up to date with origin/HEAD` (dim) |
+| Not on the trunk | `… · not on origin/HEAD` (warning) |
+| Searching | `searching GitLab releases…` (dim) |
+| Being deployed | `being deployed by pipeline #48211` (warning) |
+| Rollout in the cluster (two digests) | `9f03b11→c27e4d0  <new subject>` (warning) |
+| Not a recent release | `not a recent prd release` (warning) + the fallback (`≈ … (from the image tag)`) |
+| No token / token refused / role too low | `no GitLab token (.env GITLAB_TOKEN)` / `GitLab refused the token` / `the token cannot read job logs (Reporter needed)` (dim) |
+| GitLab unreachable | `GitLab unreachable` + the fallback (dim) |
+| Environment without `gitlab:` | the fallback only |
+| No `releases.yaml` | no COMMIT section (no change for existing users) |
 
-- **Several workloads**: one line when they all run the same commit (the usual case for one repository), else one line per workload prefixed with its name, as DEPLOYED does.
-- **Room**: one line, given after DEPLOYED and before PODS (same reasoning as D-072: it is why the panel is opened).
-- **No new key** (owner's decision): the SHA is selected and copied with the terminal's own selection. The short SHA shown is git's `%h`, which git keeps unambiguous in that repository, so it is enough to paste into `git show`.
-- **Only the subject** of the message, on the one line, cut with `…` at the panel's width (owner's decision: the preview, not a table column, because messages can be long).
-- Loaded asynchronously with the same pattern as pod events (`preview.watch` / `eventsTTL`): render never waits for git.
+Several workloads: one line when they run the same digest (the usual case), else one per workload prefixed by its name. No new key: the SHA is copied with the terminal's selection (owner's decision). Loaded asynchronously like pod events; render never waits.
 
-### 5.7 What does not change
+### 7.6 What does not change
 
-The services table (VERSION and AGE columns), the logs and Kafka screens, existing RBAC, existing config files (the section is optional).
+The services table, the logs and Kafka screens, the cluster RBAC, existing config files (`gitlab:` and `releases.yaml` are optional).
 
-## 6. Phase 2 (designed so it is an adapter, not a redesign)
-
-- **Registry source** (`oci_label`): convert `imageID` (digest), new `ImageMetadata` port, Artifact Registry adapter; credentials through `SecretsProvider` or ADC.
-- **GitLab API** `CommitLog` adapter, selected by name (`revision.log: git | gitlab`), if the git CLI turns out not to be enough.
-- **"What is not deployed"**: a small list (`git log --oneline <sha>..<compare_ref>`, max 20) on a key, answering "will my merged fix be in the next deploy?".
-- **Compare environments**: `rec 9f03b11 · prd 4c1a77e (8 behind rec)` — needs the catalog of another environment; a later milestone.
-
-## 7. Edge cases (each a unit test; the first five also a real-cluster case)
+## 8. Edge cases (each a unit test; the starred ones also a real case)
 
 | Case | Expected |
 |---|---|
-| Tag `2.14.3-9f03b11`, pattern with `commit` group | `9f03b11` |
-| Tag `latest` / `2.14.3` only, no other rule | `no commit found (tag 2.14.3)` |
-| Image pinned by digest (`@sha256:…`) | Tag rules do not match; label/env rules still apply |
-| Rollout in progress | `old→new`, new subject; settles to the new one |
-| Rollback | The old commit again (pods of the old template are the newest revision) |
-| Label on the workload differs from the pods' (stamp updated without a rollout) | The pods' value wins |
-| Two containers both non-sidecar | First in spec, unless `container:` is set |
-| Commit pushed and deployed after the user's last `git pull` | Found through the cache copy (the reason for reading the remote) |
-| Remote unreachable (VPN down) | Message from the local clone if it has it; count marked `(local, may be stale)` |
-| SSH key not loaded / token expired | `cannot reach the remote (authentication)`; no prompt ever appears in the terminal |
-| Trunk renamed (`master` → `main`) | `origin/HEAD` follows it after the next refresh (`remote set-head --auto`) |
-| Deployed commit not on the trunk (hotfix branch, force-push) | `not on origin/HEAD` |
-| Ambiguous 7-char SHA | `ambiguous in your clone` |
-| Clone missing / not a git repo / no such remote / git not installed | Dim reason, never an error screen |
-| Monorepo: several repositories share one clone | `repos.<name>.path` → same dir; cache shared |
-| Subject with control characters or wide runes | Sanitized (existing `ansi` width handling) |
-| A crafted label value (`--upload-pack=…`) | Rejected by the hex check before argv; `--end-of-options` as a second guard |
+| ★ Pod runs the latest prd release | Found on the first page, first log |
+| ★ Pod runs a release 3 deployments old (others failed or were reverted) | Found; `N not deployed` counts the newer commits |
+| ★ GitLab "re-deploy" of an old deployment (rollback) | A new deployment with the old sha: found |
+| ★ `kubectl set image` by hand / rollback older than `max_deployments` | `not a recent prd release` + fallback |
+| ★ Pipeline still running, pod already on the new digest | `being deployed by pipeline #N` |
+| Two deployments of the same digest (re-run) | The newest one |
+| Promote job retried (two jobs with the same name in a pipeline) | The last one that succeeded |
+| Digest split across two read buffers | Still matched |
+| Log over `max_log_bytes` | Read up to the limit; no match → next deployment; noted in the diagnostic log |
+| Pod not started yet (empty `ImageID`) | `waiting for the image` (dim) |
+| Sidecar images | Skipped (ContainerFilter) |
+| Token missing / expired / Guest role | The matching dim line; Huginn otherwise unaffected |
+| `.env` world-readable or not git-ignored | Start-up warning |
+| GitLab 429 | Stops, retries after `Retry-After`, says `GitLab rate limit` meanwhile |
+| Monorepo (several services, one project) | Same project; deployments filtered by environment only — **to verify** (§12.3) |
 
-## 8. Non-functional
+## 9. Non-functional
 
 | Aspect | Design |
 |---|---|
-| Permissions | None added on the cluster. The remote is only read (fetch); the user's clone is only read (`remote get-url`, and `log` as a fallback, with `GIT_OPTIONAL_LOCKS=0`); writes go only to Huginn's own cache folder |
-| Latency | First fetch: seconds to tens of seconds for a large history (**to measure**), shown as `fetching…`; later fetches are incremental (a few KB). `log`/`rev-list` on the cache copy: milliseconds. All asynchronous; timeouts 60 s for a fetch, 2 s for a read |
-| Network | One incremental fetch per remote per `refresh` (1 min) and only for the selected service: negligible for GitLab |
-| Disk | Commits only (treeless); **to measure** on the largest repository; the folder is documented and safe to delete |
-| CPU per frame | `DeployedRevision` is pure and runs for the selected service only, like `LastDeployment`; the regexp runs on the tag of the newest revision only, with the result memoized per tag |
-| Memory | Configured annotation/env keys only; one cache entry (~200 B) per commit seen |
-| Security | The SHA is validated before reaching argv; env values other than the configured names are never copied; the subject is user data and is sanitized before render; nothing goes to the diagnostic log beyond the SHA |
-| Failure | Every failure degrades to a dim reason on the COMMIT line |
+| Permissions | Cluster: none added. GitLab: `read_api`, Reporter, `GET` only. Git: read only on the remote, nothing written to the user's clone |
+| Latency | Typical lookup: 2 requests (list + one streamed log); shown as `searching…`; cached per digest for the session |
+| Load on GitLab | Selected service only, sequential, once per digest; the git cache fetch once per `refresh` per remote |
+| Memory | Logs streamed, never kept; one cache entry per digest |
+| Security | Token as `domain.Secret`, redacted everywhere, file-mode and `.gitignore` warnings; SHAs validated before argv; commit subjects sanitized before render |
+| Failure | Every failure is a dim reason on the COMMIT line and, where possible, the fallback |
 
-## 9. Test plan
+## 10. Test plan
 
-- **Domain**: table tests for every rule kind and order, rollout/rollback, sidecar skip, digest-pinned images, zero pods.
-- **gitcli**: contract suite against a temporary bare repository used as the "remote" (`file://` URL) and a clone of it: first fetch, incremental fetch, a commit pushed to the remote after the clone (found), `origin/HEAD` after renaming the default branch, a commit not on the trunk, unreachable remote → local fallback, unknown SHA, not a repo, missing binary, timeout, and **the user's clone is byte-for-byte unchanged afterwards**; skipped with a message if `git` is absent.
-- **App**: cache hit/miss/expiry with the fake clock; one call in flight per key.
-- **Config**: schema, validation errors with positions, examples load.
-- **TUI goldens**: each state of §5.6 at 80, 120, 200+ columns, bottom and side panel; existing goldens change only where a `revision` section is configured (the demo folder).
-- **archtest**: new rule for `gitcli`; `examples/` hold every convention, the code none.
+- **Domain**: `RunningDigests` (rollout, sidecars, not started), `MatchDigest`.
+- **App**: the algorithm against fakes: match on page 1, page 3, none; running deployment; retried job; cache and re-check; fallback order; errors per kind.
+- **gitlab adapter**: contract suite against an `httptest` server reproducing GitLab's responses (pagination headers, 401/403/404/429, a 30 MB log, a digest across a buffer boundary); the token never appears in errors or logs.
+- **gitcli adapter**: contract suite on a temporary bare "remote" and a clone; the user's clone unchanged afterwards.
+- **Config**: schema (`make schema`), validation with positions, `.env` reading and the two warnings.
+- **TUI goldens**: each state of §7.5 at 80, 120, 200+ columns, bottom and side panel.
 
-## 10. Real-GKE / real-repo verification
+## 11. Real verification
 
 | ID | Action | Expected |
 |---|---|---|
-| C-1 | Deploy an image tagged `<version>-<sha>` built from a known commit | COMMIT shows that SHA and subject; equals `git log -1 <sha>` |
-| C-2 | Same with a pipeline annotation on the pod template | Same, source `label` |
-| C-3 | Roll out a new commit; watch during and after | `old→new`, then new |
-| C-4 | `kubectl rollout undo` | Old commit again |
-| C-5 | Deploy a commit pushed after the local clone's last pull | Subject shown from the remote; the local clone unchanged (`git status`, refs, `FETCH_HEAD` mtime) |
-| C-6 | Default `origin/HEAD` with 3 newer commits merged on the trunk | `3 not deployed on origin/HEAD`; `up to date` after deploying the head; same with `compare_ref: origin/<other>` |
-| C-6b | Real GitLab over SSH and over HTTPS (credential helper); SSH agent stopped | Works with the user's access; with no agent, `cannot reach the remote (authentication)` and no prompt |
-| C-6c | VPN off | Local fallback, `(local, may be stale)` |
-| C-7 | `huginn-reader` RBAC | Works unchanged |
-| C-8 | Largest real repository | First treeless fetch: time and disk measured; preview never stalls |
+| R-1 | Select a prd service on its latest release | COMMIT shows the deployment's sha, subject, deployer, pipeline; equals the GitLab environment page |
+| R-2 | A service whose prd is a few releases behind | Found; `N not deployed` equals `git rev-list --count` on a fresh clone |
+| R-3 | Watch a prd deploy end to end | `being deployed…` (if §4's running case holds), then found |
+| R-4 | GitLab re-deploy of an older deployment | Old sha found |
+| R-5 | Token removed, expired, Guest role | The three dim lines; no crash, no token in `~/.cache`/diag logs |
+| R-6 | VPN off | `GitLab unreachable` + fallback; count `(local, may be stale)` |
+| R-7 | Requests made | Measured: number per lookup, time to first result |
 
-## 11. Decisions
+## 12. Decisions
 
-Answered by the owner on 2026-11-19:
+**Decided by the owner (2026-11-19):** the algorithm of §1; the promote log prints the pod's digest (checked); GitLab environment and job names configured per environment (§3.1); the token in `.env` in the config folder (§3.3); the commit in the preview, subject only; no new key; "not deployed" against `origin/HEAD` by default, configurable; git CLI, read only, never writing to the user's clone; clones at `repos_root/<repo>`.
 
-| # | Question | Decision |
-|---|---|---|
-| 2 | Where the message comes from | The `git` CLI, like `sops`, reading the **remote** (the local clone may be stale), read only. Done through Huginn's own treeless cache copy (§4.1), since git cannot read a message from a remote without fetching it, and fetching into the user's clone would write to it |
-| 3 | "Not deployed" | Shown; default `origin/HEAD`, changed by `revision.compare_ref` (globally or per repository) |
-| 4 | `git fetch` | Never into the user's clone; only into Huginn's cache copy |
-| 6 | Copy / open keys | None: the terminal's selection copies the SHA |
-| 7 | Placement | The COMMIT line of the preview, subject only |
-| 5 | Finding each clone | `repos_root/<repository name>` only (the existing setting). No per-repository `path` in the first cut; with the `manifests` rule of `services.yaml` (the owner's setup) a service is only listed when its clone is under `repos_root`, so every listed service has one. The `no clone of this repository` line stays only for setups that name repositories by `labels` or `explicit` (Huginn is generic), and for `(no repo)` rows, which show the commit without a message |
+**Still open:**
+1. **Job name:** is it `promote-<env>` in every repository, or does it differ per repository? (If it differs, a per-repository override in `releases.yaml`.)
+2. **Deploys in progress:** does the pod start running the new digest while GitLab's deployment is still `running` (deploy job = promote job), or is the cluster changed by Flux after the job succeeded? This decides whether the `status=running` request of §4 is useful.
+3. **Monorepos:** does any GitLab project hold several services? If yes, deployments of the same environment would mix services, and the matching job must be told apart (by name, or by searching the digest only, which already disambiguates).
+4. **Persisting the digest→release cache on disk** across runs (`~/.cache/huginn`), to avoid re-reading logs at each start: recommended later, not in the first cut.
+5. **Numbering:** M16, decision D-074.
 
-Still open (explained to the owner in plain terms):
+## 13. Done when (this design)
 
-1. **Where the running commit is written by the pipeline (§3).** Kubernetes only knows the image, for example `europe-docker.pkg.dev/acme/apps/payment-service:2.14.3-9f03b11`. Huginn needs one real example of a production image reference and, if its tag has no commit in it, whether the pipeline writes the commit elsewhere (a label or annotation, an environment variable like `GIT_COMMIT`). This decides which `from:` rules the example config shows and which the first cut must support.
-8. **Numbering:** M16, decision D-074.
-
-## 12. Done when (this design)
-
-This file exists, every claim is cited or marked to verify, and §11 is answered. Implementation is a separate step.
+This file exists, every claim is cited, checked by the owner or marked to verify, and §12's open points are answered. Implementation is a separate step.
