@@ -241,7 +241,7 @@ func TestLoadDirWithoutFolderShowsTheStructure(t *testing.T) {
 
 func TestSchemas(t *testing.T) {
 	s, err := Schemas()
-	if err != nil || len(s) != 8 || !strings.Contains(string(s["format.schema.json"]), `"required"`) || !strings.Contains(string(s["kafka.schema.json"]), `"anyOf"`) {
+	if err != nil || len(s) != 9 || !strings.Contains(string(s["format.schema.json"]), `"required"`) || !strings.Contains(string(s["kafka.schema.json"]), `"anyOf"`) {
 		t.Fatalf("schemas: %d %v", len(s), err)
 	}
 }

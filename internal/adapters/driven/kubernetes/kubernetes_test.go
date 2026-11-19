@@ -725,3 +725,13 @@ func TestUnreachableEndsTheWatch(t *testing.T) {
 		t.Error("watchBroken")
 	}
 }
+
+func TestToPodKeepsTheRunningImageID(t *testing.T) {
+	p := pod("api-7d9f-a1", "api", "7d9f", nil)
+	id := "europe-docker.pkg.dev/p/r/app@sha256:" + strings.Repeat("a", 64)
+	p.Status.ContainerStatuses[0].ImageID = id
+	got := toPod("rec", p).Containers[0]
+	if got.ImageID != id || domain.ImageDigest(got.ImageID) != "sha256:"+strings.Repeat("a", 64) {
+		t.Errorf("ImageID = %q", got.ImageID)
+	}
+}

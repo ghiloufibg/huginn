@@ -115,9 +115,15 @@ func (s *servicesScreen) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 	case eventsMsg:
 		s.preview.store(m, msg)
 		return true, nil
+	case releasesRestMsg:
+		return true, s.preview.rel.rest(m, msg)
+	case releasesMsg:
+		s.preview.rel.store(m, msg)
+		return true, nil
 	}
 	used, cmd := s.handle(m, msg)
-	return used, tea.Batch(cmd, s.preview.watch(m, s.current(m)))
+	cur := s.current(m)
+	return used, tea.Batch(cmd, s.preview.watch(m, cur), s.preview.rel.watch(m, cur))
 }
 
 // current returns the selected service, nil when there is none.

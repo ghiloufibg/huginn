@@ -208,6 +208,7 @@ func Build(o cli.Options, e Env, log *slog.Logger) (*App, error) {
 		home, _ = e.UserHomeDir()
 	}
 	kl := c.Huginn.Kafka.Limits()
+	releases, notice := newReleases(c, clientName, cluster, clk, log)
 	return &App{
 		Config: c, Env: env, Cluster: cluster, Log: log,
 		UI: tui.Options{
@@ -215,7 +216,8 @@ func Build(o cli.Options, e Env, log *slog.Logger) (*App, error) {
 			Catalog: newCatalog(c, sc, cluster, clk, filter, log), Filter: filter,
 			Sessions: newLogSessions(c, sc, cluster, clk, filter, lp.decoders, log),
 			Events:   newPodEvents(sc, cluster),
-			Layouts:  lp.layouts, Layout: lp.fallback, Columns: lp.columns,
+			Releases: releases, Notice: notice,
+			Layouts: lp.layouts, Layout: lp.fallback, Columns: lp.columns,
 			Windows: windows(c), Window: window, ContainerMode: mode,
 			BufferLines: c.Huginn.Logs.BufferLines, KeyBar: c.UI.KeyBar, LogColumns: c.UI.LogColumns,
 			ClipboardOSC52: c.UI.Clipboard == "auto" || c.UI.Clipboard == "osc52",

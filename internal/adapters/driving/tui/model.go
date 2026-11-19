@@ -52,6 +52,12 @@ type Options struct {
 	// Events reads a pod's recent events for the services preview; nil
 	// hides the warnings section.
 	Events ports.PodEvents
+	// Releases finds the commit running each image for the COMMIT section
+	// of the services preview; nil hides it (no releases.yaml).
+	Releases ports.Releases
+	// Notice is shown in the status bar from the start (a warning found
+	// while starting, such as a token file readable by others).
+	Notice string
 	// Filter tells application containers from sidecars.
 	Filter domain.ContainerFilter
 	// Repo, when set, is the repository to open directly (--repo).
@@ -190,7 +196,7 @@ func NewModel(o Options) *Model {
 		o.BufferLines = 50000
 	}
 	kb, _ := ParseKeyBar(o.KeyBar) // validated by the composition root
-	return &Model{opts: o, width: 80, height: 24, env: o.Env, keyBar: kb, stack: []screen{newServicesScreen(o.Repo)}}
+	return &Model{opts: o, width: 80, height: 24, env: o.Env, keyBar: kb, note: o.Notice, stack: []screen{newServicesScreen(o.Repo)}}
 }
 
 // Init implements tea.Model.

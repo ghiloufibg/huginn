@@ -22,7 +22,7 @@ Huginn is built first as a **prototype** and will then be adapted to an enterpri
 | Layer | Package(s) | Contains | May import |
 |---|---|---|---|
 | Domain | `internal/core/domain` | Pure types and rules: Env, Repo, Workload, Pod, Container, Status aggregation, LogEntry, Level, TimeWindow, Filter, Fingerprint, redaction, filter engine | stdlib only |
-| Ports | `internal/core/ports` | Interfaces only. **Driven**: `ClusterClient`, `LogSource`, `LogDecoder`, `LogRenderer`, `ManifestScanner`, `RepoResolver`, `SecretsProvider`, `Clock`, `Clipboard`, `FileSink`, `Opener`, `TopicSourceFactory`, `SchemaDecoderFactory`. **Driving**: `ServiceCatalog`, `LogSession`, `PodEvents`, `Diagnostics` (use cases the UI calls) | domain |
+| Ports | `internal/core/ports` | Interfaces only. **Driven**: `ClusterClient`, `LogSource`, `LogDecoder`, `LogRenderer`, `ManifestScanner`, `RepoResolver`, `SecretsProvider`, `Clock`, `Clipboard`, `FileSink`, `Opener`, `TopicSourceFactory`, `SchemaDecoderFactory`, `ReleaseHistory`, `CommitLog`. **Driving**: `ServiceCatalog`, `LogSession`, `PodEvents`, `Diagnostics`, `Releases` (use cases the UI calls) | domain |
 | Application | `internal/core/app` | Use-case implementations: build the service list, open a log session, merge streams, apply filters, group errors. Orchestrates ports, no I/O of its own | domain, ports |
 | Driven adapters | `internal/adapters/driven/<name>` | One technology each: client-go, sops CLI, Kustomize scanner, JSON log decoder, Spring Boot renderer, demo cluster, file system, OS clipboard | domain, ports, third-party libs |
 | Driving adapters | `internal/adapters/driving/tui`, `…/cli` | Bubble Tea UI, Cobra CLI. Talk to the core **only through driving ports** | domain, ports |
@@ -68,6 +68,8 @@ These rules are enforced mechanically: `golangci-lint` `depguard` rules give edi
 | Other sidecars to hide | Edit `containers.yaml` | No |
 | Noisy loggers to hide (pool state, snapshots) | `mute.loggers` in the format of `formats/` | No |
 | Different keys or theme | Edit `ui.yaml` | No |
+| Other GitLab environment or job names, monorepos | `gitlab:` in `environments.yaml`, `repos:` in `releases.yaml` | No |
+| Deployments recorded elsewhere (GitHub Actions, Jenkins, Argo CD) | New `ReleaseHistory` adapter + a `provider` value | One package |
 
 ## 4. Coding conventions
 
@@ -100,6 +102,8 @@ internal/
   adapters/driven/schemaregistry/  SchemaDecoderFactory: Schema Registry read only (GET), cache by id;
                                 avrojson/: Avro binary -> JSON (hamba/avro confined here)
   adapters/driven/logformat/    LogDecoder: json, regex, plain; Selector (format per container)
+  adapters/driven/gitlab/       ReleaseHistory: GitLab deployments, pipeline jobs, streamed job logs (GET only)
+  adapters/driven/gitcli/       CommitLog: the git command, read only; its own copy of each remote
   adapters/driven/layout/       LogLayout from templates (layouts/*.yaml)
   adapters/driving/cli/         cobra command tree -> cli.Options
   adapters/driving/tui/         Bubble Tea app: theme, keymap, screens

@@ -82,3 +82,9 @@ func TestFakeClusterWatchDeliversChanges(t *testing.T) {
 		t.Fatalf("got %+v", ev)
 	}
 }
+
+func TestFakeReleaseHistoryContract(t *testing.T) {
+	RunReleaseHistoryContract(t, func(_ *testing.T, fx ReleaseFixture) (ports.ReleaseHistory, ports.ReleaseProject) {
+		return &FakeReleaseHistory{Fixture: fx}, ports.ReleaseProject{BaseURL: "https://gitlab.test", Path: "g/p"}
+	})
+}

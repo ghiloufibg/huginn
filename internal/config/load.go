@@ -26,6 +26,7 @@ const (
 	FileServices     = "services.yaml"
 	FileContainers   = "containers.yaml"
 	FileUI           = "ui.yaml"
+	FileReleases     = "releases.yaml"
 	DirFormats       = "formats"
 	DirLayouts       = "layouts"
 	DirKafka         = "kafka"
@@ -37,6 +38,7 @@ const Structure = `  huginn.yaml         required  default environment, time win
   services.yaml       required  how workloads map to repositories
   containers.yaml     optional  sidecars to hide
   ui.yaml             optional  theme, keymap, key bar
+  releases.yaml       optional  which commit runs: GitLab deployments, read only
   formats/*.yaml      at least one: how to read log lines
   layouts/*.yaml      at least one: how to draw log lines
   kafka/*.yaml        optional  Kafka topics of your services, read only`
@@ -96,6 +98,11 @@ func LoadFS(fsys fs.FS, name string) (*Config, error) {
 	if l.read(FileUI, &c.UI, false) {
 		l.version(FileUI, c.UI.Version)
 	}
+	var rel Releases
+	if l.read(FileReleases, &rel, false) {
+		l.version(FileReleases, rel.Version)
+		c.Releases = &rel
+	}
 	for _, f := range l.dir(DirFormats, true) {
 		var fm Format
 		if l.read(f.file, &fm, true) {
@@ -139,7 +146,7 @@ func (l *loader) add(file string, line, col int, format string, args ...any) {
 	l.probs = append(l.probs, Problem{File: file, Line: line, Col: col, Msg: fmt.Sprintf(format, args...)})
 }
 
-var rootNames = []string{FileHuginn, FileEnvironments, FileServices, FileContainers, FileUI, DirFormats, DirLayouts, DirKafka}
+var rootNames = []string{FileHuginn, FileEnvironments, FileServices, FileContainers, FileUI, FileReleases, DirFormats, DirLayouts, DirKafka}
 
 // ignored reports names that may sit in the folder without being read:
 // hidden files (.git) and documentation (*.md).

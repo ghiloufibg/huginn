@@ -1,0 +1,29 @@
+# yaml-language-server: $schema=../../docs/schema/releases.schema.json
+# Which commit runs in each environment, shown on the COMMIT line of the
+# services preview. Reference: docs/CONFIG.md#11-releasesyaml
+#
+# For the running image of a service, Huginn reads the newest successful
+# GitLab deployments of the environment (gitlab: in environments.yaml) and
+# the log of their promote job; the deployment whose log prints the
+# image's digest is the running release. Read only: GET requests only.
+version: 1
+provider: gitlab
+# url: https://gitlab.example.com   # default: the host of each clone's remote
+
+# A token with the read_api scope, role Reporter or above, in a dotenv file
+# of this folder: a line GITLAB_TOKEN=glpat-… in .env. Keep it out of git
+# (add .env to .gitignore) and readable by you only (chmod 600 .env).
+token: {file: .env, key: GITLAB_TOKEN}
+
+per_page: 5                   # deployments read per request, newest first
+max_deployments: 20           # searched before saying "not a recent release"
+compare_ref: origin/HEAD      # "N not deployed" counts the commits of this reference
+
+# Exceptions. A monorepo: several services in one GitLab project.
+# repos:
+#   platform:
+#     max_deployments: 60
+#     workloads:
+#       payment-service:
+#         paths: [services/payment/, libs/common/]   # only these count as not deployed
+#         job: {prd: promote-payment-prd}

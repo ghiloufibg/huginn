@@ -21,6 +21,7 @@ import (
 const (
 	secWorkloads = iota
 	secDeployed
+	secCommit
 	secPods
 	secWarnings
 	secSidecars
@@ -78,6 +79,7 @@ type preview struct {
 	target podKey // worst pod of the selected service
 	seq    int
 	cache  map[podKey]eventsEntry
+	rel    releases // the COMMIT section
 }
 
 // toggle switches the preview off when it is visible, on otherwise.
@@ -181,6 +183,7 @@ func (p *preview) render(m *Model, svc domain.ServiceSummary, w, h int) string {
 	}{
 		secWorkloads: {"WORKLOADS", p.workloads(m, svc)},
 		secDeployed:  {"DEPLOYED", p.deployed(m, svc, now)},
+		secCommit:    {"COMMIT", p.rel.lines(m, svc)},
 		secPods:      {"PODS", p.pods(m, svc, now)},
 		secWarnings:  {"WARNINGS", p.warnings(m, now, stackWrap(w))},
 		secSidecars:  {"SIDECARS", p.hidden(m, svc)},
@@ -206,6 +209,7 @@ func (p *preview) render(m *Model, svc domain.ServiceSummary, w, h int) string {
 	// The deployment times come first: they are why the panel was opened,
 	// and a service has a few workloads against possibly many pods.
 	give(secDeployed, len(sections[secDeployed].lines))
+	give(secCommit, len(sections[secCommit].lines))
 	give(secPods, len(sections[secPods].lines))
 	if stacked {
 		give(secWarnings, len(sections[secWarnings].lines))

@@ -66,11 +66,15 @@ type Resources struct {
 
 // Container is the observed state of one container of a pod.
 type Container struct {
-	Name   string
-	Image  string
-	Init   bool
-	State  ContainerState
-	Reason string
+	Name  string
+	Image string
+	// ImageID is the image the kubelet runs, as the container status
+	// reports it ("…@sha256:…"); empty before the image is pulled. See
+	// ImageDigest.
+	ImageID string
+	Init    bool
+	State   ContainerState
+	Reason  string
 	// Message is the Kubernetes message of the current state, e.g.
 	// "back-off 5m0s restarting failed container".
 	Message  string

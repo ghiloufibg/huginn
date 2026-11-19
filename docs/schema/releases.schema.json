@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "compare_ref": {
+      "description": "Reference the running commit is compared with, to count the commits not deployed. Default origin/HEAD, the remote's default branch.",
+      "type": "string"
+    },
+    "max_deployments": {
+      "description": "Deployments searched before the line says the image is not a recent release. Default 20.",
+      "type": "integer"
+    },
+    "max_log_bytes": {
+      "description": "A job log is read up to this size, e.g. 20MiB. Default 20MiB.",
+      "type": "string"
+    },
+    "per_page": {
+      "description": "Deployments read per request, newest first. Default 5, at most 100.",
+      "type": "integer"
+    },
+    "provider": {
+      "description": "Where deployments are recorded.",
+      "enum": [
+        "gitlab"
+      ],
+      "type": "string"
+    },
+    "refresh": {
+      "description": "How old Huginn's copy of a remote, and a 'not a recent release' answer, may get before they are read again. At least 10s. Default 1m.",
+      "type": "string"
+    },
+    "remote": {
+      "description": "Remote of each clone (repos_root/\u003crepository\u003e) that names its GitLab project. Default origin.",
+      "type": "string"
+    },
+    "repos": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "properties": {
+          "compare_ref": {
+            "description": "Reference compared with for this repository.",
+            "type": "string"
+          },
+          "environment": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "GitLab environment by Huginn environment, instead of environments.yaml's.",
+            "type": "object"
+          },
+          "job": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Job by Huginn environment, instead of environments.yaml's.",
+            "type": "object"
+          },
+          "max_deployments": {
+            "description": "Deployments searched for this repository (a monorepo needs more).",
+            "type": "integer"
+          },
+          "workloads": {
+            "additionalProperties": {
+              "additionalProperties": false,
+              "properties": {
+                "environment": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "description": "GitLab environment by Huginn environment.",
+                  "type": "object"
+                },
+                "job": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "description": "Job by Huginn environment.",
+                  "type": "object"
+                },
+                "paths": {
+                  "description": "Folders of this workload's code in the repository: only the commits touching them count as not deployed.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "type": "object"
+            },
+            "description": "Exceptions of some workloads, by name (a monorepo).",
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
+      "description": "Exceptions for some repositories, by name.",
+      "type": "object"
+    },
+    "token": {
+      "additionalProperties": false,
+      "description": "Where the GitLab access token (scope read_api, role Reporter or above) is read.",
+      "properties": {
+        "file": {
+          "description": "Dotenv file holding the token, relative to the config folder, e.g. .env. Keep it out of git and readable by you only.",
+          "type": "string"
+        },
+        "key": {
+          "description": "Key of the token in that file, e.g. GITLAB_TOKEN.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "file",
+        "key"
+      ],
+      "type": "object"
+    },
+    "url": {
+      "description": "Base URL of the GitLab server, e.g. https://gitlab.example.com. Default: https:// and the host of each clone's remote.",
+      "type": "string"
+    },
+    "version": {
+      "description": "Structure version of this file; must be 1.",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "version",
+    "provider",
+    "token"
+  ],
+  "title": "Huginn config folder: releases.yaml",
+  "type": "object"
+}

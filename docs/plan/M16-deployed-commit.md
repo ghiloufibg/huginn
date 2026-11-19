@@ -1,4 +1,4 @@
-# M16 — The release running in an environment, and its commit, in the services preview  (status: design complete, owner decisions of 2026-11-19 applied; ready to implement)
+# M16 — The release running in an environment, and its commit, in the services preview  (status: implemented, decision [D-074](../DECISIONS.md); pending real-GitLab check §11)
 
 **Goal:** when a microservice is selected on the services screen, its preview shows **which commit is running** in the current environment, with its **message** (subject), who deployed it and when, and **how many trunk commits are not deployed yet**. With trunk-based development every deploy comes from the same branch, so a version or a date does not say which code is live; the commit does.
 

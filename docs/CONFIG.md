@@ -6,7 +6,8 @@ Huginn knows nothing about your applications. Everything specific to them comes 
 - which containers are sidecars;
 - how a log line is read;
 - how a log line is drawn;
-- where the Kafka settings of a service are, optionally.
+- where the Kafka settings of a service are, optionally;
+- where the deployments of your services are recorded (GitLab), optionally.
 
 This page is the complete reference for that folder.
 
@@ -20,8 +21,9 @@ This page is the complete reference for that folder.
 - [8. `formats/<name>.yaml`](#8-formatsnameyaml): reading lines
 - [9. `layouts/<name>.yaml`](#9-layoutsnameyaml): drawing lines
 - [10. `kafka/<name>.yaml`](#10-kafkanameyaml): Kafka topics, read only
-- [11. Errors](#11-errors)
-- [12. Your folder in 15 minutes](#12-your-folder-in-15-minutes)
+- [11. `releases.yaml`](#11-releasesyaml): which commit runs, read only
+- [12. Errors](#12-errors)
+- [13. Your folder in 15 minutes](#13-your-folder-in-15-minutes)
 
 Complete, tested examples:
 
@@ -53,7 +55,7 @@ huginn --demo                              # synthetic cluster + the embedded ex
 
 Huginn reads and checks the whole folder **before** the terminal UI opens:
 - if the folder is missing, Huginn prints the expected structure;
-- if the folder is invalid, it prints **every** problem with its file, line and column (see [Errors](#11-errors)).
+- if the folder is invalid, it prints **every** problem with its file, line and column (see [Errors](#12-errors)).
 
 In both cases it exits with code 2. It never starts with a partly understood folder.
 
@@ -66,6 +68,8 @@ acme-huginn/
 ├── services.yaml         required   how workloads map to repositories
 ├── containers.yaml       optional   sidecars to hide
 ├── ui.yaml               optional   theme, keymap, key bar, columns
+├── releases.yaml         optional   which commit runs: GitLab deployments, read only
+├── .env                  optional   the GitLab token of releases.yaml (keep it out of git)
 ├── formats/              required   at least one .yaml file, one format per file
 │   └── <name>.yaml
 ├── layouts/              required   at least one .yaml file, one layout per file
@@ -115,7 +119,7 @@ demo:
 |---|---|---|---|---|
 | `version` | int | yes | | Must be `1`. |
 | `default_env` | string | yes | | Environment opened by `huginn` without argument. It must be a key of `environments.yaml`. `HUGINN_ENV`, `-e` and the positional argument override it. |
-| `repos_root` | string | | | Folder containing your repositories. Needed by the `manifests` rule of `services.yaml` and by `{repo_dir}` in `kafka/`. |
+| `repos_root` | string | | | Folder containing your clones, one folder per repository named like it. Needed by the `manifests` rule of `services.yaml`, by `{repo_dir}` in `kafka/` and by `releases.yaml` (each clone's remote names its GitLab project). |
 | `windows.presets` | list of durations | | `15m 30m 40m 45m 1h 1d 2d` | Windows of keys `1`…`7`, in order; at most 7. Tail (key `0`) and head (key `9`) are always there and are not presets. |
 | `windows.tail_lines` | int | | `500` | Lines loaded by the tail window (key `0`). |
 | `windows.head_lines` | int | | `500` | Lines loaded **per container** by the head window (key `9`): the first lines the node still keeps. At most `logs.buffer_lines`. |
@@ -139,6 +143,7 @@ environments:
     context: gke_acme_europe-west1_main
     namespace_from: sops:~/work/infra/overlays/prd/config.env#K8S_NAMESPACE
     production: true
+    gitlab: {environment: prd, job: promote-prd}   # only with releases.yaml
 ```
 
 | Key | Type | Req. | Default | Meaning |
@@ -149,6 +154,8 @@ environments:
 | `environments.<env>.namespaces` | list | one of the two | | Namespaces holding the environment's workloads. |
 | `environments.<env>.namespace_from` | string | one of the two | | Read the namespace from a sops-encrypted dotenv file: `sops:<file>#<key>`. A relative `<file>` is relative to the config folder (for example `sops:../infra/overlays/prd/config.env#K8S_NAMESPACE`); `~/` is your home folder. The `sops` command must be installed and able to decrypt the file with your usual keys (age, GCP KMS…). It runs once, when the environment is first opened; the decrypted content stays in memory. If it fails, the services screen shows sops' reason. **The encrypted file itself must sit outside the config folder** (use `../`, as in the example) — the folder's names are fixed (§2), so a `.env.enc` dropped inside it fails to load with `unexpected file`. |
 | `environments.<env>.production` | bool | | `false` | Shows the red production banner. |
+| `environments.<env>.gitlab.environment` | string | with `gitlab` | | Used by [`releases.yaml`](#11-releasesyaml): the GitLab environment your pipelines deploy this environment to. `{repo}` and `{workload}` are replaced by the repository and workload names (`prd/{workload}`). |
+| `environments.<env>.gitlab.job` | string | with `gitlab` | | The job whose log prints the digest (`sha256:…`) of the image it deploys, such as `promote-prd` or `promote-{workload}-prd`. Without `gitlab`, the environment's commit is only guessed from the image tag. |
 
 Several environments may share one context (one cluster, one namespace each) or use different clusters.
 
@@ -685,7 +692,68 @@ Sizes are a number of bytes or a number followed by `KiB`, `MiB` or `GiB`. Durat
 
 **Shared quotas**: when the credentials are the application's own, the brokers may count Huginn's reads against the same quota as the application's pods. The limits above keep reads small; Huginn reads only when asked (the tail, a window, or `f` to follow).
 
-## 11. Errors
+## 11. `releases.yaml`
+
+Optional. It turns on the **COMMIT** line of the services preview: **which commit runs** in the current environment, its subject, who deployed it, and how many commits of the trunk are not deployed yet. With trunk-based development a version or a date does not say which code is live; the commit does.
+
+```
+COMMIT     9f03b11c  fix(payment): retry 3DS callback on timeout  · jdoe, pipeline #48211  · 12 not deployed on origin/HEAD
+```
+
+**How the running commit is found** (read only, GitLab REST API v4, `GET` requests only):
+
+1. The pods give the **digest** of the image they run (`sha256:…`), from their status.
+2. Huginn reads the newest **successful deployments** of the environment (`gitlab.environment` of [`environments.yaml`](#4-environmentsyaml)), a few at a time.
+3. For each, the log of the **promote job** of its pipeline (`gitlab.job`) is searched for that digest. The first deployment whose log prints it **is** the running release: its commit is proven, not guessed.
+4. When none of the last `max_deployments` does (a rollback older than that, or an image set by hand), the line says `not a recent <env> release`, and the commit is **guessed** from the image tag: a part of the tag that is a commit id (`2.14.3-9f03b11`), or a git tag named like it (`2.14.3` or `v2.14.3`). A guess is shown only when git confirms that commit exists, and is marked `≈`.
+
+The GitLab project of a repository is read from its clone, `repos_root/<repository>` (its `remote`, `origin` by default): nothing is configured per repository.
+
+**"Not deployed"** counts the commits of `compare_ref` (default `origin/HEAD`, the remote's default branch) that the running commit lacks. `not on origin/HEAD` means the running commit is not on the trunk at all (a hotfix branch, a force-push). To be current, Huginn keeps **its own copy** of each remote under `<user cache dir>/huginn/git/` (`~/.cache/huginn/git` on Linux), with commits only, no files, and fetches what is new at most every `refresh`. **Your clone is never written to** (no fetch, no ref, no lock). Deleting that folder is safe. When the remote cannot be reached (VPN off), your clone is read instead and the count says `(local, may be stale)`. Git never asks for a password or a passphrase: with no SSH key loaded or no stored credential, the line says so.
+
+```yaml
+version: 1
+provider: gitlab
+token: {file: .env, key: GITLAB_TOKEN}
+# url: https://gitlab.example.com     # default: https:// and the host of each clone's remote
+# per_page: 5
+# max_deployments: 20
+# compare_ref: origin/HEAD
+repos:                                 # exceptions
+  platform:                            # a monorepo: several services in one GitLab project
+    max_deployments: 60
+    workloads:
+      payment-service:
+        paths: [services/payment/, libs/common/]
+        job: {prd: promote-payment-prd}
+```
+
+| Key | Type | Req. | Default | Meaning |
+|---|---|---|---|---|
+| `version` | int | yes | | Must be `1`. |
+| `provider` | `gitlab` | yes | | Where deployments are recorded. |
+| `url` | string | | `https://<host of the remote>` | Base URL of GitLab, when it is not the host of your clones' remote (an SSH host, another port). |
+| `token.file`, `token.key` | string | yes | | The dotenv file of the config folder holding the token, and its key: a line `GITLAB_TOKEN=glpat-…` in `.env`. A personal or project access token with scope **`read_api`** and the role **Reporter** or above (job logs need it). It is read when needed, so a token added or renewed while Huginn runs is used at once. |
+| `remote` | string | | `origin` | Remote of each clone naming its GitLab project. |
+| `per_page` | int | | `5` | Deployments read per request, newest first (1 to 100). |
+| `max_deployments` | int | | `20` | Deployments searched before `not a recent release`. |
+| `max_log_bytes` | size | | `20MiB` | A job log is read up to this size. Logs are streamed and never kept. |
+| `compare_ref` | string | | `origin/HEAD` | Reference the running commit is compared with. |
+| `refresh` | duration | | `1m` | How old Huginn's copy of a remote, and a `not a recent release` answer, may get. At least `10s`. |
+| `repos.<repo>.compare_ref`, `.max_deployments` | | | | The same, for one repository. |
+| `repos.<repo>.environment.<env>`, `.job.<env>` | string | | | GitLab environment or job for one Huginn environment, instead of `environments.yaml`'s. Same placeholders. |
+| `repos.<repo>.workloads.<workload>.paths` | list | | | **Monorepos:** the folders of this workload's code. Only the commits touching them count as not deployed. A workload of a monorepo without `paths` shows `N commits on origin/HEAD since` instead of `not deployed`, since other services' commits are counted too. |
+| `repos.<repo>.workloads.<workload>.environment.<env>`, `.job.<env>` | string | | | GitLab environment or job of one workload. |
+
+**Monorepos.** When several services share a GitLab project, their deployments mix. Matching by digest tells them apart, so a deployment is never taken for another service's. Name the job after the workload (`job: promote-{workload}-prd`) so that the other services' deployments are skipped **without reading their log**, and raise `max_deployments` for that repository.
+
+**Keeping the token safe.** The config folder is meant to be shared in git (§13): put `.env` in its `.gitignore`, and make it readable by you only (`chmod 600 .env`). At start, Huginn warns in the status bar when the file is readable by other users, or when the folder is a git work tree that does not ignore it. The token is never logged, shown, or written anywhere else, and requests are never sent to another host than GitLab's (a redirect to another host is refused).
+
+**Cost.** Only the service the cursor rests on is looked up, in the background, and a found release is kept for the session (a digest never changes release). Running the latest release costs one list of deployments and one log.
+
+**Without a token, or with GitLab unreachable**, the line says why (`no GitLab token (.env GITLAB_TOKEN)`, `GitLab refused the token`, `GitLab unreachable`) and still shows the guess from the image tag when git confirms one. The rest of Huginn is unaffected.
+
+## 12. Errors
 
 Every problem of the folder is listed at once, sorted by file and position. The location is `file:line:column` of the key concerned, or just the file when the problem is the file itself:
 
@@ -728,8 +796,12 @@ huginn: the config folder ~/work/acme-huginn has 5 errors (see docs/CONFIG.md):
 | `muting loggers needs fields.logger` / `needs a group (?P<logger>…)` | Tell the format where the logger is, or remove `mute`. |
 | `the plain decoder reads no logger to mute` | `mute` needs a `json` or `regex` format. |
 | `keep needs mute.loggers` | `mute.keep` applies to muted loggers: list some, or remove `keep`. |
+| `releases.yaml needs repos_root` | Set `repos_root` in `huginn.yaml`: the clones give each repository's GitLab project. |
+| `unknown placeholder {x} (use {repo} or {workload})` | GitLab names may only use `{repo}` and `{workload}`. |
+| `is not a git reference` / `is not a remote name` | Write a plain name such as `origin/HEAD`, `origin/main` or `origin`; no `..`, no leading `-`. |
+| `token.file: must be a file of the config folder` | Put the dotenv file in the config folder, e.g. `.env`. |
 
-## 12. Your folder in 15 minutes
+## 13. Your folder in 15 minutes
 
 To have a coding agent (such as GitHub Copilot) draft the folder from your repositories, use the prompt in [`docs/prompts/copilot-config-folder.md`](prompts/copilot-config-folder.md), then check its result with the steps below.
 

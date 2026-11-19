@@ -10,6 +10,25 @@
             "description": "kubeconfig context name; empty means the current context.",
             "type": "string"
           },
+          "gitlab": {
+            "additionalProperties": false,
+            "description": "The GitLab names of this environment, to find the release running in it (releases.yaml). Without it, the commit is only guessed from the image tag.",
+            "properties": {
+              "environment": {
+                "description": "GitLab environment the pipelines deploy to, e.g. prd. {repo} and {workload} are replaced by the repository and workload names.",
+                "type": "string"
+              },
+              "job": {
+                "description": "Job whose log prints the digest of the image it deploys, e.g. promote-prd. {repo} and {workload} are replaced by the repository and workload names.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "environment",
+              "job"
+            ],
+            "type": "object"
+          },
           "namespace_from": {
             "description": "Read the namespace from a sops-encrypted dotenv file instead: sops:\u003cfile\u003e#\u003ckey\u003e.",
             "type": "string"

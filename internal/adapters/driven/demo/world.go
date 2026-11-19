@@ -199,6 +199,9 @@ func (w *world) newPod(env domain.Env, ns string, r repoSpec, workload, rs, vers
 	w.applyCondition(&p, &spec, i)
 	for j := range p.Containers {
 		c := &p.Containers[j]
+		if c.Reason != "ImagePullBackOff" && c.Reason != "ErrImagePull" {
+			c.ImageID = imageID(c.Image)
+		}
 		switch {
 		case c.State == domain.ContainerWaiting:
 		case j == 1:

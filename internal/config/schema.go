@@ -25,6 +25,7 @@ func Schemas() (map[string][]byte, error) {
 		{"format", "formats/<name>.yaml", reflect.TypeFor[Format]()},
 		{"layout", "layouts/<name>.yaml", reflect.TypeFor[Layout]()},
 		{"kafka", "kafka/<name>.yaml", reflect.TypeFor[KafkaProfile]()},
+		{"releases", "releases.yaml", reflect.TypeFor[Releases]()},
 	}
 	out := map[string][]byte{}
 	for _, k := range kinds {

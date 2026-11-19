@@ -203,11 +203,11 @@ var AppDataRule = struct {
 	Scopes: []string{
 		"internal/core/", "internal/config", "internal/bootstrap", "internal/adapters/driving/",
 		"internal/adapters/driven/layout", "internal/adapters/driven/logformat",
-		"internal/adapters/driven/localfiles",
+		"internal/adapters/driven/localfiles", "internal/adapters/driven/gitlab", "internal/adapters/driven/gitcli",
 	},
 	Forbidden: []string{
 		"springframework", "spring-", "logstash", "logger_name", "thread_name", "@timestamp", "stack_trace", "traceid",
-		"istio", "vault-agent", "linkerd", "app-dev", "app-rec", "app-prd", "prprd",
+		"istio", "vault-agent", "linkerd", "app-dev", "app-rec", "app-prd", "prprd", "promote-",
 	},
 }
 

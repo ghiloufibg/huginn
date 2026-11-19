@@ -32,6 +32,9 @@ type Config struct {
 	// Kafka are the profiles of kafka/, in file name order: the first
 	// matching one wins. Empty when the folder has no kafka/.
 	Kafka []KafkaProfile
+	// Releases is releases.yaml; nil when the folder has none (the COMMIT
+	// line of the services preview is then absent).
+	Releases *Releases
 
 	pos map[string]positions // key positions by file
 }
@@ -88,10 +91,17 @@ type Environments struct {
 
 // Environment describes where one environment lives.
 type Environment struct {
-	Context       string   `yaml:"context" doc:"kubeconfig context name; empty means the current context."`
-	Namespaces    []string `yaml:"namespaces" doc:"Namespaces holding the environment's workloads. Set this or namespace_from."`
-	NamespaceFrom string   `yaml:"namespace_from" doc:"Read the namespace from a sops-encrypted dotenv file instead: sops:<file>#<key>."`
-	Production    bool     `yaml:"production" doc:"Show the production banner."`
+	Context       string     `yaml:"context" doc:"kubeconfig context name; empty means the current context."`
+	Namespaces    []string   `yaml:"namespaces" doc:"Namespaces holding the environment's workloads. Set this or namespace_from."`
+	NamespaceFrom string     `yaml:"namespace_from" doc:"Read the namespace from a sops-encrypted dotenv file instead: sops:<file>#<key>."`
+	Production    bool       `yaml:"production" doc:"Show the production banner."`
+	GitLab        *EnvGitLab `yaml:"gitlab" doc:"The GitLab names of this environment, to find the release running in it (releases.yaml). Without it, the commit is only guessed from the image tag."`
+}
+
+// EnvGitLab names an environment in GitLab.
+type EnvGitLab struct {
+	Environment string `yaml:"environment" doc:"GitLab environment the pipelines deploy to, e.g. prd. {repo} and {workload} are replaced by the repository and workload names." required:"true"`
+	Job         string `yaml:"job" doc:"Job whose log prints the digest of the image it deploys, e.g. promote-prd. {repo} and {workload} are replaced by the repository and workload names." required:"true"`
 }
 
 // Services is services.yaml: how workloads map to repositories.

@@ -83,7 +83,7 @@ func run(m *Model, cmd tea.Cmd) {
 		if msg.err != nil {
 			m.Update(msg)
 		}
-	case eventsMsg, kafkaReposMsg, kafkaOpenedMsg:
+	case eventsMsg, releasesMsg, kafkaReposMsg, kafkaOpenedMsg:
 		m.Update(msg)
 	case kafkaStartedMsg:
 		m.Update(kafkaStartedMsg{screen: msg.screen, gen: msg.gen, err: msg.err}) // tests feed batches

@@ -56,7 +56,7 @@ func containers(specs []corev1.Container, statuses []corev1.ContainerStatus, ini
 }
 
 func setStatus(c *domain.Container, st *corev1.ContainerStatus) {
-	c.Ready, c.Restarts = st.Ready, int(st.RestartCount)
+	c.Ready, c.Restarts, c.ImageID = st.Ready, int(st.RestartCount), st.ImageID
 	switch s := st.State; {
 	case s.Running != nil:
 		c.State, c.Started = domain.ContainerRunning, s.Running.StartedAt.Time

@@ -17,7 +17,11 @@ func validate(c *Config) []Problem {
 	v := &validator{c: c}
 	// Files that could not be read are already reported; only the files
 	// read are checked.
-	for file, val := range map[string]any{FileHuginn: c.Huginn, FileServices: c.Services, FileContainers: c.Containers, FileUI: c.UI} {
+	vals := map[string]any{FileHuginn: c.Huginn, FileServices: c.Services, FileContainers: c.Containers, FileUI: c.UI}
+	if c.Releases != nil {
+		vals[FileReleases] = *c.Releases
+	}
+	for file, val := range vals {
 		if _, ok := c.pos[file]; ok {
 			v.tags(file, reflect.ValueOf(val), "")
 		}
@@ -35,6 +39,7 @@ func validate(c *Config) []Problem {
 	v.kafkaLimits()
 	v.environments()
 	v.services()
+	v.releases()
 	v.ui()
 	for _, f := range c.Formats {
 		v.format(f)
@@ -181,6 +186,15 @@ func (v *validator) environments() {
 		}
 		if nf := e.NamespaceFrom; nf != "" && (!strings.HasPrefix(nf, "sops:") || !strings.Contains(nf, "#")) {
 			v.add(FileEnvironments, p+".namespace_from", "must look like sops:<file>#<key>")
+		}
+		if g := e.GitLab; g != nil {
+			for _, kv := range [][2]string{{"environment", g.Environment}, {"job", g.Job}} {
+				if !v.has(FileEnvironments, p+".gitlab."+kv[0]) {
+					v.add(FileEnvironments, p+".gitlab", "missing required key %q", kv[0])
+				} else {
+					v.placeholders(FileEnvironments, p+".gitlab."+kv[0], kv[1])
+				}
+			}
 		}
 	}
 }

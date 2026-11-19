@@ -8,15 +8,22 @@ environments:                  # shown in this order by the environment picker (
   dev:
     context: gke_acme_europe-west1_main
     namespaces: [app-dev]
+    gitlab: {environment: dev, job: promote-dev}   # releases.yaml: GitLab's names
   rec:
     context: gke_acme_europe-west1_main
     namespaces: [app-rec]
+    gitlab: {environment: rec, job: promote-rec}   # releases.yaml: GitLab's names
   prprd:
     context: gke_acme_europe-west1_main
     namespaces: [app-prprd]
+    gitlab: {environment: prprd, job: promote-prprd}   # releases.yaml: GitLab's names
   prd:
     context: gke_acme_europe-west1_main
     namespaces: [app-prd]
     # or read it from the overlay's encrypted dotenv file:
     # namespace_from: sops:~/work/infra/overlays/prd/config.env#K8S_NAMESPACE
     production: true           # red banner
+    gitlab:                    # releases.yaml: GitLab's names for this environment
+      environment: prd         # the environment the pipelines deploy to
+      job: promote-prd         # the job whose log prints the deployed image digest
+                               # (both may use {repo} and {workload})

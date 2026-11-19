@@ -43,6 +43,9 @@ func applyDefaults(c *Config) {
 	}
 	h.ReposRoot = ExpandHome(h.ReposRoot)
 	kafkaDefaults(&h.Kafka)
+	if c.Releases != nil {
+		releasesDefaults(c.Releases)
+	}
 	if c.UI.Theme == "" {
 		c.UI.Theme = "auto"
 	}
