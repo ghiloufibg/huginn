@@ -1,4 +1,4 @@
-# M16 — The release running in an environment, and its commit, in the services preview  (status: design; owner's algorithm adopted 2026-11-19; open points §12)
+# M16 — The release running in an environment, and its commit, in the services preview  (status: design complete, owner decisions of 2026-11-19 applied; ready to implement)
 
 **Goal:** when a microservice is selected on the services screen, its preview shows **which commit is running** in the current environment, with its **message** (subject), who deployed it and when, and **how many trunk commits are not deployed yet**. With trunk-based development every deploy comes from the same branch, so a version or a date does not say which code is live; the commit does.
 
@@ -54,6 +54,8 @@ environments:
 
 An environment without `gitlab` shows the commit from the fallback only (§5). Both keys are required when `gitlab` is present; no default (they are the company's names).
 
+**Names that differ per service** (owner: the job name must be configurable; monorepos exist): both values accept the placeholders `{repo}` (the Huginn repository) and `{workload}` (the Deployment, StatefulSet… name), so a convention is written once, for example `job: promote-{workload}-prd` or `environment: prd/{workload}`. Exceptions go in `releases.yaml` `repos:` (§3.2). Unknown placeholders are a load error with the position.
+
 ### 3.2 `releases.yaml` (new, optional; absent = feature off)
 
 ```yaml
@@ -69,8 +71,16 @@ max_deployments: 20               # how far back before saying "not a recent rel
 max_log_bytes: 20MB               # a job log is read up to this size
 compare_ref: origin/HEAD          # optional; default origin/HEAD (the remote's default branch)
 refresh: 1m                       # optional; how old the git cache copy may be (§6)
-repos:                            # optional per-repository overrides
-  billing-gateway: { compare_ref: origin/release }
+repos:                            # optional per-repository overrides (exceptions to the conventions)
+  billing-gateway:
+    compare_ref: origin/release
+    job: { prd: release-billing-prd }          # per Huginn environment; same placeholders as §3.1
+  platform-monorepo:                           # a GitLab project holding several services
+    workloads:
+      payment-service:
+        paths: [services/payment/, libs/common/]   # what counts as this service's code, for "not deployed" (§6)
+        job: { prd: promote-payment-prd }
+        environment: { prd: prd/payment }
 ```
 
 ### 3.3 The token: `.env` in the config folder
@@ -93,10 +103,11 @@ The project is the clone's `origin` URL path (`git@gitlab.acme.com:payments/paym
 |---|---|---|
 | Deployments | `GET /projects/:id/deployments?environment=<env>&status=success&order_by=finished_at&sort=desc&per_page=<n>&page=<p>` | per deployment: `sha`, `ref`, `finished_at`, `user`, `deployable` (the job, with its `pipeline` and the commit's `title`, `author_name`, `created_at`) |
 | Promote job | if the deployment's own job (`deployable.name`) is the configured `job`, use it; else `GET /projects/:id/pipelines/:pipeline_id/jobs?per_page=100` and pick it by name | job id |
-| Log | `GET /projects/:id/jobs/:job_id/trace`, **streamed**, searched for the full `sha256:<64 hex>`, stopped at the first match or `max_log_bytes` | match or not |
+| Log | `GET /projects/:id/jobs/:job_id/trace`, **streamed**, searched for the full `sha256:<64 hex>` of every digest wanted in this project, stopped when all are found or at `max_log_bytes` | which digests it prints |
 
 - The search is a streaming substring match that also catches a digest split across two read buffers; the log is never kept in memory or on disk.
-- **A rollout from the pipeline still in progress:** the pod may already run the new digest while GitLab's deployment is still `running`. When no success matches, one more request with `status=running` (first page) lets the line say `being deployed by pipeline #48211` instead of "not a recent release". **To verify** with the owner's pipeline (§12.2).
+- **No "in progress" case on the GitLab side** (owner: the promote job does not touch the cluster; Flux applies the change afterwards). When the pod runs a new digest, the GitLab deployment that printed it has already succeeded, so only `status=success` is read. A rollout in the cluster (two digests) is still shown, from the pods (§7.5).
+- **Monorepos** (owner: some GitLab projects hold several services). Deployments of one environment then mix services, and one pipeline may promote several. Matching by digest already tells them apart, so no deployment is mistaken for another; but the "few newest" may all belong to other services. So: (1) when the job name names the service (`{workload}` in §3.1), deployments whose job does not match are skipped **without reading their log**; (2) each log read is searched for **every digest Huginn is looking for in that project at once** (all workloads of the selected repository), so one pass answers several services; (3) `max_deployments` should be larger for a monorepo (per-repository override).
 - **Errors are classified** at the adapter boundary into the existing domain kinds: 401 → `ErrUnauthorized` (token invalid or expired), 403 → `ErrForbidden` (role too low for logs), 404 → project not found (the clone's remote is not this GitLab), 429 → rate limited (stop, retry after `Retry-After`), network → `ErrUnreachable` (VPN down).
 
 **Cost:** only for the selected service, in the background, once per digest per session. Worst case for a digest not found: `max_deployments / per_page` list calls + up to `max_deployments` job lists + logs; typical case (running the latest release): 1 list call + 1 log. Requests are sequential per project, never in parallel bursts.
@@ -125,6 +136,8 @@ GitLab's deployment already gives the subject, author and date, so git is needed
 | Refresh (when older than `refresh`) | `git -C <cache> fetch --filter=tree:0 --prune origin '+refs/heads/*:refs/remotes/origin/*'` + `remote set-head origin --auto` | Huginn's cache only; commits only, no files |
 | Not deployed | `git -C <cache> rev-list --count --end-of-options <sha>..<compare_ref>` | nothing |
 | Subject (fallback only) | `git -C <cache> log -1 --no-walk --format=%H%x00%h%x00%an%x00%aI%x00%s --end-of-options <sha>` | nothing |
+
+**Monorepos:** the count must only include commits that touch the service, else every commit of a neighbour service would read as "not deployed". With `paths` set for a workload (§3.2) the count is `git rev-list --count <sha>..<compare_ref> -- <paths>`, which needs trees, so such a cache copy is fetched with `--filter=blob:none` (trees, no file contents) instead of `tree:0`. Without `paths`, the count is the whole project's and the line says `N commits on origin/HEAD since` instead of `not deployed`, so it is never misread.
 
 `compare_ref` defaults to `origin/HEAD` (the remote's default branch) and is configurable globally or per repository. Results: `up to date with origin/HEAD`, `N not deployed on origin/HEAD`, or `not on origin/HEAD` (warning: a hotfix branch or a force-push). Remote unreachable → the user's clone is read instead and the count is marked `(local, may be stale)`. Every SHA is checked as `^[0-9a-f]{7,40}$` before it reaches argv.
 
@@ -176,21 +189,23 @@ type ReleaseHistory interface {
     Deployments(ctx context.Context, project, env string, status DeployStatus, page, perPage int) ([]Deployment, error)
     // PromoteJob returns the id of the job named name in the deployment's pipeline.
     PromoteJob(ctx context.Context, project string, d Deployment, name string) (int64, error)
-    // LogContains streams a job's log and reports whether it contains needle,
-    // reading at most limit bytes.
-    LogContains(ctx context.Context, project string, job int64, needle string, limit int64) (bool, error)
+    // LogFind streams a job's log and returns which of needles it contains,
+    // stopping when all are found or after limit bytes.
+    LogFind(ctx context.Context, project string, job int64, needles []string, limit int64) ([]string, error)
 }
 
 // CommitLog: the git cache copy (§6). Driven port.
 type CommitLog interface {
     Refresh(ctx context.Context, dir, remote string) error
-    Commit(ctx context.Context, dir, remote, sha, compareRef string) (domain.Commit, error)
+    Commit(ctx context.Context, dir, remote, sha, compareRef string, paths []string) (domain.Commit, error)
     TagCommit(ctx context.Context, dir, remote, tag string) (string, error)
 }
 
 // Releases is the use case the TUI calls (driving port).
 type Releases interface {
-    Running(ctx context.Context, repo string, env domain.Env, digest, imageTag string) (domain.RunningRelease, error)
+    // Running resolves every workload of repo at once (one log pass serves
+    // all the digests of a monorepo's services).
+    Running(ctx context.Context, repo string, env domain.Env, wanted []WorkloadImage) (map[string]domain.RunningRelease, error)
 }
 ```
 
@@ -198,7 +213,7 @@ Fakes in `portstest`; `RunReleaseHistoryContract` and `RunCommitLogContract` sui
 
 ### 7.3 Application (`internal/core/app/releases.go`)
 
-The algorithm of §1 lives here, as a mechanism (no names): pages through `Deployments`, asks `PromoteJob` and `LogContains`, stops at the first match, then the fallback of §5 and the count of §6. Caches: `(project, env, digest) → Release` for the session (immutable); a "not recent" result re-checked after `refresh` (a release may finish meanwhile); one lookup in flight per digest. Clock injected.
+The algorithm of §1 lives here, as a mechanism (no names): pages through `Deployments`, asks `PromoteJob` and `LogContains`, stops at the first match, then the fallback of §5 and the count of §6. Caches, **in memory only** (owner: no disk cache for now): `(project, env, digest) → Release` for the session (immutable); a "not recent" result re-checked after `refresh`; one lookup in flight per project and environment, which collects all wanted digests. Clock injected.
 
 ### 7.4 Driven adapters
 
@@ -221,7 +236,6 @@ COMMIT     9f03b11  fix(payment): retry 3DS callback on timeout  · jdoe, pipeli
 | Up to date | `… · up to date with origin/HEAD` (dim) |
 | Not on the trunk | `… · not on origin/HEAD` (warning) |
 | Searching | `searching GitLab releases…` (dim) |
-| Being deployed | `being deployed by pipeline #48211` (warning) |
 | Rollout in the cluster (two digests) | `9f03b11→c27e4d0  <new subject>` (warning) |
 | Not a recent release | `not a recent prd release` (warning) + the fallback (`≈ … (from the image tag)`) |
 | No token / token refused / role too low | `no GitLab token (.env GITLAB_TOKEN)` / `GitLab refused the token` / `the token cannot read job logs (Reporter needed)` (dim) |
@@ -229,7 +243,7 @@ COMMIT     9f03b11  fix(payment): retry 3DS callback on timeout  · jdoe, pipeli
 | Environment without `gitlab:` | the fallback only |
 | No `releases.yaml` | no COMMIT section (no change for existing users) |
 
-Several workloads: one line when they run the same digest (the usual case), else one per workload prefixed by its name. No new key: the SHA is copied with the terminal's selection (owner's decision). Loaded asynchronously like pod events; render never waits.
+Several workloads (a monorepo, or a service with a worker): one line when they run the **same commit** (one pipeline often promotes them together, with different digests), else one line per workload prefixed by its name, as DEPLOYED does. No new key: the SHA is copied with the terminal's selection (owner's decision). Loaded asynchronously like pod events; render never waits.
 
 ### 7.6 What does not change
 
@@ -243,7 +257,10 @@ The services table, the logs and Kafka screens, the cluster RBAC, existing confi
 | ★ Pod runs a release 3 deployments old (others failed or were reverted) | Found; `N not deployed` counts the newer commits |
 | ★ GitLab "re-deploy" of an old deployment (rollback) | A new deployment with the old sha: found |
 | ★ `kubectl set image` by hand / rollback older than `max_deployments` | `not a recent prd release` + fallback |
-| ★ Pipeline still running, pod already on the new digest | `being deployed by pipeline #N` |
+| ★ Flux applies a release while the preview is open | Two digests during the rollout (`old→new`), the new one resolved as soon as the pods run it |
+| ★ Monorepo: last 5 prd deployments belong to other services | Skipped by job name without reading logs; the service's own release found further back |
+| ★ Monorepo: one pipeline promotes three services | One log pass resolves all three; one COMMIT line if same commit |
+| Monorepo without `paths` | Count labelled `N commits on origin/HEAD since`, never `not deployed` |
 | Two deployments of the same digest (re-run) | The newest one |
 | Promote job retried (two jobs with the same name in a pipeline) | The last one that succeeded |
 | Digest split across two read buffers | Still matched |
@@ -253,7 +270,6 @@ The services table, the logs and Kafka screens, the cluster RBAC, existing confi
 | Token missing / expired / Guest role | The matching dim line; Huginn otherwise unaffected |
 | `.env` world-readable or not git-ignored | Start-up warning |
 | GitLab 429 | Stops, retries after `Retry-After`, says `GitLab rate limit` meanwhile |
-| Monorepo (several services, one project) | Same project; deployments filtered by environment only — **to verify** (§12.3) |
 
 ## 9. Non-functional
 
@@ -281,7 +297,8 @@ The services table, the logs and Kafka screens, the cluster RBAC, existing confi
 |---|---|---|
 | R-1 | Select a prd service on its latest release | COMMIT shows the deployment's sha, subject, deployer, pipeline; equals the GitLab environment page |
 | R-2 | A service whose prd is a few releases behind | Found; `N not deployed` equals `git rev-list --count` on a fresh clone |
-| R-3 | Watch a prd deploy end to end | `being deployed…` (if §4's running case holds), then found |
+| R-3 | Watch a prd deploy end to end (pipeline, then Flux) | Old commit until Flux rolls out, `old→new` during, then the new release found |
+| R-3b | A monorepo service | Found past other services' deployments; count limited to `paths` equals `git rev-list --count … -- <paths>` |
 | R-4 | GitLab re-deploy of an older deployment | Old sha found |
 | R-5 | Token removed, expired, Guest role | The three dim lines; no crash, no token in `~/.cache`/diag logs |
 | R-6 | VPN off | `GitLab unreachable` + fallback; count `(local, may be stale)` |
@@ -291,12 +308,9 @@ The services table, the logs and Kafka screens, the cluster RBAC, existing confi
 
 **Decided by the owner (2026-11-19):** the algorithm of §1; the promote log prints the pod's digest (checked); GitLab environment and job names configured per environment (§3.1); the token in `.env` in the config folder (§3.3); the commit in the preview, subject only; no new key; "not deployed" against `origin/HEAD` by default, configurable; git CLI, read only, never writing to the user's clone; clones at `repos_root/<repo>`.
 
-**Still open:**
-1. **Job name:** is it `promote-<env>` in every repository, or does it differ per repository? (If it differs, a per-repository override in `releases.yaml`.)
-2. **Deploys in progress:** does the pod start running the new digest while GitLab's deployment is still `running` (deploy job = promote job), or is the cluster changed by Flux after the job succeeded? This decides whether the `status=running` request of §4 is useful.
-3. **Monorepos:** does any GitLab project hold several services? If yes, deployments of the same environment would mix services, and the matching job must be told apart (by name, or by searching the digest only, which already disambiguates).
-4. **Persisting the digest→release cache on disk** across runs (`~/.cache/huginn`), to avoid re-reading logs at each start: recommended later, not in the first cut.
-5. **Numbering:** M16, decision D-074.
+Also decided on 2026-11-19: the job name (and the GitLab environment) configurable per environment with `{repo}`/`{workload}` placeholders, and per repository and workload for exceptions; the promote job does not change the cluster (Flux does, afterwards), so no "running deployment" lookup; monorepos are supported (§4, §6); no disk cache for now, in memory only.
+
+**Nothing blocking remains.** To fill the example config during implementation (not decisions): the real job and environment names of one monorepo service, and its folder(s) for `paths`. Numbering: M16, decision D-074.
 
 ## 13. Done when (this design)
 
