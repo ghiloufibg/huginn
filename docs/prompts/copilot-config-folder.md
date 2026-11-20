@@ -21,6 +21,10 @@ Huginn.
    for example `~/work/huginn-config`.
 5. Review the generated `README.md`, especially its TODO list and cluster
    check table, then run `huginn --config <OUTPUT_DIR> <env>`.
+6. If you asked for the COMMIT line (`releases.yaml`, GitLab only), create
+   `<OUTPUT_DIR>/.env` yourself with `GITLAB_TOKEN=<your token>` (scope
+   `read_api`, role Reporter or above) and `chmod 600` it. The agent never
+   writes or reads the token.
 
 ---
 
@@ -53,7 +57,9 @@ about them comes from this folder. Write it to `<OUTPUT_DIR>`.
    Secret manifests, Vault paths or CI variables. Never write tokens, passwords,
    keys or connection strings into the folder. Referencing a sops file with
    `namespace_from: sops:<file>#<key>` is allowed, because Huginn decrypts it at
-   run time with my own keys.
+   run time with my own keys. For `releases.yaml`, write only
+   `token: {file: .env, key: GITLAB_TOKEN}`: I create `.env` myself. Never
+   create, read or print `.env`, and never call the GitLab API.
 3. **Do not invent.** Every value must come from something you read. When you
    cannot find a value, write your best guess, mark it with a
    `# TODO(verify): <why>` comment on that line, and list it in the README (see
@@ -83,7 +89,10 @@ about them comes from this folder. Write it to `<OUTPUT_DIR>`.
    - Never run `kubectl config use-context` or `set-context`: they change my
      current context. Pass `--context <ctx>` and `-n <ns>` on every command.
    - Keep log reads small: `--tail 50` at most per container.
-8. **Real log lines stay out of the files unredacted.** You may read as many
+8. **`git` is allowed on my clones with read-only commands only:**
+   `remote get-url`, `rev-parse`, `log`, `ls-files`, `config --get`. Never
+   `fetch`, `pull`, `checkout`, `commit` or anything that writes to a clone.
+9. **Real log lines stay out of the files unredacted.** You may read as many
    as you need to get the mapping right. When you put an example line in a
    comment, replace personal data, ids, emails, IPs, tokens and business
    values with placeholders.
@@ -113,6 +122,10 @@ Make one pass over all repositories and take notes, then write the files.
 - In `huginn.yaml`, set `default_env` to a non-production environment such as
   staging or recette. Leave the other keys at the documented defaults unless the
   repositories give a reason to change them.
+- Set `repos_root` to the folder holding my clones, one folder per repository
+  named like it (the parent folder of the repositories in the workspace), when
+  `releases.yaml` is written: Huginn reads each clone's remote to find its
+  GitLab project.
 
 ### `services.yaml` (workload → repository)
 
@@ -184,7 +197,7 @@ Then, for each format:
   `20-<name>.yaml`, … and end with one catch-all format without `match`, named
   to sort last.
 - At the top of each format file, add a comment with **one example line**
-  taken from `kubectl logs` and redacted (rule 8), as the examples do.
+  taken from `kubectl logs` and redacted (rule 9), as the examples do.
 
 ### `layouts/` (drawing lines)
 
@@ -218,6 +231,41 @@ Only when my applications use Kafka and I asked for Kafka screens. Follow
   strategies) have no equivalent.
 - Check with `huginn --config <OUTPUT_DIR> kafka check <repo>`: it reads the
   brokers and the registry (`GET` only) and fails when either cannot be used.
+
+### `releases.yaml` and the `gitlab:` keys (optional: the COMMIT line)
+
+Only when my pipelines run on GitLab and I asked for the COMMIT line. Follow
+`docs/CONFIG.md` §11 and `examples/config/releases.yaml`. Huginn finds the
+running commit by searching the logs of the **promote job** of the newest
+successful GitLab deployments for the digest the pods run, so you need, per
+environment, the GitLab environment name and the name of that job.
+
+- **Where to look:** `.gitlab-ci.yml` and the files it `include:`s (templates,
+  `extends:`). The deploy or promote job of an environment is the one with
+  `environment: <name>` (or `environment: {name: <name>}`); `<name>` is the
+  GitLab environment. Write, under each environment of `environments.yaml`:
+  `gitlab: {environment: <name>, job: <job name>}`.
+- **The job must print the image digest** (`sha256:…`): look in its `script`
+  for `crane digest`, `docker buildx … --metadata-file`, `--digestfile`,
+  `skopeo inspect`, `gcloud artifacts docker images describe`, an `@sha256:`
+  image reference, or an `echo` of a digest variable. If none of the
+  candidate jobs prints one, say so in the README: the COMMIT line will then
+  only show guesses from the image tag.
+- **Names that follow a pattern:** when every repository or monorepo service
+  has its own job or environment (`promote-payment-prd`, `prd/payment`), write
+  the pattern once with `{workload}` or `{repo}` (`job: promote-{workload}-prd`)
+  and list only the exceptions under `repos:` in `releases.yaml`.
+- **Monorepos** (one GitLab project, several services): under
+  `repos.<repo>.workloads.<workload>.paths`, list the folders of each
+  service's code. The best source is the CI's `rules: changes:` (or
+  `only: changes:`) of that service's jobs. Raise `max_deployments` for that
+  repository (for example 60).
+- **The trunk:** leave `compare_ref` at its default (`origin/HEAD`) unless the
+  team deploys from another branch (a `release/*` branch in `rules: if:`).
+- **Clones:** for each repository, check that `<repos_root>/<repo>` exists and
+  `git -C <repos_root>/<repo> remote get-url origin` points at GitLab. A
+  repository whose clone is elsewhere or missing is a TODO for me.
+- Add a `.gitignore` in `<OUTPUT_DIR>` containing `.env`.
 
 ### `ui.yaml`
 
@@ -268,7 +316,13 @@ Optional. Personal preferences; skip it unless I asked for something.
         another key or leave it out);
       - every level value is a known spelling or is listed in `levels`;
       - multi-line output (stack traces, banners) is understood.
-   6. Environments must not differ silently. If production logs differ from
+   6. **Running digests** (only with `releases.yaml`): for one running pod of
+      each workload,
+      `kubectl get pod <pod> -o jsonpath='{.status.containerStatuses[*].imageID}'`
+      shows a `…@sha256:` digest. In the README, give me one digest per
+      environment and the promote job to check: I confirm by hand that its
+      latest log prints that digest (you cannot read GitLab).
+   7. Environments must not differ silently. If production logs differ from
       staging (another profile, another encoder), write a format with a
       `match` for it, or explain in the README why one format covers both.
 
@@ -278,13 +332,14 @@ In `<OUTPUT_DIR>`:
 
 - The config folder: `huginn.yaml`, `environments.yaml`, `services.yaml`,
   `containers.yaml` (when sidecars exist), `formats/*.yaml`, `layouts/*.yaml`,
-  `kafka/*.yaml` (when asked for),
-  each commented with where its values came from (`# from payments-api/k8s/overlays/rec/kustomization.yaml`).
+  `kafka/*.yaml` (when asked for), `releases.yaml` and `.gitignore` (when
+  asked for), each commented with where its values came from (`# from payments-api/k8s/overlays/rec/kustomization.yaml`).
 - `README.md` with:
   - **Sources:** a table of repositories scanned → logging style, format and
     layout used, workloads found.
   - **Decisions:** why `labels` or `explicit`, why each sidecar is hidden, how
-    formats are ordered.
+    formats are ordered, and (with `releases.yaml`) which CI job of each
+    environment prints the digest and where it does.
   - **Cluster check:** a table per environment: context and access result,
     workloads found / resolved to a repository / unresolved, sidecars seen,
     and for each format the containers and number of lines it was checked
@@ -292,7 +347,8 @@ In `<OUTPUT_DIR>`:
   - **TODO (verify):** what the cluster check could not settle (a namespace
     I cannot read, a workload with no running pod…), with the exact command
     to confirm it.
-  - **Run:** `huginn --config <OUTPUT_DIR> <default_env>`.
+  - **Run:** `huginn --config <OUTPUT_DIR> <default_env>`; with
+    `releases.yaml`, first create `.env` (step 6 of "How to use it").
 
 Finally, give me a short summary: the environments and repositories covered,
 the formats and layouts created, the cluster check result per environment,
