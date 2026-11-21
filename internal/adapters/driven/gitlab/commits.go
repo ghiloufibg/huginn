@@ -3,7 +3,6 @@ package gitlab
 import (
 	"context"
 	"errors"
-	"net/http"
 	"net/url"
 	"regexp"
 	"strconv"
@@ -21,13 +20,14 @@ type Commits struct {
 	Client *Client
 }
 
-// lotsOfCommits is the count shown, as a lower bound, when GitLab does not
-// say how many commits a range has (it drops X-Total for large lists).
-const lotsOfCommits = 10000
-
-// pathPage is how many commits are listed per path of a monorepo workload;
-// beyond it the count is a lower bound.
-const pathPage = 100
+// A range is counted by listing its commits page by page, following
+// GitLab's documented X-Next-Page header; X-Total is not relied on (GitLab
+// leaves it out of large lists). Beyond maxPages pages the count is a
+// lower bound, shown as "1000+".
+const (
+	pageSize = 100
+	maxPages = 10
+)
 
 var refName = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9._+/-]*$`)
 
@@ -96,10 +96,9 @@ func (c *Commits) BranchTip(ctx context.Context, p ports.ReleaseProject, branch 
 	return raw.Commit.ID, nil
 }
 
-// Count implements ports.CommitLog: the commits of sha..branch are counted
-// from the X-Total header of a one-item page, and sha is on branch when it
-// is their merge base. With paths, the commit ids of each path are listed
-// (one page each) and their union counted.
+// Count implements ports.CommitLog: the commits of sha..branch (only those
+// touching one of paths, when given) are listed and counted, and sha is on
+// branch when it is their merge base.
 func (c *Commits) Count(ctx context.Context, p ports.ReleaseProject, sha, branch string, paths []string) (int, bool, bool, error) {
 	if !domain.IsCommitID(sha) || !validRef(branch) {
 		return 0, false, false, domain.KindError(domain.ErrConfig, "invalid commit or branch")
@@ -113,14 +112,19 @@ func (c *Commits) Count(ctx context.Context, p ports.ReleaseProject, sha, branch
 	if err != nil {
 		return 0, false, false, err
 	}
-	var behind int
-	var capped bool
 	if len(paths) == 0 {
-		behind, capped, err = c.countRange(ctx, p, sha, branch)
-	} else {
-		behind, capped, err = c.countPaths(ctx, p, sha, branch, paths)
+		paths = []string{""}
 	}
-	return behind, capped, on, err
+	seen := map[string]bool{}
+	capped := false
+	for _, path := range paths {
+		more, err := c.listRange(ctx, p, sha+".."+branch, strings.TrimSuffix(path, "/"), seen)
+		if err != nil {
+			return 0, false, false, err
+		}
+		capped = capped || more
+	}
+	return len(seen), capped, on, nil
 }
 
 type commitID struct {
@@ -136,56 +140,28 @@ func (c *Commits) onBranch(ctx context.Context, p ports.ReleaseProject, sha, bra
 	return base.ID != "" && (strings.HasPrefix(base.ID, sha) || strings.HasPrefix(sha, base.ID)), nil
 }
 
-// countRange counts sha..branch, falling back to the compare API when the
-// server refuses a revision range in ref_name (an old GitLab).
-func (c *Commits) countRange(ctx context.Context, p ports.ReleaseProject, sha, branch string) (int, bool, error) {
-	var page []commitID
-	q := url.Values{"ref_name": {sha + ".." + branch}, "per_page": {"1"}}
-	h, err := c.Client.getJSONHeader(ctx, p, "/repository/commits", q, &page)
-	var se *statusErr
-	if errors.As(err, &se) && (se.code == http.StatusBadRequest || se.code == http.StatusNotFound) {
-		return c.compare(ctx, p, sha, branch)
-	}
-	if err != nil {
-		return 0, false, err
-	}
-	if total, err := strconv.Atoi(h.Get("X-Total")); err == nil {
-		return total, false, nil
-	}
-	if h.Get("X-Next-Page") != "" { // more than one, and GitLab does not say how many
-		return lotsOfCommits, true, nil
-	}
-	return len(page), false, nil
-}
-
-func (c *Commits) compare(ctx context.Context, p ports.ReleaseProject, sha, branch string) (int, bool, error) {
-	var raw struct {
-		Commits        []commitID `json:"commits"`
-		CompareTimeout bool       `json:"compare_timeout"`
-	}
-	q := url.Values{"from": {sha}, "to": {branch}}
-	if _, err := c.Client.getJSONHeader(ctx, p, "/repository/compare", q, &raw); err != nil {
-		return 0, false, err
-	}
-	return len(raw.Commits), raw.CompareTimeout, nil
-}
-
-func (c *Commits) countPaths(ctx context.Context, p ports.ReleaseProject, sha, branch string, paths []string) (int, bool, error) {
-	seen := map[string]bool{}
-	capped := false
-	for _, path := range paths {
-		var page []commitID
-		q := url.Values{"ref_name": {sha + ".." + branch}, "path": {strings.TrimSuffix(path, "/")}, "per_page": {strconv.Itoa(pathPage)}}
-		h, err := c.Client.getJSONHeader(ctx, p, "/repository/commits", q, &page)
-		if err != nil {
-			return 0, false, err
+// listRange adds to seen the commits of a revision range (touching path,
+// when set), page by page; more says pages were left after maxPages.
+func (c *Commits) listRange(ctx context.Context, p ports.ReleaseProject, rng, path string, seen map[string]bool) (more bool, err error) {
+	page := "1"
+	for range maxPages {
+		q := url.Values{"ref_name": {rng}, "per_page": {strconv.Itoa(pageSize)}, "page": {page}}
+		if path != "" {
+			q.Set("path", path)
 		}
-		for _, id := range page {
+		var ids []commitID
+		h, err := c.Client.getJSONHeader(ctx, p, "/repository/commits", q, &ids)
+		if err != nil {
+			return false, err
+		}
+		for _, id := range ids {
 			seen[id.ID] = true
 		}
-		capped = capped || h.Get("X-Next-Page") != ""
+		if page = h.Get("X-Next-Page"); page == "" {
+			return false, nil
+		}
 	}
-	return len(seen), capped, nil
+	return true, nil
 }
 
 // notFound gives a 404 the message of what was looked for.

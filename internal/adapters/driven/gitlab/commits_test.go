@@ -25,9 +25,6 @@ type history struct {
 	touches  map[string][]string // commit id → folders
 	tags     map[string]string
 	parents  map[string]string // for commits off every branch: the parent on main
-	// noTotal drops X-Total (GitLab does so for large lists); noRanges
-	// answers 400 to a revision range in ref_name (an old GitLab).
-	noTotal, noRanges bool
 
 	mu    sync.Mutex
 	paths []string // requests made
@@ -124,7 +121,7 @@ func (h *history) server(t *testing.T) *httptest.Server {
 			write(map[string]any{"id": base})
 		case path == "/repository/commits":
 			from, to, isRange := strings.Cut(q.Get("ref_name"), "..")
-			if !isRange || h.noRanges {
+			if !isRange {
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
@@ -139,28 +136,21 @@ func (h *history) server(t *testing.T) *httptest.Server {
 				}
 				ids = append(ids, c)
 			}
+			// Offset pagination as GitLab documents it: X-Next-Page, and no
+			// X-Total (left out of large lists, so never relied on).
 			perPage, _ := strconv.Atoi(q.Get("per_page"))
-			if !h.noTotal {
-				w.Header().Set("X-Total", strconv.Itoa(len(ids)))
+			page, _ := strconv.Atoi(q.Get("page"))
+			page = max(page, 1)
+			from2 := min((page-1)*perPage, len(ids))
+			if from2+perPage < len(ids) {
+				w.Header().Set("X-Next-Page", strconv.Itoa(page+1))
 			}
-			if len(ids) > perPage {
-				w.Header().Set("X-Next-Page", "2")
-				ids = ids[:perPage]
-			}
+			ids = ids[from2:min(from2+perPage, len(ids))]
 			var out []map[string]any
 			for _, id := range ids {
 				out = append(out, map[string]any{"id": id})
 			}
 			write(out)
-		case path == "/repository/compare":
-			have := h.reachable(q.Get("from"))
-			var out []map[string]any
-			for _, c := range h.reachable(q.Get("to")) {
-				if !slices.Contains(have, c) {
-					out = append(out, map[string]any{"id": c})
-				}
-			}
-			write(map[string]any{"commits": out, "compare_timeout": false, "diffs": []any{}})
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -188,55 +178,68 @@ func TestCommitsContract(t *testing.T) {
 	})
 }
 
-func TestCountWithoutTotalIsALowerBound(t *testing.T) {
-	h := newHistory()
-	h.noTotal = true
-	srv := h.server(t)
-	c := &Commits{Client: &Client{Token: token}}
-	p := ports.ReleaseProject{BaseURL: srv.URL, Path: "g/p"}
-	behind, capped, _, err := c.Count(context.Background(), p, id("1"), "main", nil)
-	if err != nil || !capped || behind != lotsOfCommits {
-		t.Errorf("Count = %d, capped %v, %v; want a lower bound", behind, capped, err)
-	}
-	behind, capped, _, err = c.Count(context.Background(), p, id("2"), "main", nil)
-	if err != nil || capped || behind != 1 {
-		t.Errorf("one commit without X-Total = %d, capped %v, %v", behind, capped, err)
-	}
-}
-
-func TestCountFallsBackToCompare(t *testing.T) {
-	h := newHistory()
-	h.noRanges = true
-	srv := h.server(t)
-	c := &Commits{Client: &Client{Token: token}}
-	behind, capped, on, err := c.Count(context.Background(), ports.ReleaseProject{BaseURL: srv.URL, Path: "g/p"}, id("1"), "main", nil)
-	if err != nil || behind != 2 || capped || !on {
-		t.Errorf("Count through compare = %d, %v, %v, %v", behind, capped, on, err)
-	}
-}
-
-func TestCountPathsUnionAndCap(t *testing.T) {
-	h := newHistory()
-	srv := h.server(t)
-	c := &Commits{Client: &Client{Token: token}}
-	p := ports.ReleaseProject{BaseURL: srv.URL, Path: "g/p"}
-	behind, capped, _, err := c.Count(context.Background(), p, id("1"), "main", []string{"svc/", "other/", "svc/"})
-	if err != nil || behind != 2 || capped {
-		t.Errorf("Count by paths = %d, %v, %v; want 2 (the union)", behind, capped, err)
-	}
-	// More than a page for a path: a lower bound.
+// bigRange adds a branch "big" of n commits after the first, each
+// touching svc/.
+func bigRange(h *history, n int) {
 	var many []string
-	for i := range pathPage + 5 {
+	for i := range n {
 		many = append(many, strconv.Itoa(1000000+i)+strings.Repeat("a", 33))
 	}
 	h.branches["big"] = append([]string{id("1")}, many...)
 	for _, m := range many {
 		h.touches[m] = []string{"svc/x"}
 	}
-	behind, capped, _, err = c.Count(context.Background(), p, id("1"), "big", []string{"svc/"})
-	if err != nil || behind != pathPage || !capped {
-		t.Errorf("Count past a page = %d, %v, %v", behind, capped, err)
+}
+
+func TestCountPagesThroughTheRange(t *testing.T) {
+	h := newHistory()
+	bigRange(h, 250)
+	srv := h.server(t)
+	c := &Commits{Client: &Client{Token: token}}
+	p := ports.ReleaseProject{BaseURL: srv.URL, Path: "g/p"}
+	behind, capped, on, err := c.Count(context.Background(), p, id("1"), "big", nil)
+	if err != nil || behind != 250 || capped || !on {
+		t.Errorf("Count = %d, capped %v, on %v, %v; want 250 exactly over 3 pages", behind, capped, on, err)
 	}
+	if n := countRequests(h, "/repository/commits?"); n != 3 {
+		t.Errorf("%d list requests, want 3", n)
+	}
+}
+
+func TestCountStopsAtTheCap(t *testing.T) {
+	h := newHistory()
+	bigRange(h, pageSize*maxPages+5)
+	srv := h.server(t)
+	c := &Commits{Client: &Client{Token: token}}
+	behind, capped, _, err := c.Count(context.Background(), ports.ReleaseProject{BaseURL: srv.URL, Path: "g/p"}, id("1"), "big", nil)
+	if err != nil || !capped || behind != pageSize*maxPages {
+		t.Errorf("Count = %d, capped %v, %v; want a lower bound of %d", behind, capped, err, pageSize*maxPages)
+	}
+	if n := countRequests(h, "/repository/commits?"); n != maxPages {
+		t.Errorf("%d list requests, want %d", n, maxPages)
+	}
+}
+
+func TestCountPathsUnion(t *testing.T) {
+	h := newHistory()
+	srv := h.server(t)
+	c := &Commits{Client: &Client{Token: token}}
+	behind, capped, _, err := c.Count(context.Background(), ports.ReleaseProject{BaseURL: srv.URL, Path: "g/p"}, id("1"), "main", []string{"svc/", "other/", "svc/"})
+	if err != nil || behind != 2 || capped {
+		t.Errorf("Count by paths = %d, %v, %v; want 2 (the union)", behind, capped, err)
+	}
+}
+
+func countRequests(h *history, prefix string) int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	n := 0
+	for _, p := range h.paths {
+		if strings.HasPrefix(p, prefix) {
+			n++
+		}
+	}
+	return n
 }
 
 func TestBranchWithSlashIsEncoded(t *testing.T) {

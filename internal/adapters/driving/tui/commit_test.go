@@ -85,10 +85,10 @@ func TestCommitText(t *testing.T) {
 			return r
 		}()}, "9f03b11c  s  · jdoe, pipeline #48211  · 7 commits on origin/HEAD since"},
 		{"a count that is a lower bound", cur, domain.WorkloadImage{}, map[string]domain.RunningRelease{digest("1"): func() domain.RunningRelease {
-			r := found(sha, "s", 10000)
+			r := found(sha, "s", 1000)
 			r.Count.Capped = true
 			return r
-		}()}, "9f03b11c  s  · jdoe, pipeline #48211  · 10000+ not deployed on origin/HEAD"},
+		}()}, "9f03b11c  s  · jdoe, pipeline #48211  · 1000+ not deployed on origin/HEAD"},
 		{
 			"a rollout", cur, prev,
 			map[string]domain.RunningRelease{digest("1"): found(sha, "new", 0), digest("2"): found(old, "old", 3)},

@@ -181,21 +181,7 @@ func (c *Client) get(ctx context.Context, p ports.ReleaseProject, path string, q
 	return nil, statusError(resp, p.Path)
 }
 
-// statusErr is an HTTP failure: its domain kind (for errors.Is) and the
-// status code, which Commits reads to choose a fallback.
-type statusErr struct {
-	code int
-	err  error
-}
-
-func (e *statusErr) Error() string { return e.err.Error() }
-func (e *statusErr) Unwrap() error { return e.err }
-
 func statusError(resp *http.Response, project string) error {
-	return &statusErr{code: resp.StatusCode, err: kindOf(resp, project)}
-}
-
-func kindOf(resp *http.Response, project string) error {
 	switch resp.StatusCode {
 	case http.StatusUnauthorized:
 		return domain.KindError(domain.ErrUnauthorized, "GitLab refused the token (expired or revoked?)")

@@ -4,7 +4,7 @@
 
 1. **Functional.** The commit shown is the one GitLab deployed and the cluster runs, for the latest release, an older one, a deploy seen live, a rollback and a monorepo service; "N not deployed" equals an independent `git` count.
 2. **Failure.** No token, a refused token, a role too low and the VPN off each give a clear line, never a prompt, a hang or a crash, and the token never leaks.
-3. **The assumptions the implementation could not check:** A-1 whether a deployment's own job is the promote job (D-074); A-4 to A-6 how the owner's GitLab version answers the repository API (D-075: revision ranges in `ref_name`, the `X-Total` header, abbreviated commit ids).
+3. **The assumptions the implementation could not check:** A-1 whether a deployment's own job is the promote job (D-074); A-4 and A-6 how the owner's GitLab answers the repository API (D-075: the count over a revision range, abbreviated commit ids).
 4. **Non-functional and non-regression.** The cost stays what was measured on fakes (1 GitLab request a minute per selected service once its release is found, no process, nothing on disk, nothing per frame), and Huginn without `releases.yaml` is unchanged.
 
 Unlike the GKE-lab QAs (M5–M15), **nothing is created**: no cluster, no fixture, no image. Everything is read only, except the deploys of §4 that the team does anyway, and only in `rec`.
@@ -87,8 +87,7 @@ One row per action, written as it happens: time, environment, service, action (l
 | F-6 | P0 | VPN off, then rest on a service not yet looked up, and on one already found | Not yet looked up: `GitLab unreachable`, no count. Already found: the same commit and subject (kept for the session), no count. No hang beyond the timeouts; Huginn stays responsive |
 | F-7 | P0 | **Token never leaks**: after the whole session | `grep -rcF -f <(sed -n 's/^GITLAB_TOKEN=//p' <folder>/.env) ~/.cache/huginn` reports 0 everywhere (diagnostic log at `--log-level debug`) |
 | **A-1** | P0 | For `svc-A`, `svc-B` and `mono/svc-D`: the oracle's `curl` (§2) | Record whether `.deployable.name` is the configured promote job. If yes: 1 request saved per deployment (as designed). If not: the pipeline's job list is read once per pipeline; note which job the deployment points to. **Either answer is correct behavior**; it decides the cost line of D-074 |
-| **A-4** | P0 | The `curl` oracle: `…/repository/commits?ref_name=<sha of svc-B>..<default branch>&per_page=1`, headers shown (`curl -sSI` or `-D -`) | The answer is a list (not a 400), and `X-Total` equals `git rev-list --count <sha>..origin/<branch>` in the throwaway clone. If the range is refused, Huginn uses `repository/compare` (record it); if `X-Total` is missing, the line shows `10000+` (record the version) |
-| **A-5** | P1 | The same for a range of more than 10 000 commits, if one exists (an old release of a busy project) | Record whether `X-Total` is sent; the line must never show a wrong number (`10000+` is right) |
+| **A-4** | P0 | `svc-B`'s COMMIT line, and a service more than 100 commits behind if one exists | The count equals `git rev-list --count <sha>..origin/<branch>` in the throwaway clone; above 1 000 the line says `1000+` |
 | **A-6** | P0 | `…/repository/commits/<8-character id>` for a commit of `svc-A` | GitLab resolves the abbreviated id (the image-tag guess needs it). If not, record it: guesses from short tags then read `commit unknown` |
 
 ## 6. Non-functional and non-regression
@@ -111,10 +110,10 @@ One row per action, written as it happens: time, environment, service, action (l
 
 ## 8. Pass and fail
 
-- **M16 verified** when every P0 case of §4, §5 and §6 passes. A-1, A-4, A-5 and A-6 always "pass" once recorded: they are measurements that complete D-074 and D-075.
+- **M16 verified** when every P0 case of §4, §5 and §6 passes. A-1 and A-6 always "pass" once recorded: they are measurements that complete D-074 and D-075.
 - **Findings** are classified as in the earlier QAs: *Huginn* (code or docs change, then the affected rows are re-run), *environment* (not Huginn), *measured limit* (documented, no change).
 - **Not claimed** unless done: Q-5 if the team does not allow a manual rollout; Q-9 if no hotfix exists; N-3 without a proxy.
 
 ## 9. Report
 
-Write `deploy/gke-qa/M16-QA-REPORT.md` with placeholders for every company name (§0): the filled tables of §4–§6, the ledger, A-1 and A-4 to A-6 results, the findings. Then replace the "Not verified" lines of D-074 and D-075 with the outcome, set this file's status, and fold any finding into `docs/CONFIG.md`.
+Write `deploy/gke-qa/M16-QA-REPORT.md` with placeholders for every company name (§0): the filled tables of §4–§6, the ledger, A-1, A-4 and A-6 results, the findings. Then replace the "Not verified" lines of D-074 and D-075 with the outcome, set this file's status, and fold any finding into `docs/CONFIG.md`.
