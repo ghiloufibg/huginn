@@ -2,6 +2,8 @@
 
 **Goal:** implement the third rule of `services.yaml` `resolve`, accepted and validated since M3.4 but skipped at run time (`bootstrap/catalog.go`: "manifest resolver not available yet"). With it, a workload of the cluster is attached to the repository **whose Kustomize overlay for that environment declares it**, read from the clones under `repos_root`. This needs no label discipline in the cluster, and it makes the owner's assumption true by construction: a repository is listed only if its clone is on disk, so the COMMIT line of M16 always has a clone to read (`docs/plan/M16-deployed-commit.md` §2).
 
+**Owner's requirement (2026-11-21): this addition must not break what works today.** The TUI works fine with `labels`/`explicit`; §2a lists the guarantees that keep it so, and every later section obeys them.
+
 This is a design only. Nothing below is implemented. Facts come from the code (cited) or the Kustomize documentation; anything assumed is marked **to verify**.
 
 ## 1. What exists, and what is missing
@@ -22,6 +24,18 @@ This is a design only. Nothing below is implemented. Facts come from the code (c
 For environment `env`, a workload `(namespace, kind, name)` of the cluster belongs to repository `R` when `R`'s clone (`repos_root/R`) has an overlay folder matching `overlay_glob` with `{env}` replaced, and **building that overlay** would produce an object of that kind and name, in that namespace when the build sets one.
 
 Only the **identity** of the objects is needed (kind, name, namespace), not their content. So Huginn does not run a full Kustomize build; it reads what decides identity (§4).
+
+## 2a. Non-regression guarantees
+
+| # | Guarantee | How |
+|---|---|---|
+| G-1 | **Off unless asked.** A `services.yaml` without `manifests` in `resolve` behaves exactly as today: no scan, no file read, no new log line, no new warning | The resolver is built only when the rule is listed (`bootstrap/catalog.go`); nothing else in the catalog or the TUI changes |
+| G-2 | **It only fills gaps.** Placed after `labels` (the recommended order, §5), the rule only sees the workloads every earlier rule left unattributed: the `(no repo)` rows. A workload attributed today keeps its repository and its row | The existing `ChainResolver` semantics: a rule is asked only about the workloads the previous ones did not attribute (`core/app/resolver.go`) |
+| G-3 | **It can never break the screen.** A missing `repos_root` folder, an unreadable or invalid file, a cycle, a huge tree or a conflict is a warning in the status bar; the rule then attributes nothing for that case and the next rule still applies. It never returns an error (an error fails the whole snapshot today) | §3.1 "Never an error"; a test feeds it every broken input of §11 and checks the snapshot is the one without the rule |
+| G-4 | **It never slows the screen.** The first index is built in the background; until it is ready the rule attributes nothing (as today), then the rows appear. Later rebuilds keep using the previous index | §3.1 cache; the snapshot only does a map lookup per workload |
+| G-5 | **Existing folders that already list `manifests`** (the rule was accepted and silently skipped, and `docs/CONFIG.md`'s example lists it last): after the upgrade it starts filling gaps. Listed after `labels`, only `(no repo)` rows change; listed **before** `labels`, it could move a workload to another repository | At start, when `manifests` comes before `labels`, the status bar says so once (`manifests is before labels in services.yaml: it may change rows; see docs/CONFIG.md §5`), and the release note in `docs/CONFIG.md` says how to keep today's result exactly (remove the rule, or list it last) |
+| G-6 | **Existing tests and screens unchanged.** `go test ./...` passes with no change to existing tests; no existing golden changes; `--demo` keeps `resolve: [labels]` and looks the same | §7, §11 |
+| G-7 | **Proved on the owner's setup before it is used.** A dry run prints, without changing anything, every workload whose row the rule would change: `huginn services --explain-resolve <env>` (or a debug log at start, §10.9) | §11 real check: the diff of rows with and without the rule must contain only former `(no repo)` rows |
 
 ## 3. Design by layer
 
@@ -99,7 +113,7 @@ No new key is needed for the basic rule:
 
 ```yaml
 # services.yaml
-resolve: [explicit, manifests, labels]      # manifests before labels: the disk is the source of truth
+resolve: [explicit, labels, manifests]      # last: only the workloads labels leave unattributed (G-2)
 manifests:
   overlay_glob: "deploy/overlays/{env}"     # a fixed path is much cheaper than "**/overlays/{env}" (§8)
   files: [kustomization.yaml]               # optional
@@ -145,20 +159,22 @@ The demo has no clones. A small Kustomize fixture under `examples/demo-repos/` (
 ## 10. Decisions needed from the owner
 
 1. **Engine:** the built-in identity reader of §4 (recommended: fast, no tool, no network), or `kubectl kustomize` per overlay (exact, slower, needs the tool)?
-2. **Order** in the example and the docs: `[explicit, manifests, labels]` (recommended: the disk decides; labels catch workloads with no overlay), or labels first?
+2. **Order** in the example and the docs: `[explicit, labels, manifests]` (recommended, and required by your "do not break" rule: manifests only fills the `(no repo)` gaps, G-2), or manifests before labels (the disk decides, but rows can move: G-5's warning)?
 3. **Conflicts** (two repositories declare the same workload): not attributed, with a warning (recommended), or the first repository by name wins?
 4. **Refresh:** index reused 1 minute and rebuilt in the background, plus `r` to force (recommended), or read once at start only?
 5. **Monorepos:** one row per repository (recommended now, consistent with M16), or one row per service folder (a larger change, §6)?
 6. **Overlay names:** are the overlay folders named exactly like the Huginn environments, or is `overlay_names` needed?
 7. **Your overlays:** do any patches or replacements rename workloads or change their namespace (§4.3)? Do any use remote bases or `helmCharts`?
 8. **Numbering:** M17, decision D-075.
+9. **Dry run (G-7):** a `huginn services --explain-resolve <env>` command printing which rule attributed each workload and what `manifests` would change (recommended: scriptable, also useful later), or only a debug log at start?
 
 ## 11. Test plan
 
 - **Adapter** (table tests on fixture folders): plain resources; nested bases; `namespace` override (outermost wins); `namePrefix`/`nameSuffix` accumulation; components; multi-document files; the four kinds kept, others ignored; remote resource, `helmCharts`, plugin, path leaving the repository, cycle, YAML error: each a warning, never an error; an optional oracle test comparing names and kinds with `kubectl kustomize` output when the tool is installed.
 - **App**: attribution by kind and name with and without a namespace; conflict; stale-while-revalidate (old index used, new one swapped in); `r` forces a rebuild; warnings exposed; chain order with `explicit` and `labels`.
 - **Bootstrap**: the rule wired; the "not available yet" log gone.
-- **Real check**: on the owner's `repos_root` and cluster, every workload attributed as with `labels` today (a diff of the two runs' rows), the first index build timed, `**` versus a fixed `overlay_glob` timed.
+- **Non-regression** (G-1 to G-6): every existing test unchanged and passing; no golden changed; a catalog test with a `services.yaml` without the rule asserts no file is read (a counting fake `LocalFiles`); a test per broken input of the adapter list above asserts the snapshot equals the one without the rule; a test that `[labels, manifests]` never moves a workload attributed by `labels`.
+- **Real check** (G-7): on the owner's `repos_root` and cluster, the dry run first; then the rows with and without the rule, diffed: **only former `(no repo)` rows may differ**. The first index build timed, `**` versus a fixed `overlay_glob` timed.
 
 ## 12. Done when (this design)
 
