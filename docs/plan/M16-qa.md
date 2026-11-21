@@ -59,7 +59,7 @@ mkdir -p ~/qa-shim && printf '#!/bin/sh\necho "$(date +%%T) $*" >> ~/qa-shim/cal
 PATH=~/qa-shim:$PATH ./bin/huginn --config <folder> prd
 ```
 
-**Counting GitLab requests** (N-3) has no oracle that does not need a proxy: Huginn does not log its requests. Either run Huginn behind a local logging proxy (`HTTPS_PROXY` and `SSL_CERT_FILE` pointing at its CA), or rely on A-1 plus the unit tests. Whether Huginn should log each request at `--log-level debug` is an open question (§7).
+**Counting GitLab requests** (N-3) has no oracle that does not need a proxy: Huginn does not log its requests. Either run Huginn behind a local logging proxy (`HTTPS_PROXY` and `SSL_CERT_FILE` pointing at its CA), or rely on A-1 plus the unit tests. The owner decided against a request log in Huginn (§7).
 
 ## 3. The ledger
 
@@ -111,10 +111,11 @@ One row per action, written as it happens: time, environment, service, action (l
 | NR-1 | P0 | The same config folder without `releases.yaml` | No COMMIT section, nothing else changed, no request to GitLab, no git process |
 | NR-2 | P0 | Logs screen, Kafka screen, environment switch (`ctrl+e`) while a lookup runs | Unaffected; the line of the new environment is looked up afresh |
 
-## 7. Open questions (for the owner, not blocking the run)
+## 7. Decided by the owner (2026-11-21)
 
-1. **Request log.** Should Huginn write one line per GitLab request at `--log-level debug` (method, path without the token, status, time), so N-3 needs no proxy and later support is easier? It is a small change in the GitLab adapter.
-2. **`max_log_bytes`.** If promote logs are small (seen during A-1), a lower default (e.g. 2 MiB) bounds the worst case further.
+- **No request log** in Huginn: N-3 is done with a proxy, or not claimed.
+- **`max_log_bytes` stays 20 MiB.**
+- **Not planned:** a disk cache of results, other CI systems, a list of the commits not deployed.
 
 ## 8. Pass and fail
 
