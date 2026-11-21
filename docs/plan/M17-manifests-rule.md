@@ -1,4 +1,4 @@
-# M17 — The `manifests` rule of `services.yaml`: a workload belongs to the repository whose overlay declares it  (status: design, awaiting owner decisions §10)
+# M17 — The `manifests` rule of `services.yaml`: a workload belongs to the repository whose overlay declares it  (status: **not planned** — the owner decided on 2026-11-21 that it is not needed: the TUI works with `labels`/`explicit`. Kept as a design in case it is wanted later.)
 
 **Goal:** implement the third rule of `services.yaml` `resolve`, accepted and validated since M3.4 but skipped at run time (`bootstrap/catalog.go`: "manifest resolver not available yet"). With it, a workload of the cluster is attached to the repository **whose Kustomize overlay for that environment declares it**, read from the clones under `repos_root`. This needs no label discipline in the cluster, and it makes the owner's assumption true by construction: a repository is listed only if its clone is on disk, so the COMMIT line of M16 always has a clone to read (`docs/plan/M16-deployed-commit.md` §2).
 
