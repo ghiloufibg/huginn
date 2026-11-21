@@ -117,3 +117,18 @@ One row per action, written as it happens: time, environment, service, action (l
 ## 9. Report
 
 Write `deploy/gke-qa/M16-QA-REPORT.md` with placeholders for every company name (§0): the filled tables of §4–§6, the ledger, A-1, A-4 and A-6 results, the findings. Then replace the "Not verified" lines of D-074 and D-075 with the outcome, set this file's status, and fold any finding into `docs/CONFIG.md`.
+
+## 10. Non-regression run, without a cluster (2026-11-21, done)
+
+Baseline: `53d2f35`, the last commit before the feature. Candidate: `225146f`. Everything here ran in a container, with `--demo`; the real-environment cases above are still to run.
+
+| # | Check | Result |
+|---|---|---|
+| NR-A | `go test -race -count=1 ./...` (23 packages) | **Pass** |
+| NR-B | Tests that existed before the feature, modified by it | 2 lines, neither weakens an assertion: the TUI test helper also delivers `releasesMsg`; the schema count went from 8 to 9 (`releases.schema.json`) |
+| NR-C | Every golden screen regenerated (`go test ./internal/adapters/driving/tui -update`) | **0 changed**; 1 new (`services_preview_commit_160x34`) |
+| NR-D | Old and new binaries side by side in `tmux`, same seed, the pre-feature example folder (no `releases.yaml`); times normalized | **Identical**: services at 80×24, 120×30, 160×40, 220×50 (bottom and side preview), cursor moved, help, environment picker, logs screen, errors-only filter, sort, preview off |
+| NR-E | Every config folder of the baseline (`examples/config*`, `deploy/lab/config`, `deploy/gke-qa/config*`) loaded by both binaries | **Identical** (8 of 8 valid) |
+| NR-F | CLI: a broken folder's error report and exit code, `--help`, `kafka --help`, `kafka read --help`, `--demo kafka check`, an unknown environment, a bad `--since` | **Identical** output and exit codes |
+| NR-G | Benchmarks, 5 runs, medians: `ServicesFrame500`, `LogsFrameTail`, `LogsIngest30Hz`, `KafkaRecordsFrame`, `LastDeployment` | Memory and allocations **identical**; time within ±9% both ways (machine noise: `KafkaRecordsFrame`, untouched, moved +7%). `ServicesFrame500` interleaved over 3 rounds: new equal or faster (2.42–2.57 ms against 2.58–2.75 ms) |
+| NR-H | `make cross` (Linux, macOS, Windows; amd64 and arm64) | **Builds**; binary +355 KB (+0.5%) |
