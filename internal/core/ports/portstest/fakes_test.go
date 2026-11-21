@@ -1,6 +1,8 @@
 package portstest
 
 import (
+	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -87,4 +89,36 @@ func TestFakeReleaseHistoryContract(t *testing.T) {
 	RunReleaseHistoryContract(t, func(_ *testing.T, fx ReleaseFixture) (ports.ReleaseHistory, ports.ReleaseProject) {
 		return &FakeReleaseHistory{Fixture: fx}, ports.ReleaseProject{BaseURL: "https://gitlab.test", Path: "g/p"}
 	})
+}
+
+func TestFakeCommitLogContract(t *testing.T) {
+	RunCommitLogContract(t, func(*testing.T) (ports.CommitLog, ports.ReleaseProject, HistoryFixture) {
+		fx := HistoryFixture{First: strings.Repeat("1", 40), Second: strings.Repeat("2", 40), Third: strings.Repeat("3", 40), Hotfix: strings.Repeat("4", 40)}
+		at := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
+		g := &FakeCommitLog{
+			Commits: map[string]ports.Commit{
+				fx.First: {Subject: "first", Author: "a", At: at}, fx.Second: {Subject: "second", Author: "a", At: at},
+				fx.Third: {Subject: "third", Author: "a", At: at}, fx.Hotfix: {Subject: "hotfix", Author: "a", At: at},
+			},
+			Tags:     map[string]string{"v1.0": fx.First},
+			Branches: map[string]string{"main": fx.Third},
+			Behind:   map[string]int{fx.First: 2},
+			Off:      map[string]bool{fx.Hotfix: true},
+		}
+		return &pathAware{g, fx}, ports.ReleaseProject{Path: "g/p"}, fx
+	})
+}
+
+// pathAware gives the fake a per-path answer for the contract's one path case.
+type pathAware struct {
+	*FakeCommitLog
+	fx HistoryFixture
+}
+
+func (p *pathAware) Count(ctx context.Context, rp ports.ReleaseProject, sha, branch string, paths []string) (int, bool, bool, error) {
+	n, capped, on, err := p.FakeCommitLog.Count(ctx, rp, sha, branch, paths)
+	if len(paths) > 0 && sha == p.fx.First {
+		n = 1
+	}
+	return n, capped, on, err
 }

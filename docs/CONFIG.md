@@ -705,11 +705,13 @@ COMMIT     9f03b11c  fix(payment): retry 3DS callback on timeout  · jdoe, pipel
 1. The pods give the **digest** of the image they run (`sha256:…`), from their status.
 2. Huginn reads the newest **successful deployments** of the environment (`gitlab.environment` of [`environments.yaml`](#4-environmentsyaml)), a few at a time.
 3. For each, the log of the **promote job** of its pipeline (`gitlab.job`) is searched for that digest. The first deployment whose log prints it **is** the running release: its commit is proven, not guessed.
-4. When none of the last `max_deployments` does (a rollback older than that, or an image set by hand), the line says `not a recent <env> release`, and the commit is **guessed** from the image tag: a part of the tag that is a commit id (`2.14.3-9f03b11`), or a git tag named like it (`2.14.3` or `v2.14.3`). A guess is shown only when git confirms that commit exists, and is marked `≈`.
+4. When none of the last `max_deployments` does (a rollback older than that, or an image set by hand), the line says `not a recent <env> release`, and the commit is **guessed** from the image tag: a part of the tag that is a commit id (`2.14.3-9f03b11`), or a git tag named like it (`2.14.3` or `v2.14.3`). A guess is shown only when GitLab confirms that commit exists, and is marked `≈`.
 
-The GitLab project of a repository is read from its clone, `repos_root/<repository>` (its `remote`, `origin` by default): nothing is configured per repository.
+The GitLab project of a repository is read from its clone, `repos_root/<repository>`: the URL of its `remote` (`origin` by default), read from its `.git/config` file. Nothing is configured per repository. **No git command runs**: everything else comes from GitLab's API, with the same token.
 
-**"Not deployed"** counts the commits of `compare_ref` (default `origin/HEAD`, the remote's default branch) that the running commit lacks. `not on origin/HEAD` means the running commit is not on the trunk at all (a hotfix branch, a force-push). To be current, Huginn keeps **its own copy** of each remote under `<user cache dir>/huginn/git/` (`~/.cache/huginn/git` on Linux), with commits only, no files, and fetches what is new at most every `refresh`. **Your clone is never written to** (no fetch, no ref, no lock). Deleting that folder is safe. When the remote cannot be reached (VPN off), your clone is read instead and the count says `(local, may be stale)`. Git never asks for a password or a passphrase: with no SSH key loaded or no stored credential, the line says so.
+**"Not deployed"** counts the commits of `compare_ref` (default `origin/HEAD`, the project's default branch) that the running commit lacks, as GitLab says it now: never a stale local copy. `not on origin/HEAD` means the running commit is not on the trunk at all (a hotfix branch, a force-push). A number with `+` (`10000+`, `100+` for a monorepo path) is a lower bound: GitLab stopped counting. The count is asked again only when the trunk gets a new commit. When GitLab cannot be reached (VPN off), there is no count; a release already found keeps its commit for the session. Your clone is only read (its `.git/config`), never written.
+
+GitLab calls used for the commit details: the project (its default branch, once an hour), the trunk's tip, `repository/commits` over a range (the count, from the `X-Total` header; per path for a monorepo), `repository/merge_base` (on the trunk or not), and for guesses `repository/commits/:sha` and `repository/tags/:tag`. On a GitLab that refuses revision ranges, `repository/compare` is used instead.
 
 ```yaml
 version: 1
@@ -734,12 +736,12 @@ repos:                                 # exceptions
 | `provider` | `gitlab` | yes | | Where deployments are recorded. |
 | `url` | string | | `https://<host of the remote>` | Base URL of GitLab, when it is not the host of your clones' remote (an SSH host, another port). |
 | `token.file`, `token.key` | string | yes | | The dotenv file of the config folder holding the token, and its key: a line `GITLAB_TOKEN=glpat-…` in `.env`. A personal or project access token with scope **`read_api`** and the role **Reporter** or above (job logs need it). It is read when needed, so a token added or renewed while Huginn runs is used at once. |
-| `remote` | string | | `origin` | Remote of each clone naming its GitLab project. |
+| `remote` | string | | `origin` | Remote of each clone naming its GitLab project, read from the clone's `.git/config`. |
 | `per_page` | int | | `5` | Deployments read per request, newest first (1 to 100). |
 | `max_deployments` | int | | `20` | Deployments searched before `not a recent release`. |
 | `max_log_bytes` | size | | `20MiB` | A job log is read up to this size. Logs are streamed and never kept. |
-| `compare_ref` | string | | `origin/HEAD` | Reference the running commit is compared with. |
-| `refresh` | duration | | `1m` | How old Huginn's copy of a remote, and a `not a recent release` answer, may get. At least `10s`. |
+| `compare_ref` | string | | `origin/HEAD` | Branch the running commit is compared with: `<remote>/HEAD` (the project's default branch) or `<remote>/<branch>`. |
+| `refresh` | duration | | `1m` | How old a `not a recent release` answer may get before the deployments are searched again. At least `10s`. |
 | `repos.<repo>.compare_ref`, `.max_deployments` | | | | The same, for one repository. |
 | `repos.<repo>.environment.<env>`, `.job.<env>` | string | | | GitLab environment or job for one Huginn environment, instead of `environments.yaml`'s. Same placeholders. |
 | `repos.<repo>.workloads.<workload>.paths` | list | | | **Monorepos:** the folders of this workload's code. Only the commits touching them count as not deployed. A workload of a monorepo without `paths` shows `N commits on origin/HEAD since` instead of `not deployed`, since other services' commits are counted too. |
@@ -747,11 +749,11 @@ repos:                                 # exceptions
 
 **Monorepos.** When several services share a GitLab project, their deployments mix. Matching by digest tells them apart, so a deployment is never taken for another service's. Name the job after the workload (`job: promote-{workload}-prd`) so that the other services' deployments are skipped **without reading their log**, and raise `max_deployments` for that repository.
 
-**Keeping the token safe.** The config folder is meant to be shared in git (§13): put `.env` in its `.gitignore`, and make it readable by you only (`chmod 600 .env`). At start, Huginn warns in the status bar when the file is readable by other users, or when the folder is a git work tree that does not ignore it. The token is never logged, shown, or written anywhere else, and requests are never sent to another host than GitLab's (a redirect to another host is refused).
+**Keeping the token safe.** The config folder is meant to be shared in git (§13): put `.env` in its `.gitignore`, and make it readable by you only (`chmod 600 .env`). At start, Huginn warns in the status bar when the file is readable by other users, or when the folder has a `.git` and its `.gitignore` has no line ignoring the file (`.env`, `/.env`, `*.env`, `.env*`; read without git, so a file ignored only by a parent folder or a global excludes file is also reported: add the line to silence it). The token is never logged, shown, or written anywhere else, and requests are never sent to another host than GitLab's (a redirect to another host is refused).
 
-**Cost.** Only the service the cursor rests on is looked up, in the background, and a found release is kept for the session (a digest never changes release). Running the latest release costs one list of deployments and one log.
+**Cost.** Only the service the cursor rests on is looked up, in the background, and a found release is kept for the session (a digest never changes release). Running the latest release costs one list of deployments and one log; the commit details 3 to 4 small requests the first time, then one a minute (the trunk's tip) while the service stays selected. No process is started and nothing is written to disk.
 
-**Without a token, or with GitLab unreachable**, the line says why (`no GitLab token (.env GITLAB_TOKEN)`, `GitLab refused the token`, `GitLab unreachable`) and still shows the guess from the image tag when git confirms one. The rest of Huginn is unaffected.
+**Without a token, or with GitLab unreachable**, the line says why (`no GitLab token (.env GITLAB_TOKEN)`, `GitLab refused the token`, `GitLab unreachable`) The rest of Huginn is unaffected.
 
 ## 12. Errors
 
@@ -798,7 +800,7 @@ huginn: the config folder ~/work/acme-huginn has 5 errors (see docs/CONFIG.md):
 | `keep needs mute.loggers` | `mute.keep` applies to muted loggers: list some, or remove `keep`. |
 | `releases.yaml needs repos_root` | Set `repos_root` in `huginn.yaml`: the clones give each repository's GitLab project. |
 | `unknown placeholder {x} (use {repo} or {workload})` | GitLab names may only use `{repo}` and `{workload}`. |
-| `is not a git reference` / `is not a remote name` | Write a plain name such as `origin/HEAD`, `origin/main` or `origin`; no `..`, no leading `-`. |
+| `is not origin/HEAD or origin/<branch>` / `is not a remote name` | `compare_ref` is the remote, a slash, then `HEAD` or a branch (`origin/main`); `remote` is a plain name such as `origin`; no `..`, no leading `-`. |
 | `token.file: must be a file of the config folder` | Put the dotenv file in the config folder, e.g. `.env`. |
 
 ## 13. Your folder in 15 minutes

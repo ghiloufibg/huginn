@@ -50,8 +50,8 @@ type ReleaseSettings struct {
 	MaxDeployments int
 	MaxLogBytes    int64
 	CompareRef     string
-	// Refresh is how old the git copy of a remote and a "not recent"
-	// answer may get before they are read again.
+	// Refresh is how old a "not recent" answer may get before the
+	// deployments are searched again.
 	Refresh time.Duration
 	// Envs are the names of each environment; an environment missing here
 	// is not searched (the commit is then only guessed).
@@ -64,19 +64,29 @@ type ReleaseSettings struct {
 // the newest successful deployments of the environment and the log of
 // their promote job, and the first deployment whose log prints the digest
 // is the running release. Otherwise the commit is guessed from the image
-// tag, and kept only when git confirms it.
+// tag, and kept only when the project's history confirms it. The commit
+// details and the count come from the project's API (CommitLog): no git
+// command runs (docs/plan/M16.1-commits-from-gitlab-api.md).
 type Releases struct {
 	History  ports.ReleaseHistory
-	Git      ports.CommitLog
+	Commits  ports.CommitLog
+	Remotes  ports.GitRemotes
 	Clock    ports.Clock
 	Log      *slog.Logger
 	Settings ReleaseSettings
 
-	mu      sync.Mutex
-	found   map[releaseKey]ports.Deployment // a digest's release never changes
-	missed  map[releaseKey]miss             // "not recent", re-checked after Refresh
-	fetched map[string]time.Time            // last refresh of each remote
-	locks   map[string]*sync.Mutex          // one search per project and environment
+	mu     sync.Mutex
+	found  map[releaseKey]ports.Deployment // a digest's release never changes
+	missed map[releaseKey]miss             // "not recent", re-checked after Refresh
+	locks  map[string]*sync.Mutex          // one search per project and environment
+	// The project's history: a commit and a tag never change, so they are
+	// kept for the session (an unknown one for Refresh); a count is kept
+	// while the trunk's tip does not move; the default branch an hour.
+	commits  map[histKey]ports.Commit
+	tags     map[histKey]string
+	unknown  map[histKey]time.Time
+	counts   map[countKey]domain.TrunkCount
+	defaults map[string]defaultBranch
 	// A finished job's log and a pipeline's jobs do not change: a digest
 	// is never searched twice in the same log, and a pipeline's jobs are
 	// listed once. Both are bounded (cleared past maxRemembered).
@@ -85,6 +95,24 @@ type Releases struct {
 }
 
 type releaseKey struct{ project, env, digest string }
+
+// histKey is a commit id or a tag of a project ("c:<sha>", "t:<tag>").
+type histKey struct{ project, ref string }
+
+type countKey struct{ project, sha, branch, tip, paths string }
+
+type defaultBranch struct {
+	name string
+	at   time.Time
+}
+
+// trunk is compare_ref resolved for one lookup: the branch and its tip.
+type trunk struct {
+	ref, branch, tip string
+}
+
+// defaultBranchTTL is how long a project's default branch is reused.
+const defaultBranchTTL = time.Hour
 
 // miss is a search that found no deployment: when, and the newest
 // deployment it read, so that the next search stops there.
@@ -114,8 +142,7 @@ func (r *Releases) Running(ctx context.Context, q ports.ReleaseQuery) (map[strin
 	if len(images) == 0 {
 		return out, nil
 	}
-	repo := ports.GitRepo{Dir: filepath.Join(r.Settings.ReposRoot, q.Repo), Remote: r.Settings.Remote}
-	url, err := r.Git.RemoteURL(ctx, repo)
+	url, err := r.Remotes.GitRemote(ctx, filepath.Join(r.Settings.ReposRoot, q.Repo), r.Settings.Remote)
 	if err != nil {
 		return r.failAll(images, fmt.Errorf("no clone of this repository in %s: %w", r.Settings.ReposRoot, err)), nil
 	}
@@ -123,24 +150,31 @@ func (r *Releases) Running(ctx context.Context, q ports.ReleaseQuery) (map[strin
 	if !ok {
 		return r.failAll(images, fmt.Errorf("remote %s of the clone is not a hosted project: %w", r.Settings.Remote, domain.ErrConfig)), nil
 	}
-	r.refresh(ctx, repo, url, r.needsTrees(q.Repo))
-	deployments, searched, histErr := r.search(ctx, q, project, images)
+	p := ports.ReleaseProject{BaseURL: r.Settings.BaseURL, Path: project.Path}
+	if p.BaseURL == "" {
+		p.BaseURL = "https://" + project.Host
+	}
+	deployments, searched, histErr := r.search(ctx, q, p, images)
+	tr, trErr := r.trunk(ctx, p, q.Repo)
+	if trErr != nil && r.Log != nil {
+		r.Log.Debug("resolve the trunk", "project", p.Path, "err", trErr)
+	}
 	for _, img := range images {
 		res := domain.RunningRelease{}
 		if d, ok := deployments[img.Digest]; ok {
 			res.State, res.Release = domain.ReleaseFound, release(d)
 			if res.Release.Subject == "" {
-				if c, _, err := r.Git.Commit(ctx, repo, d.SHA); err == nil {
+				if c, err := r.commit(ctx, p, d.SHA); err == nil {
 					res.Release.Subject, res.Release.Author, res.Release.CommittedAt = c.Subject, c.Author, c.At
 				}
 			}
 		} else {
 			res.NotRecent = searched[img.Digest] && histErr == nil
 			res.Problem = histErr
-			r.guess(ctx, repo, img.Tag, &res)
+			r.guess(ctx, p, img.Tag, &res)
 		}
-		if res.Release.SHA != "" {
-			res.Count = r.count(ctx, repo, q.Repo, img.Workload, res.Release.SHA)
+		if res.Release.SHA != "" && trErr == nil {
+			res.Count = r.count(ctx, p, q.Repo, img.Workload, res.Release.SHA, tr)
 		}
 		out[img.Digest] = res
 	}
@@ -196,38 +230,10 @@ func (r *Releases) names(env domain.Env, repo, workload string) (ReleaseNames, b
 	return ReleaseNames{Environment: expand.Replace(n.Environment), Job: expand.Replace(n.Job)}, n.Environment != "" && n.Job != ""
 }
 
-func (r *Releases) needsTrees(repo string) bool {
-	for _, w := range r.Settings.Repos[repo].Workloads {
-		if len(w.Paths) > 0 {
-			return true
-		}
-	}
-	return false
-}
-
-// refresh updates the git copy of the remote at most every Refresh. A
-// failure is only logged: git then falls back to the clone, and says so.
-func (r *Releases) refresh(ctx context.Context, repo ports.GitRepo, url string, trees bool) {
-	now := r.Clock.Now()
-	r.mu.Lock()
-	if r.fetched == nil {
-		r.fetched = map[string]time.Time{}
-	}
-	if at, ok := r.fetched[url]; ok && now.Sub(at) < r.Settings.Refresh {
-		r.mu.Unlock()
-		return
-	}
-	r.fetched[url] = now
-	r.mu.Unlock()
-	if err := r.Git.Refresh(ctx, repo, trees); err != nil && r.Log != nil {
-		r.Log.Warn("refresh the git copy", "remote", url, "err", err)
-	}
-}
-
 // search finds, for each image, the deployment whose promote job printed
 // its digest. searched tells the digests whose environment was searched
 // to the end without an answer.
-func (r *Releases) search(ctx context.Context, q ports.ReleaseQuery, project domain.GitProject, images []domain.WorkloadImage) (map[string]ports.Deployment, map[string]bool, error) {
+func (r *Releases) search(ctx context.Context, q ports.ReleaseQuery, p ports.ReleaseProject, images []domain.WorkloadImage) (map[string]ports.Deployment, map[string]bool, error) {
 	found, searched := map[string]ports.Deployment{}, map[string]bool{}
 	byEnv := map[string][]domain.WorkloadImage{}
 	jobOf := map[string]string{}
@@ -245,10 +251,6 @@ func (r *Releases) search(ctx context.Context, q ports.ReleaseQuery, project dom
 	}
 	if len(envs) == 0 {
 		return found, searched, nil
-	}
-	p := ports.ReleaseProject{BaseURL: r.Settings.BaseURL, Path: project.Path}
-	if p.BaseURL == "" {
-		p.BaseURL = "https://" + project.Host
 	}
 	var errs []error
 	for _, env := range envs {
@@ -388,25 +390,25 @@ func (r *Releases) promoteJobs(ctx context.Context, p ports.ReleaseProject, d po
 	return out, nil
 }
 
-// guess reads the commit from the image tag, kept only when git confirms
-// it: a part of the tag that is a commit id, else a git tag named like the
-// image tag (with or without a leading v).
-func (r *Releases) guess(ctx context.Context, repo ports.GitRepo, tag string, res *domain.RunningRelease) {
+// guess reads the commit from the image tag, kept only when the project's
+// history confirms it: a part of the tag that is a commit id, else a git
+// tag named like the image tag (with or without a leading v).
+func (r *Releases) guess(ctx context.Context, p ports.ReleaseProject, tag string, res *domain.RunningRelease) {
 	if tag == "" {
 		return
 	}
 	for _, c := range domain.CommitCandidates(tag) {
-		if commit, _, err := r.Git.Commit(ctx, repo, c); err == nil {
+		if commit, err := r.commit(ctx, p, c); err == nil {
 			res.State, res.Guess, res.Release = domain.ReleaseGuessed, "image tag", fromCommit(commit)
 			return
 		}
 	}
 	for _, t := range []string{tag, "v" + tag} {
-		sha, _, err := r.Git.Tag(ctx, repo, t)
+		sha, err := r.tag(ctx, p, t)
 		if err != nil {
 			continue
 		}
-		if commit, _, err := r.Git.Commit(ctx, repo, sha); err == nil {
+		if commit, err := r.commit(ctx, p, sha); err == nil {
 			res.State, res.Guess, res.Release = domain.ReleaseGuessed, "git tag "+t, fromCommit(commit)
 			return
 		}
@@ -417,26 +419,163 @@ func fromCommit(c ports.Commit) domain.Release {
 	return domain.Release{SHA: c.SHA, Subject: c.Subject, Author: c.Author, CommittedAt: c.At}
 }
 
-// count compares sha with the trunk; only the commits touching the
-// workload's paths count when it has some (a monorepo).
-func (r *Releases) count(ctx context.Context, repo ports.GitRepo, name, workload, sha string) domain.TrunkCount {
+// trunk resolves compare_ref (the repository's, else the general one) to a
+// branch and its tip: "<remote>/HEAD" is the project's default branch,
+// "<remote>/<branch>" that branch. The tip is read on each lookup, so a
+// count is computed again only when the trunk moved.
+func (r *Releases) trunk(ctx context.Context, p ports.ReleaseProject, repo string) (trunk, error) {
 	ref := r.Settings.CompareRef
-	rp := r.Settings.Repos[name]
-	if rp.CompareRef != "" {
+	if rp := r.Settings.Repos[repo]; rp.CompareRef != "" {
 		ref = rp.CompareRef
 	}
-	paths := rp.Workloads[workload].Paths
-	behind, onRef, stale, err := r.Git.Count(ctx, repo, sha, ref, paths)
+	branch, _ := strings.CutPrefix(ref, r.Settings.Remote+"/")
+	if branch == "HEAD" {
+		var err error
+		if branch, err = r.defaultBranch(ctx, p); err != nil {
+			return trunk{}, err
+		}
+	}
+	tip, err := r.Commits.BranchTip(ctx, p, branch)
+	if err != nil {
+		return trunk{}, err
+	}
+	return trunk{ref: ref, branch: branch, tip: tip}, nil
+}
+
+func (r *Releases) defaultBranch(ctx context.Context, p ports.ReleaseProject) (string, error) {
+	r.mu.Lock()
+	d, ok := r.defaults[p.Path]
+	r.mu.Unlock()
+	if ok && r.Clock.Now().Sub(d.at) < defaultBranchTTL {
+		return d.name, nil
+	}
+	name, err := r.Commits.DefaultBranch(ctx, p)
+	if err != nil {
+		return "", err
+	}
+	r.mu.Lock()
+	if r.defaults == nil || len(r.defaults) >= maxRemembered {
+		r.defaults = map[string]defaultBranch{}
+	}
+	r.defaults[p.Path] = defaultBranch{name, r.Clock.Now()}
+	r.mu.Unlock()
+	return name, nil
+}
+
+// count compares sha with the trunk; only the commits touching the
+// workload's paths count when it has some (a monorepo). It is asked again
+// only when the trunk's tip moved.
+func (r *Releases) count(ctx context.Context, p ports.ReleaseProject, repo, workload, sha string, tr trunk) domain.TrunkCount {
+	paths := r.Settings.Repos[repo].Workloads[workload].Paths
+	key := countKey{p.Path, sha, tr.branch, tr.tip, strings.Join(paths, "\x00")}
+	r.mu.Lock()
+	c, ok := r.counts[key]
+	r.mu.Unlock()
+	if ok {
+		return c
+	}
+	behind, capped, onBranch, err := r.Commits.Count(ctx, p, sha, tr.branch, paths)
 	if err != nil {
 		if r.Log != nil {
-			r.Log.Debug("count the commits not deployed", "ref", ref, "err", err)
+			r.Log.Debug("count the commits not deployed", "ref", tr.ref, "err", err)
 		}
-		return domain.TrunkCount{Ref: ref}
+		return domain.TrunkCount{Ref: tr.ref}
 	}
-	return domain.TrunkCount{
-		Known: true, Ref: ref, Behind: behind, OnTrunk: onRef, Scoped: len(paths) > 0,
-		WholeProject: len(paths) == 0 && r.needsTrees(name), Stale: stale,
+	c = domain.TrunkCount{
+		Known: true, Ref: tr.ref, Behind: behind, OnTrunk: onBranch, Scoped: len(paths) > 0,
+		WholeProject: len(paths) == 0 && r.isMonorepo(repo), Capped: capped,
 	}
+	r.mu.Lock()
+	if r.counts == nil || len(r.counts) >= maxRemembered {
+		r.counts = map[countKey]domain.TrunkCount{}
+	}
+	r.counts[key] = c
+	r.mu.Unlock()
+	return c
+}
+
+// isMonorepo tells a repository where some workload has paths.
+func (r *Releases) isMonorepo(repo string) bool {
+	for _, w := range r.Settings.Repos[repo].Workloads {
+		if len(w.Paths) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// commit reads a commit, kept for the session; an unknown one is asked
+// again after Refresh.
+func (r *Releases) commit(ctx context.Context, p ports.ReleaseProject, sha string) (ports.Commit, error) {
+	k := histKey{p.Path, "c:" + sha}
+	r.mu.Lock()
+	c, ok := r.commits[k]
+	r.mu.Unlock()
+	if ok {
+		return c, nil
+	}
+	if r.knownUnknown(k) {
+		return ports.Commit{}, domain.ErrNotFound
+	}
+	c, err := r.Commits.Commit(ctx, p, sha)
+	if err != nil {
+		r.markUnknown(k, err)
+		return ports.Commit{}, err
+	}
+	r.mu.Lock()
+	if r.commits == nil || len(r.commits) >= maxRemembered {
+		r.commits = map[histKey]ports.Commit{}
+	}
+	r.commits[k] = c
+	r.mu.Unlock()
+	return c, nil
+}
+
+// tag reads the commit of a tag, like commit.
+func (r *Releases) tag(ctx context.Context, p ports.ReleaseProject, tag string) (string, error) {
+	k := histKey{p.Path, "t:" + tag}
+	r.mu.Lock()
+	sha, ok := r.tags[k]
+	r.mu.Unlock()
+	if ok {
+		return sha, nil
+	}
+	if r.knownUnknown(k) {
+		return "", domain.ErrNotFound
+	}
+	sha, err := r.Commits.Tag(ctx, p, tag)
+	if err != nil {
+		r.markUnknown(k, err)
+		return "", err
+	}
+	r.mu.Lock()
+	if r.tags == nil || len(r.tags) >= maxRemembered {
+		r.tags = map[histKey]string{}
+	}
+	r.tags[k] = sha
+	r.mu.Unlock()
+	return sha, nil
+}
+
+func (r *Releases) knownUnknown(k histKey) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	at, ok := r.unknown[k]
+	return ok && r.Clock.Now().Sub(at) < r.Settings.Refresh
+}
+
+// markUnknown remembers a commit or tag the history does not have; other
+// errors (unreachable, unauthorized) are not remembered.
+func (r *Releases) markUnknown(k histKey, err error) {
+	if !errors.Is(err, domain.ErrNotFound) {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.unknown == nil || len(r.unknown) >= maxRemembered {
+		r.unknown = map[histKey]time.Time{}
+	}
+	r.unknown[k] = r.Clock.Now()
 }
 
 func (r *Releases) lock(key string) *sync.Mutex {

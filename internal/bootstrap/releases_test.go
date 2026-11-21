@@ -4,12 +4,10 @@ import (
 	"context"
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/ghiloufibg/huginn/internal/adapters/driven/gitcli"
 	"github.com/ghiloufibg/huginn/internal/adapters/driving/cli"
 	"github.com/ghiloufibg/huginn/internal/core/domain"
 	"github.com/ghiloufibg/huginn/internal/core/ports"
@@ -40,12 +38,8 @@ func TestTokenReader(t *testing.T) {
 }
 
 func TestTokenNotice(t *testing.T) {
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git is not installed")
-	}
 	dir := t.TempDir()
-	git := &gitcli.Git{}
-	if n := tokenNotice(git, dir, ".env"); n != "" {
+	if n := tokenNotice(dir, ".env"); n != "" {
 		t.Errorf("no file: %q", n)
 	}
 	path := filepath.Join(dir, ".env")
@@ -55,27 +49,38 @@ func TestTokenNotice(t *testing.T) {
 	if err := os.Chmod(path, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if n := tokenNotice(git, dir, ".env"); !strings.Contains(n, "readable by others (chmod 600") {
+	if n := tokenNotice(dir, ".env"); !strings.Contains(n, "readable by others (chmod 600") {
 		t.Errorf("world-readable: %q", n)
 	}
 	if err := os.Chmod(path, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if n := tokenNotice(git, dir, ".env"); n != "" {
-		t.Errorf("private, no git: %q", n)
+	if n := tokenNotice(dir, ".env"); n != "" {
+		t.Errorf("private, not a git folder: %q", n)
 	}
-	// A config folder shared in git must ignore the token file.
-	if out, err := exec.Command("git", "-C", dir, "init", "-q").CombinedOutput(); err != nil {
-		t.Fatalf("git init: %v %s", err, out)
-	}
-	if n := tokenNotice(git, dir, ".env"); !strings.Contains(n, "not git-ignored") {
-		t.Errorf("not ignored: %q", n)
-	}
-	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(".env\n"), 0o644); err != nil {
+	// A config folder shared in git (it has a .git) must ignore the token
+	// file; no git command is run to tell.
+	if err := os.Mkdir(filepath.Join(dir, ".git"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if n := tokenNotice(git, dir, ".env"); n != "" {
-		t.Errorf("ignored: %q", n)
+	if n := tokenNotice(dir, ".env"); !strings.Contains(n, "not git-ignored") {
+		t.Errorf("not ignored: %q", n)
+	}
+	for _, gitignore := range []string{".env\n", "/.env\n", "# secrets\n*.env\n", ".env*\n", "*\n"} {
+		if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(gitignore), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if n := tokenNotice(dir, ".env"); n != "" {
+			t.Errorf(".gitignore %q: %q", gitignore, n)
+		}
+	}
+	for _, gitignore := range []string{"", "*.log\n", ".env\n!.env\n", "sub/.env\n"} {
+		if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(gitignore), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if n := tokenNotice(dir, ".env"); !strings.Contains(n, "not git-ignored") {
+			t.Errorf(".gitignore %q does not ignore .env: %q", gitignore, n)
+		}
 	}
 }
 

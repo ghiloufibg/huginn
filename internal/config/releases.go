@@ -14,13 +14,13 @@ type Releases struct {
 	Provider string `yaml:"provider" doc:"Where deployments are recorded." enum:"gitlab" required:"true"`
 	URL      string `yaml:"url" doc:"Base URL of the GitLab server, e.g. https://gitlab.example.com. Default: https:// and the host of each clone's remote."`
 	Token    Token  `yaml:"token" doc:"Where the GitLab access token (scope read_api, role Reporter or above) is read." required:"true"`
-	Remote   string `yaml:"remote" doc:"Remote of each clone (repos_root/<repository>) that names its GitLab project. Default origin."`
+	Remote   string `yaml:"remote" doc:"Remote of each clone (repos_root/<repository>) that names its GitLab project, read from the clone's .git/config. Default origin."`
 	// PerPage and MaxDeployments bound the search of one digest.
 	PerPage        int    `yaml:"per_page" doc:"Deployments read per request, newest first. Default 5, at most 100."`
 	MaxDeployments int    `yaml:"max_deployments" doc:"Deployments searched before the line says the image is not a recent release. Default 20."`
 	MaxLogBytes    string `yaml:"max_log_bytes" doc:"A job log is read up to this size, e.g. 20MiB. Default 20MiB."`
-	CompareRef     string `yaml:"compare_ref" doc:"Reference the running commit is compared with, to count the commits not deployed. Default origin/HEAD, the remote's default branch."`
-	Refresh        string `yaml:"refresh" doc:"How old Huginn's copy of a remote, and a 'not a recent release' answer, may get before they are read again. At least 10s. Default 1m."`
+	CompareRef     string `yaml:"compare_ref" doc:"Branch the running commit is compared with, to count the commits not deployed: <remote>/HEAD (the project's default branch) or <remote>/<branch>. Default origin/HEAD."`
+	Refresh        string `yaml:"refresh" doc:"How old a 'not a recent release' answer may get before the deployments are searched again. At least 10s. Default 1m."`
 	// Repos holds the exceptions of some repositories.
 	Repos map[string]ReleaseRepo `yaml:"repos" doc:"Exceptions for some repositories, by name."`
 }
@@ -33,7 +33,7 @@ type Token struct {
 
 // ReleaseRepo is a repository's exceptions.
 type ReleaseRepo struct {
-	CompareRef     string                     `yaml:"compare_ref" doc:"Reference compared with for this repository."`
+	CompareRef     string                     `yaml:"compare_ref" doc:"Branch compared with for this repository: <remote>/HEAD or <remote>/<branch>."`
 	MaxDeployments int                        `yaml:"max_deployments" doc:"Deployments searched for this repository (a monorepo needs more)."`
 	Environment    map[string]string          `yaml:"environment" doc:"GitLab environment by Huginn environment, instead of environments.yaml's."`
 	Job            map[string]string          `yaml:"job" doc:"Job by Huginn environment, instead of environments.yaml's."`
@@ -134,9 +134,12 @@ func (v *validator) releases() {
 	}
 }
 
+// ref checks a compare_ref: the remote, a slash, then HEAD or a branch.
 func (v *validator) ref(at, ref string) {
-	if !refName.MatchString(ref) || strings.Contains(ref, "..") {
-		v.add(FileReleases, at, "%q is not a git reference such as origin/HEAD or origin/main", ref)
+	remote := v.c.Releases.Remote
+	branch, ok := strings.CutPrefix(ref, remote+"/")
+	if !ok || !refName.MatchString(branch) || strings.Contains(branch, "..") {
+		v.add(FileReleases, at, "%q is not %s/HEAD or %s/<branch> (such as %s/main)", ref, remote, remote, remote)
 	}
 }
 

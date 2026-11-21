@@ -148,44 +148,54 @@ func (r *Releases) LogFind(_ context.Context, _ ports.ReleaseProject, job int64,
 	return out, nil
 }
 
-// Git is the demo git: every demo repository's history, synthetic.
-type Git struct{}
+// Remotes is the demo's clones: every demo repository's remote, synthetic.
+type Remotes struct{}
 
-// RemoteURL implements ports.CommitLog.
-func (Git) RemoteURL(_ context.Context, r ports.GitRepo) (string, error) {
-	return "https://gitlab.demo.example/acme/" + filepath.Base(r.Dir) + ".git", nil
+// GitRemote implements ports.GitRemotes.
+func (Remotes) GitRemote(_ context.Context, dir, _ string) (string, error) {
+	return "https://gitlab.demo.example/acme/" + filepath.Base(dir) + ".git", nil
 }
 
-// Refresh implements ports.CommitLog.
-func (Git) Refresh(context.Context, ports.GitRepo, bool) error { return nil }
+// Commits is the demo's project histories, synthetic.
+type Commits struct{}
 
 // Commit implements ports.CommitLog.
-func (Git) Commit(_ context.Context, r ports.GitRepo, sha string) (ports.Commit, bool, error) {
-	repo := filepath.Base(r.Dir)
+func (Commits) Commit(_ context.Context, p ports.ReleaseProject, sha string) (ports.Commit, error) {
+	repo := path.Base(p.Path)
 	for _, v := range versions(repo) {
 		if full := commitOf(repo, v); strings.HasPrefix(full, sha) {
-			return ports.Commit{SHA: full, Author: "Jane Doe", Subject: subject(repo, v), At: time.Date(2026, 9, 20, 10, 0, 0, 0, time.UTC)}, false, nil
+			return ports.Commit{SHA: full, Author: "Jane Doe", Subject: subject(repo, v), At: time.Date(2026, 9, 20, 10, 0, 0, 0, time.UTC)}, nil
 		}
 	}
-	return ports.Commit{}, false, domain.KindError(domain.ErrNotFound, "unknown commit "+sha)
+	return ports.Commit{}, domain.KindError(domain.ErrNotFound, "unknown commit "+sha)
 }
 
 // Tag implements ports.CommitLog: each version is a git tag.
-func (Git) Tag(_ context.Context, r ports.GitRepo, tag string) (string, bool, error) {
-	repo := filepath.Base(r.Dir)
+func (Commits) Tag(_ context.Context, p ports.ReleaseProject, tag string) (string, error) {
+	repo := path.Base(p.Path)
 	if slices.Contains(versions(repo), tag) && !domain.IsCommitID(tag) {
-		return commitOf(repo, tag), false, nil
+		return commitOf(repo, tag), nil
 	}
-	return "", false, domain.KindError(domain.ErrNotFound, "no tag "+tag)
+	return "", domain.KindError(domain.ErrNotFound, "no tag "+tag)
+}
+
+// DefaultBranch implements ports.CommitLog.
+func (Commits) DefaultBranch(context.Context, ports.ReleaseProject) (string, error) {
+	return "main", nil
+}
+
+// BranchTip implements ports.CommitLog.
+func (Commits) BranchTip(_ context.Context, p ports.ReleaseProject, branch string) (string, error) {
+	return commitOf(path.Base(p.Path), "tip of "+branch), nil
 }
 
 // Count implements ports.CommitLog.
-func (Git) Count(_ context.Context, r ports.GitRepo, sha, _ string, paths []string) (int, bool, bool, error) {
-	n := int(hashOf(filepath.Base(r.Dir), sha) % 15)
+func (Commits) Count(_ context.Context, p ports.ReleaseProject, sha, _ string, paths []string) (int, bool, bool, error) {
+	n := int(hashOf(path.Base(p.Path), sha) % 15)
 	if len(paths) > 0 {
 		n /= 3
 	}
-	return n, true, false, nil
+	return n, false, true, nil
 }
 
 // versions are the versions a demo repository may run.

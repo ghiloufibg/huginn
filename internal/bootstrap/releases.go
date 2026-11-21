@@ -11,8 +11,8 @@ import (
 	"strings"
 
 	"github.com/ghiloufibg/huginn/internal/adapters/driven/demo"
-	"github.com/ghiloufibg/huginn/internal/adapters/driven/gitcli"
 	"github.com/ghiloufibg/huginn/internal/adapters/driven/gitlab"
+	"github.com/ghiloufibg/huginn/internal/adapters/driven/localfiles"
 	"github.com/ghiloufibg/huginn/internal/config"
 	"github.com/ghiloufibg/huginn/internal/core/app"
 	"github.com/ghiloufibg/huginn/internal/core/domain"
@@ -20,9 +20,10 @@ import (
 )
 
 // newReleases wires the COMMIT line of the services preview, nil when the
-// folder has no releases.yaml. With --demo the release history and git are
-// synthetic; otherwise GitLab's API and the git command. notice is a
-// warning about the token file to show in the status bar.
+// folder has no releases.yaml. With --demo the release history and the
+// project histories are synthetic; otherwise both are GitLab's API, and
+// each clone's remote is read from its .git/config: no git command runs.
+// notice is a warning about the token file to show in the status bar.
 func newReleases(c *config.Config, clientName string, cluster Cluster, clock ports.Clock, log *slog.Logger) (r ports.Releases, notice string) {
 	rc := c.Releases
 	if rc == nil {
@@ -49,13 +50,13 @@ func newReleases(c *config.Config, clientName string, cluster Cluster, clock por
 	}
 	uc := &app.Releases{Clock: clock, Log: log, Settings: settings}
 	if dc, ok := cluster.(*demo.Cluster); ok && clientName == "demo" {
-		uc.History, uc.Git = &demo.Releases{Cluster: dc}, demo.Git{}
+		uc.History, uc.Commits, uc.Remotes = &demo.Releases{Cluster: dc}, demo.Commits{}, demo.Remotes{}
 		return uc, ""
 	}
-	git := &gitcli.Git{CacheDir: filepath.Join(cacheDir(), "git")}
 	file := filepath.Join(c.Dir, rc.Token.File)
-	uc.History, uc.Git = &gitlab.Client{Token: tokenReader(file, rc.Token.File, rc.Token.Key)}, git
-	notice = tokenNotice(git, c.Dir, rc.Token.File)
+	client := &gitlab.Client{Token: tokenReader(file, rc.Token.File, rc.Token.Key)}
+	uc.History, uc.Commits, uc.Remotes = client, &gitlab.Commits{Client: client}, &localfiles.Files{}
+	notice = tokenNotice(c.Dir, rc.Token.File)
 	if notice != "" {
 		log.Warn(notice)
 	}
@@ -103,8 +104,10 @@ func tokenReader(path, name, key string) func(context.Context) (domain.Secret, e
 
 // tokenNotice warns when the token file could leak: readable by other
 // users, or in a git work tree (a shared config folder) without being
-// ignored.
-func tokenNotice(git *gitcli.Git, dir, name string) string {
+// ignored. The ignore check reads the folder's .gitignore without git: it
+// knows the common lines only, so it may warn about a file ignored
+// elsewhere (a parent folder, a global excludes file), never the reverse.
+func tokenNotice(dir, name string) string {
 	path := filepath.Join(dir, name)
 	st, err := os.Stat(path)
 	if err != nil {
@@ -114,8 +117,31 @@ func tokenNotice(git *gitcli.Git, dir, name string) string {
 	if runtime.GOOS != "windows" && st.Mode().Perm()&0o077 != 0 {
 		warns = append(warns, fmt.Sprintf("%s is readable by others (chmod 600 %s)", name, path))
 	}
-	if inRepo, ignored := git.Ignored(context.Background(), dir, name); inRepo && !ignored {
+	if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil && !ignores(filepath.Join(dir, ".gitignore"), name) {
 		warns = append(warns, fmt.Sprintf("%s is not git-ignored (add it to %s)", name, filepath.Join(dir, ".gitignore")))
 	}
 	return strings.Join(warns, "; ")
+}
+
+// ignores tells whether a .gitignore has a line ignoring name, a file at
+// the folder's root: the name itself, rooted ("/name"), or a pattern of
+// the file's base name ("*.env", ".env*", "*").
+func ignores(gitignore, name string) bool {
+	b, err := os.ReadFile(gitignore)
+	if err != nil {
+		return false
+	}
+	ignored := false
+	for _, line := range strings.Split(string(b), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		negate := strings.HasPrefix(line, "!")
+		pattern := strings.TrimPrefix(strings.TrimPrefix(line, "!"), "/")
+		if ok, _ := filepath.Match(pattern, name); ok || pattern == name {
+			ignored = !negate
+		}
+	}
+	return ignored
 }

@@ -1,4 +1,4 @@
-# M16 — The release running in an environment, and its commit, in the services preview  (status: implemented 2026-11-19, decision [D-074](../DECISIONS.md); real-environment QA pending: [`M16-qa.md`](M16-qa.md))
+# M16 — The release running in an environment, and its commit, in the services preview  (status: implemented 2026-11-19, decision [D-074](../DECISIONS.md); **§6 and the git parts of §7–§10 superseded by [M16.1](M16.1-commits-from-gitlab-api.md), D-075: the commit details now come from GitLab's API, git is removed**; real-environment QA pending: [`M16-qa.md`](M16-qa.md))
 
 **Goal:** when a microservice is selected on the services screen, its preview shows **which commit is running** in the current environment, with its **message** (subject), who deployed it and when, and **how many trunk commits are not deployed yet**. With trunk-based development every deploy comes from the same branch, so a version or a date does not say which code is live; the commit does.
 

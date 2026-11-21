@@ -73,7 +73,7 @@ repos:
 		`per_page: must be between 1 and 100`,
 		`max_deployments: must be at least 1`,
 		`max_log_bytes`,
-		`"origin/main..x" is not a git reference`,
+		`"origin/main..x" is not --upload-pack=x/HEAD`,
 		`"1s" is not a duration of at least 10s`,
 		`"qa" is not in environments.yaml`,
 		`"/abs" is not a folder relative to the repository`,
@@ -87,4 +87,19 @@ func TestUnknownRootFileSuggestsReleases(t *testing.T) {
 	fs["release.yaml"] = &fstest.MapFile{Data: []byte("version: 1\n")}
 	_, msg := load(t, fs)
 	wantErrors(t, msg, "did you mean releases.yaml?")
+}
+
+func TestReleasesCompareRef(t *testing.T) {
+	for ref, ok := range map[string]bool{
+		"origin/HEAD": true, "origin/main": true, "origin/release/2026": true,
+		"main": false, "upstream/main": false, "origin/": false, "origin/a..b": false,
+	} {
+		_, msg := load(t, withReleases("version: 1\nprovider: gitlab\ntoken: {file: .env, key: K}\ncompare_ref: "+ref+"\n", gitlabEnvs))
+		if got := msg == ""; got != ok {
+			t.Errorf("compare_ref %q: loaded %v, want %v (%s)", ref, got, ok, msg)
+		}
+		if !ok {
+			wantErrors(t, msg, `is not origin/HEAD or origin/<branch>`)
+		}
+	}
 }

@@ -35,7 +35,8 @@ const (
 	// pods run, so its commit is proven.
 	ReleaseFound
 	// ReleaseGuessed: no deployment matched; the commit was read from the
-	// image tag and confirmed by git, but not proven by a deployment.
+	// image tag and confirmed by the project's history, but not proven by a
+	// deployment.
 	ReleaseGuessed
 )
 
@@ -57,9 +58,10 @@ type TrunkCount struct {
 	// workloads have paths) but this workload has none: Behind then counts
 	// the other services' commits too, and must not read "not deployed".
 	WholeProject bool
-	// Stale is true when the count was read from the user's local clone
-	// because the remote could not be reached.
-	Stale bool
+	// Capped is true when Behind is a lower bound: the history service
+	// stopped counting (a very long range, or more commits per path than
+	// one page).
+	Capped bool
 }
 
 // RunningRelease is what the preview shows about the commit running one
@@ -76,9 +78,9 @@ type RunningRelease struct {
 	NotRecent bool
 	// Count is the comparison with the trunk.
 	Count TrunkCount
-	// Problem, when set, is why the release history or git could not
-	// answer (no token, unauthorized, unreachable). It is shown, never
-	// fatal: a guess may still be there.
+	// Problem, when set, is why the release history could not answer (no
+	// token, unauthorized, unreachable). It is shown, never fatal: a guess
+	// may still be there.
 	Problem error
 }
 
@@ -131,7 +133,7 @@ func isHex(s string) bool {
 
 // CommitCandidates returns the parts of an image tag that may be a commit
 // id ("2.14.3-9f03b11" → ["9f03b11"]), longest first. They are only
-// candidates: git must confirm one before it is shown.
+// candidates: the project's history must confirm one before it is shown.
 func CommitCandidates(tag string) []string {
 	var out []string
 	for _, part := range strings.FieldsFunc(tag, func(r rune) bool { return r == '-' || r == '_' || r == '.' || r == '+' }) {

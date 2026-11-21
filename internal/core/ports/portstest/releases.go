@@ -2,6 +2,8 @@ package portstest
 
 import (
 	"context"
+	"errors"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -149,43 +151,40 @@ func RunReleaseHistoryContract(t *testing.T, newHistory func(t *testing.T, fx Re
 	})
 }
 
-// FakeCommitLog is a git repository in memory.
+// FakeCommitLog is a project's history in memory. Commits are by full id;
+// Tags map a tag to a commit id; Branches a branch to its tip; Behind and
+// Off give Count's answer per commit id (default 0, on the branch); Capped
+// makes every count a lower bound. Err, when set, is every call's error.
 type FakeCommitLog struct {
-	// URL is the clone's remote; URLErr, when set, is RemoteURL's error.
-	URL    string
-	URLErr error
-	// Commits by full id; Tags map a tag to a commit id.
-	Commits map[string]ports.Commit
-	Tags    map[string]string
-	// Behind and Off give Count's answer per commit id (default 0, on ref).
-	Behind map[string]int
-	Off    map[string]bool
-	// Stale is the stale flag of every answer; RefreshErr Refresh's error.
-	Stale      bool
-	RefreshErr error
+	Commits  map[string]ports.Commit
+	Tags     map[string]string
+	Branches map[string]string
+	Default  string
+	Behind   map[string]int
+	Off      map[string]bool
+	Capped   bool
+	Err      error
 
-	mu        sync.Mutex
-	refreshes int
-	trees     bool
-	counted   [][]string
+	mu      sync.Mutex
+	calls   map[string]int
+	counted [][]string
 }
 
-// RemoteURL implements ports.CommitLog.
-func (g *FakeCommitLog) RemoteURL(context.Context, ports.GitRepo) (string, error) {
-	return g.URL, g.URLErr
-}
-
-// Refresh implements ports.CommitLog.
-func (g *FakeCommitLog) Refresh(_ context.Context, _ ports.GitRepo, trees bool) error {
+func (g *FakeCommitLog) call(name string) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	g.refreshes++
-	g.trees = trees
-	return g.RefreshErr
+	if g.calls == nil {
+		g.calls = map[string]int{}
+	}
+	g.calls[name]++
+	return g.Err
 }
 
 // Commit implements ports.CommitLog: an abbreviated id must be unique.
-func (g *FakeCommitLog) Commit(_ context.Context, _ ports.GitRepo, sha string) (ports.Commit, bool, error) {
+func (g *FakeCommitLog) Commit(_ context.Context, _ ports.ReleaseProject, sha string) (ports.Commit, error) {
+	if err := g.call("commit"); err != nil {
+		return ports.Commit{}, err
+	}
 	var match []ports.Commit
 	for id, c := range g.Commits {
 		if strings.HasPrefix(id, sha) {
@@ -194,31 +193,132 @@ func (g *FakeCommitLog) Commit(_ context.Context, _ ports.GitRepo, sha string) (
 		}
 	}
 	if len(match) != 1 {
-		return ports.Commit{}, g.Stale, domain.KindError(domain.ErrNotFound, "unknown or ambiguous commit "+sha)
+		return ports.Commit{}, domain.KindError(domain.ErrNotFound, "unknown or ambiguous commit "+sha)
 	}
-	return match[0], g.Stale, nil
+	return match[0], nil
 }
 
 // Tag implements ports.CommitLog.
-func (g *FakeCommitLog) Tag(_ context.Context, _ ports.GitRepo, tag string) (string, bool, error) {
-	if sha, ok := g.Tags[tag]; ok {
-		return sha, g.Stale, nil
+func (g *FakeCommitLog) Tag(_ context.Context, _ ports.ReleaseProject, tag string) (string, error) {
+	if err := g.call("tag"); err != nil {
+		return "", err
 	}
-	return "", g.Stale, domain.KindError(domain.ErrNotFound, "no tag "+tag)
+	if sha, ok := g.Tags[tag]; ok {
+		return sha, nil
+	}
+	return "", domain.KindError(domain.ErrNotFound, "no tag "+tag)
+}
+
+// DefaultBranch implements ports.CommitLog.
+func (g *FakeCommitLog) DefaultBranch(context.Context, ports.ReleaseProject) (string, error) {
+	if err := g.call("default"); err != nil {
+		return "", err
+	}
+	if g.Default == "" {
+		return "main", nil
+	}
+	return g.Default, nil
+}
+
+// BranchTip implements ports.CommitLog; an unknown branch's tip is "tip".
+func (g *FakeCommitLog) BranchTip(_ context.Context, _ ports.ReleaseProject, branch string) (string, error) {
+	if err := g.call("tip"); err != nil {
+		return "", err
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if tip, ok := g.Branches[branch]; ok {
+		return tip, nil
+	}
+	return "tip", nil
 }
 
 // Count implements ports.CommitLog.
-func (g *FakeCommitLog) Count(_ context.Context, _ ports.GitRepo, sha, _ string, paths []string) (int, bool, bool, error) {
+func (g *FakeCommitLog) Count(_ context.Context, _ ports.ReleaseProject, sha, _ string, paths []string) (int, bool, bool, error) {
+	if err := g.call("count"); err != nil {
+		return 0, false, false, err
+	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.counted = append(g.counted, paths)
-	return g.Behind[sha], !g.Off[sha], g.Stale, nil
+	return g.Behind[sha], g.Capped, !g.Off[sha], nil
 }
 
-// Refreshes returns how many times Refresh ran, whether the last one asked
-// for trees, and the paths of each Count.
-func (g *FakeCommitLog) Refreshes() (n int, trees bool, counted [][]string) {
+// SetTip moves a branch (the trunk got a new commit).
+func (g *FakeCommitLog) SetTip(branch, tip string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	return g.refreshes, g.trees, slices.Clone(g.counted)
+	if g.Branches == nil {
+		g.Branches = map[string]string{}
+	}
+	g.Branches[branch] = tip
+}
+
+// Calls returns how many times each method ran ("commit", "tag",
+// "default", "tip", "count") and the paths of each Count.
+func (g *FakeCommitLog) Calls() (map[string]int, [][]string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return maps.Clone(g.calls), slices.Clone(g.counted)
+}
+
+// HistoryFixture is the content of a project's history for the CommitLog
+// contract: main has First, Second, Third (oldest first, Third its tip);
+// Second touches the folder "svc/"; the tag v1.0 points to First; Hotfix is
+// a commit off main whose parent is First.
+type HistoryFixture struct {
+	First, Second, Third, Hotfix string
+}
+
+// RunCommitLogContract checks an implementation of ports.CommitLog:
+// newLog returns one serving fx's history and the project to ask for.
+func RunCommitLogContract(t *testing.T, newLog func(t *testing.T) (ports.CommitLog, ports.ReleaseProject, HistoryFixture)) {
+	t.Helper()
+	g, p, fx := newLog(t)
+	ctx := context.Background()
+	t.Run("commit, full and abbreviated", func(t *testing.T) {
+		for _, id := range []string{fx.Second, fx.Second[:8]} {
+			c, err := g.Commit(ctx, p, id)
+			if err != nil || c.SHA != fx.Second || c.Subject == "" || c.Author == "" || c.At.IsZero() {
+				t.Errorf("Commit(%s) = %+v, %v", id, c, err)
+			}
+		}
+		if _, err := g.Commit(ctx, p, strings.Repeat("0", 40)); !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("unknown commit: %v", err)
+		}
+	})
+	t.Run("tag", func(t *testing.T) {
+		if sha, err := g.Tag(ctx, p, "v1.0"); err != nil || sha != fx.First {
+			t.Errorf("Tag = %q, %v", sha, err)
+		}
+		if _, err := g.Tag(ctx, p, "v9.9"); !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("unknown tag: %v", err)
+		}
+	})
+	t.Run("default branch and tip", func(t *testing.T) {
+		if b, err := g.DefaultBranch(ctx, p); err != nil || b != "main" {
+			t.Errorf("DefaultBranch = %q, %v", b, err)
+		}
+		if tip, err := g.BranchTip(ctx, p, "main"); err != nil || tip != fx.Third {
+			t.Errorf("BranchTip = %q, %v", tip, err)
+		}
+	})
+	t.Run("count", func(t *testing.T) {
+		behind, capped, on, err := g.Count(ctx, p, fx.First, "main", nil)
+		if err != nil || behind != 2 || capped || !on {
+			t.Errorf("Count(first) = %d, %v, %v, %v; want 2 on main", behind, capped, on, err)
+		}
+		behind, _, _, err = g.Count(ctx, p, fx.First, "main", []string{"svc/"})
+		if err != nil || behind != 1 {
+			t.Errorf("Count(first, svc/) = %d, %v; want 1", behind, err)
+		}
+		behind, _, on, err = g.Count(ctx, p, fx.Third, "main", nil)
+		if err != nil || behind != 0 || !on {
+			t.Errorf("Count(tip) = %d, %v, %v", behind, on, err)
+		}
+		_, _, on, err = g.Count(ctx, p, fx.Hotfix, "main", nil)
+		if err != nil || on {
+			t.Errorf("Count(hotfix): on %v, %v; want off main", on, err)
+		}
+	})
 }

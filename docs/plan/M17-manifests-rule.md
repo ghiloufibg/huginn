@@ -165,7 +165,7 @@ The demo has no clones. A small Kustomize fixture under `examples/demo-repos/` (
 5. **Monorepos:** one row per repository (recommended now, consistent with M16), or one row per service folder (a larger change, §6)?
 6. **Overlay names:** are the overlay folders named exactly like the Huginn environments, or is `overlay_names` needed?
 7. **Your overlays:** do any patches or replacements rename workloads or change their namespace (§4.3)? Do any use remote bases or `helmCharts`?
-8. **Numbering:** M17, decision D-075.
+8. **Numbering:** M17 (D-075 went to M16.1, since this is not planned).
 9. **Dry run (G-7):** a `huginn services --explain-resolve <env>` command printing which rule attributed each workload and what `manifests` would change (recommended: scriptable, also useful later), or only a debug log at start?
 
 ## 11. Test plan

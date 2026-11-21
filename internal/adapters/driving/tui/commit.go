@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -258,22 +259,23 @@ func commitText(t *Theme, env string, cur, prev domain.WorkloadImage, res map[st
 	return head
 }
 
-// countText compares the running commit with the trunk.
+// countText compares the running commit with the trunk. A capped count is
+// a lower bound: "100+".
 func countText(t *Theme, c domain.TrunkCount) string {
 	if !c.Known {
 		return ""
 	}
-	stale := ""
-	if c.Stale {
-		stale = t.Dim.Render(" (local, may be stale)")
+	n := strconv.Itoa(c.Behind)
+	if c.Capped {
+		n += "+"
 	}
 	switch {
 	case !c.OnTrunk:
-		return t.Warn.Render("not on "+c.Ref) + stale
+		return t.Warn.Render("not on " + c.Ref)
 	case c.Behind == 0:
-		return t.Dim.Render("up to date with "+c.Ref) + stale
+		return t.Dim.Render("up to date with " + c.Ref)
 	case c.WholeProject:
-		return fmt.Sprintf("%d commits on %s since", c.Behind, c.Ref) + stale
+		return n + " commits on " + c.Ref + " since"
 	}
-	return fmt.Sprintf("%d not deployed on %s", c.Behind, c.Ref) + stale
+	return n + " not deployed on " + c.Ref
 }

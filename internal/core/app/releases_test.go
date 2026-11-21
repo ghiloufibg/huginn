@@ -26,12 +26,23 @@ func deploy(c string, id int64, job string, pipeline int64) ports.Deployment {
 	}
 }
 
+// remotes answers GitRemote with a fixed URL or error, and records the
+// folders asked for.
+type remotes struct {
+	url  string
+	err  error
+	dirs []string
+}
+
+func (f *remotes) GitRemote(_ context.Context, dir, _ string) (string, error) {
+	f.dirs = append(f.dirs, dir)
+	return f.url, f.err
+}
+
 func newReleases(h *portstest.FakeReleaseHistory, g *portstest.FakeCommitLog) (*Releases, *portstest.FakeClock) {
 	clock := portstest.NewFakeClock(relT0)
-	if g.URL == "" && g.URLErr == nil {
-		g.URL = "git@gitlab.test:payments/payment-service.git"
-	}
-	return &Releases{History: h, Git: g, Clock: clock, Settings: ReleaseSettings{
+	rm := &remotes{url: "git@gitlab.test:payments/payment-service.git"}
+	return &Releases{History: h, Commits: g, Remotes: rm, Clock: clock, Settings: ReleaseSettings{
 		ReposRoot: "/repos", Remote: "origin", PerPage: 2, MaxDeployments: 6, MaxLogBytes: 1 << 20,
 		CompareRef: "origin/HEAD", Refresh: time.Minute,
 		Envs: map[domain.Env]ReleaseNames{"prd": {Environment: "prd", Job: "promote-prd"}},
@@ -198,7 +209,7 @@ func TestReleasesMonorepo(t *testing.T) {
 		}},
 		Logs: map[int64]string{30: dig("1"), 40: dig("2")},
 	}}
-	g := &portstest.FakeCommitLog{URL: "https://gitlab.test/platform/mono.git"}
+	g := &portstest.FakeCommitLog{}
 	r, _ := newReleases(h, g)
 	r.Settings.Envs["prd"] = ReleaseNames{Environment: "prd", Job: "promote-{workload}-prd"}
 	r.Settings.Repos = map[string]ReleaseRepo{"payment-service": {Workloads: map[string]ReleaseWorkload{
@@ -217,8 +228,8 @@ func TestReleasesMonorepo(t *testing.T) {
 	if !got[dig("1")].Count.Scoped || got[dig("2")].Count.Scoped || !got[dig("2")].Count.WholeProject {
 		t.Errorf("counts = %+v / %+v: only payment has paths", got[dig("1")].Count, got[dig("2")].Count)
 	}
-	if _, trees, counted := g.Refreshes(); !trees || !slices.ContainsFunc(counted, func(p []string) bool { return slices.Equal(p, []string{"services/payment/"}) }) {
-		t.Errorf("trees %v, counted paths %v", trees, counted)
+	if _, counted := g.Calls(); !slices.ContainsFunc(counted, func(p []string) bool { return slices.Equal(p, []string{"services/payment/"}) }) {
+		t.Errorf("counted paths %v", counted)
 	}
 }
 
@@ -251,13 +262,15 @@ func TestReleasesProblems(t *testing.T) {
 		t.Errorf("release = %+v: the problem is shown, not 'not recent', and the guess is kept", res)
 	}
 
-	r, _ = newReleases(&portstest.FakeReleaseHistory{}, &portstest.FakeCommitLog{URLErr: domain.ErrNotFound})
+	r, _ = newReleases(&portstest.FakeReleaseHistory{}, &portstest.FakeCommitLog{})
+	r.Remotes = &remotes{err: domain.ErrNotFound}
 	got, _ = r.Running(context.Background(), query(img("payment-service", dig("1"), "")))
 	if p := got[dig("1")].Problem; p == nil || !strings.Contains(p.Error(), "no clone") {
 		t.Errorf("problem = %v", p)
 	}
 
-	r, _ = newReleases(&portstest.FakeReleaseHistory{}, &portstest.FakeCommitLog{URL: "/srv/git/p.git"})
+	r, _ = newReleases(&portstest.FakeReleaseHistory{}, &portstest.FakeCommitLog{})
+	r.Remotes = &remotes{url: "/srv/git/p.git"}
 	got, _ = r.Running(context.Background(), query(img("payment-service", dig("1"), "")))
 	if p := got[dig("1")].Problem; !errors.Is(p, domain.ErrConfig) {
 		t.Errorf("problem = %v", p)
@@ -277,7 +290,7 @@ func TestReleasesEnvironmentNotSearched(t *testing.T) {
 }
 
 func TestReleasesSettings(t *testing.T) {
-	g := &portstest.FakeCommitLog{Behind: map[string]int{sha("a"): 3}, Off: map[string]bool{sha("a"): true}, Stale: true}
+	g := &portstest.FakeCommitLog{Behind: map[string]int{sha("a"): 3}, Off: map[string]bool{sha("a"): true}, Capped: true}
 	h := &portstest.FakeReleaseHistory{Fixture: portstest.ReleaseFixture{
 		Deployments: map[string][]ports.Deployment{"prd/payment": {deploy("a", 1, "release-payment", 100)}},
 		Logs:        map[int64]string{10: dig("1")},
@@ -290,20 +303,68 @@ func TestReleasesSettings(t *testing.T) {
 	}}
 	got, _ := r.Running(context.Background(), query(img("payment", dig("1"), "")))
 	res := got[dig("1")]
-	if res.State != domain.ReleaseFound || res.Count != (domain.TrunkCount{Known: true, Ref: "origin/release", Behind: 3, OnTrunk: false, Stale: true}) {
+	if res.State != domain.ReleaseFound || res.Count != (domain.TrunkCount{Known: true, Ref: "origin/release", Behind: 3, OnTrunk: false, Capped: true}) {
 		t.Errorf("release = %+v", res)
 	}
-	if n, _, _ := g.Refreshes(); n != 1 {
-		t.Errorf("refreshes = %d", n)
+	// "origin/release" is the branch "release": no default-branch request.
+	if calls, _ := g.Calls(); calls["default"] != 0 || calls["count"] != 1 || calls["tip"] != 1 {
+		t.Errorf("calls = %v", calls)
 	}
-	_, _ = r.Running(context.Background(), query(img("payment", dig("1"), "")))
-	if n, _, _ := g.Refreshes(); n != 1 {
-		t.Errorf("refreshed again before Refresh: %d", n)
-	}
+	// The trunk did not move: the count is reused, only its tip is read.
 	clock.Advance(time.Minute)
 	_, _ = r.Running(context.Background(), query(img("payment", dig("1"), "")))
-	if n, _, _ := g.Refreshes(); n != 2 {
-		t.Errorf("not refreshed after Refresh: %d", n)
+	if calls, _ := g.Calls(); calls["count"] != 1 || calls["tip"] != 2 {
+		t.Errorf("calls = %v, want the count reused", calls)
+	}
+	// The trunk moved: counted again.
+	g.SetTip("release", "t2")
+	_, _ = r.Running(context.Background(), query(img("payment", dig("1"), "")))
+	if calls, _ := g.Calls(); calls["count"] != 2 {
+		t.Errorf("calls = %v, want a new count after the trunk moved", calls)
+	}
+}
+
+func TestReleasesTrunkAndHistoryCaches(t *testing.T) {
+	h := &portstest.FakeReleaseHistory{Fixture: portstest.ReleaseFixture{
+		Deployments: map[string][]ports.Deployment{"prd": {deploy("a", 1, "promote-prd", 100)}},
+		Logs:        map[int64]string{10: dig("1")},
+	}}
+	g := &portstest.FakeCommitLog{Default: "trunk", Tags: map[string]string{}}
+	r, clock := newReleases(h, g)
+	q := query(img("payment-service", dig("1"), ""), img("worker", dig("2"), "1.0.0"))
+	_, _ = r.Running(context.Background(), q)
+	calls, _ := g.Calls()
+	if calls["default"] != 1 || calls["tip"] != 1 {
+		t.Errorf("first lookup calls = %v: default branch once, the tip once per lookup", calls)
+	}
+	tags := calls["tag"]
+	// Within the hour the default branch is reused; an unknown tag is not
+	// asked again before Refresh.
+	clock.Advance(30 * time.Second)
+	_, _ = r.Running(context.Background(), q)
+	if calls, _ := g.Calls(); calls["default"] != 1 || calls["tag"] != tags {
+		t.Errorf("calls = %v, want the default branch and the unknown tags reused", calls)
+	}
+	clock.Advance(time.Hour)
+	_, _ = r.Running(context.Background(), q)
+	if calls, _ := g.Calls(); calls["default"] != 2 || calls["tag"] == tags {
+		t.Errorf("calls = %v, want the default branch and the tags asked again", calls)
+	}
+}
+
+func TestReleasesNoCountWhenTheTrunkCannotBeRead(t *testing.T) {
+	h := &portstest.FakeReleaseHistory{Fixture: portstest.ReleaseFixture{
+		Deployments: map[string][]ports.Deployment{"prd": {deploy("a", 1, "promote-prd", 100)}},
+		Logs:        map[int64]string{10: dig("1")},
+	}}
+	g := &portstest.FakeCommitLog{}
+	r, _ := newReleases(h, g)
+	_, _ = r.Running(context.Background(), query(img("payment-service", dig("1"), "")))
+	g.Err = domain.KindError(domain.ErrUnreachable, "GitLab unreachable")
+	got, _ := r.Running(context.Background(), query(img("payment-service", dig("1"), "")))
+	// The release found before is kept; there is no count offline.
+	if res := got[dig("1")]; res.State != domain.ReleaseFound || res.Release.SHA != sha("a") || res.Count.Known {
+		t.Errorf("release = %+v", res)
 	}
 }
 

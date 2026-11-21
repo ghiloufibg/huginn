@@ -50,35 +50,36 @@ type ReleaseHistory interface {
 	LogFind(ctx context.Context, p ReleaseProject, job int64, needles []string, limit int64) ([]string, error)
 }
 
-// GitRepo is a local clone and the name of the remote to read.
-type GitRepo struct {
-	Dir, Remote string
+// GitRemotes finds the remote of a local clone by reading its
+// .git/config as a file: no git command runs.
+type GitRemotes interface {
+	// GitRemote returns the URL of remote in the clone at dir; ErrNotFound
+	// when dir is not a clone or has no such remote.
+	GitRemote(ctx context.Context, dir, remote string) (string, error)
 }
 
-// Commit is what git says about one commit.
+// Commit is what a project's history says about one commit.
 type Commit struct {
 	SHA, Author, Subject string
 	At                   time.Time
 }
 
-// CommitLog reads commits with git, read only on the remote and on the
-// user's clone. Implementations keep their own copy of each remote, so
-// the clone is never written to; when the remote cannot be reached they
-// read the clone instead and say so with stale.
+// CommitLog reads the history of a hosted project through its API, read
+// only. Errors are domain kinds: ErrUnauthorized, ErrForbidden,
+// ErrNotFound (no such commit, tag or branch), ErrUnreachable.
 type CommitLog interface {
-	// RemoteURL returns the URL of the clone's remote; ErrNotFound when
-	// dir is not a clone or has no such remote.
-	RemoteURL(ctx context.Context, r GitRepo) (string, error)
-	// Refresh brings the copy of the remote up to date. trees asks for a
-	// copy able to tell which paths a commit touched (Count with paths).
-	Refresh(ctx context.Context, r GitRepo, trees bool) error
-	// Commit resolves sha, possibly abbreviated; ErrNotFound when unknown.
-	Commit(ctx context.Context, r GitRepo, sha string) (c Commit, stale bool, err error)
-	// Tag returns the commit a tag points to; ErrNotFound when none.
-	Tag(ctx context.Context, r GitRepo, tag string) (sha string, stale bool, err error)
-	// Count returns how many commits of ref sha lacks (only those touching
-	// paths, when given), and whether sha is an ancestor of ref.
-	Count(ctx context.Context, r GitRepo, sha, ref string, paths []string) (behind int, onRef, stale bool, err error)
+	// Commit resolves sha, possibly abbreviated.
+	Commit(ctx context.Context, p ReleaseProject, sha string) (Commit, error)
+	// Tag returns the commit a tag points to.
+	Tag(ctx context.Context, p ReleaseProject, tag string) (sha string, err error)
+	// DefaultBranch returns the project's default branch.
+	DefaultBranch(ctx context.Context, p ReleaseProject) (string, error)
+	// BranchTip returns the commit a branch points to.
+	BranchTip(ctx context.Context, p ReleaseProject, branch string) (sha string, err error)
+	// Count returns how many commits of branch sha lacks (only those
+	// touching paths, when given), whether that number is a lower bound
+	// (capped), and whether sha is on branch.
+	Count(ctx context.Context, p ReleaseProject, sha, branch string, paths []string) (behind int, capped, onBranch bool, err error)
 }
 
 // ReleaseQuery asks for the releases running the images of a repository's

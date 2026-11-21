@@ -3,7 +3,7 @@
   "additionalProperties": false,
   "properties": {
     "compare_ref": {
-      "description": "Reference the running commit is compared with, to count the commits not deployed. Default origin/HEAD, the remote's default branch.",
+      "description": "Branch the running commit is compared with, to count the commits not deployed: \u003cremote\u003e/HEAD (the project's default branch) or \u003cremote\u003e/\u003cbranch\u003e. Default origin/HEAD.",
       "type": "string"
     },
     "max_deployments": {
@@ -26,11 +26,11 @@
       "type": "string"
     },
     "refresh": {
-      "description": "How old Huginn's copy of a remote, and a 'not a recent release' answer, may get before they are read again. At least 10s. Default 1m.",
+      "description": "How old a 'not a recent release' answer may get before the deployments are searched again. At least 10s. Default 1m.",
       "type": "string"
     },
     "remote": {
-      "description": "Remote of each clone (repos_root/\u003crepository\u003e) that names its GitLab project. Default origin.",
+      "description": "Remote of each clone (repos_root/\u003crepository\u003e) that names its GitLab project, read from the clone's .git/config. Default origin.",
       "type": "string"
     },
     "repos": {
@@ -38,7 +38,7 @@
         "additionalProperties": false,
         "properties": {
           "compare_ref": {
-            "description": "Reference compared with for this repository.",
+            "description": "Branch compared with for this repository: \u003cremote\u003e/HEAD or \u003cremote\u003e/\u003cbranch\u003e.",
             "type": "string"
           },
           "environment": {
