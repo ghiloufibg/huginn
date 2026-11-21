@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 
 	"github.com/ghiloufibg/huginn/internal/adapters/driven/demo"
 	"github.com/ghiloufibg/huginn/internal/adapters/driven/gitlab"
@@ -79,27 +80,48 @@ func envNames(envs, jobs map[string]string) map[domain.Env]app.ReleaseNames {
 	return out
 }
 
-// tokenReader reads the token from the dotenv file on each use, so a token
-// added while Huginn runs is used without a restart. It is wrapped in a
-// Secret at once and never logged.
+// tokenReader reads the token from the dotenv file when it changes, so a
+// token added or renewed while Huginn runs is used at once, while each
+// request costs only a stat of the file. The token is wrapped in a Secret
+// at once and never logged.
 func tokenReader(path, name, key string) func(context.Context) (domain.Secret, error) {
 	missing := domain.KindError(domain.ErrUnauthorized, fmt.Sprintf("no GitLab token (%s %s)", name, key))
+	var mu sync.Mutex
+	var seen os.FileInfo
+	var tok domain.Secret
 	return func(context.Context) (domain.Secret, error) {
-		f, err := os.Open(path)
+		st, err := os.Stat(path)
 		if err != nil {
 			return domain.Secret{}, missing
 		}
-		defer func() { _ = f.Close() }()
-		b, err := io.ReadAll(io.LimitReader(f, 64<<10))
-		if err != nil {
+		mu.Lock()
+		defer mu.Unlock()
+		if seen != nil && st.ModTime().Equal(seen.ModTime()) && st.Size() == seen.Size() && os.SameFile(st, seen) {
+			if tok.Reveal() == "" {
+				return domain.Secret{}, missing
+			}
+			return tok, nil
+		}
+		tok, seen = readToken(path, key), st
+		if tok.Reveal() == "" {
 			return domain.Secret{}, missing
 		}
-		tok, ok := domain.ParseDotenv(b)[key]
-		if !ok || strings.TrimSpace(tok.Reveal()) == "" {
-			return domain.Secret{}, missing
-		}
-		return domain.NewSecret(strings.TrimSpace(tok.Reveal())), nil
+		return tok, nil
 	}
+}
+
+// readToken returns the token of key in a dotenv file, empty when absent.
+func readToken(path, key string) domain.Secret {
+	f, err := os.Open(path)
+	if err != nil {
+		return domain.Secret{}
+	}
+	defer func() { _ = f.Close() }()
+	b, err := io.ReadAll(io.LimitReader(f, 64<<10))
+	if err != nil {
+		return domain.Secret{}
+	}
+	return domain.NewSecret(strings.TrimSpace(domain.ParseDotenv(b)[key].Reveal()))
 }
 
 // tokenNotice warns when the token file could leak: readable by other

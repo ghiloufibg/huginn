@@ -87,6 +87,7 @@ type Releases struct {
 	unknown  map[histKey]time.Time
 	counts   map[countKey]domain.TrunkCount
 	defaults map[string]defaultBranch
+	remotes  map[string]cachedRemote // a clone's remote, reused remoteTTL
 	// A finished job's log and a pipeline's jobs do not change: a digest
 	// is never searched twice in the same log, and a pipeline's jobs are
 	// listed once. Both are bounded (cleared past maxRemembered).
@@ -113,6 +114,39 @@ type trunk struct {
 
 // defaultBranchTTL is how long a project's default branch is reused.
 const defaultBranchTTL = time.Hour
+
+// remoteTTL is how long a clone's remote URL (or its absence) is reused:
+// it almost never changes, and a lookup runs every minute.
+const remoteTTL = 5 * time.Minute
+
+type cachedRemote struct {
+	url string
+	err error
+	at  time.Time
+}
+
+// remote returns the URL of the clone's remote, read from its .git/config
+// at most every remoteTTL.
+func (r *Releases) remote(ctx context.Context, dir string) (string, error) {
+	now := r.Clock.Now()
+	r.mu.Lock()
+	c, ok := r.remotes[dir]
+	r.mu.Unlock()
+	if ok && now.Sub(c.at) < remoteTTL {
+		return c.url, c.err
+	}
+	url, err := r.Remotes.GitRemote(ctx, dir, r.Settings.Remote)
+	if ctx.Err() != nil {
+		return url, err // a cancelled read is not an answer to keep
+	}
+	r.mu.Lock()
+	if r.remotes == nil || len(r.remotes) >= maxRemembered {
+		r.remotes = map[string]cachedRemote{}
+	}
+	r.remotes[dir] = cachedRemote{url, err, now}
+	r.mu.Unlock()
+	return url, err
+}
 
 // miss is a search that found no deployment: when, and the newest
 // deployment it read, so that the next search stops there.
@@ -142,7 +176,7 @@ func (r *Releases) Running(ctx context.Context, q ports.ReleaseQuery) (map[strin
 	if len(images) == 0 {
 		return out, nil
 	}
-	url, err := r.Remotes.GitRemote(ctx, filepath.Join(r.Settings.ReposRoot, q.Repo), r.Settings.Remote)
+	url, err := r.remote(ctx, filepath.Join(r.Settings.ReposRoot, q.Repo))
 	if err != nil {
 		return r.failAll(images, fmt.Errorf("no clone of this repository in %s: %w", r.Settings.ReposRoot, err)), nil
 	}
@@ -155,9 +189,19 @@ func (r *Releases) Running(ctx context.Context, q ports.ReleaseQuery) (map[strin
 		p.BaseURL = "https://" + project.Host
 	}
 	deployments, searched, histErr := r.search(ctx, q, p, images)
-	tr, trErr := r.trunk(ctx, p, q.Repo)
-	if trErr != nil && r.Log != nil {
-		r.Log.Debug("resolve the trunk", "project", p.Path, "err", trErr)
+	// The trunk is resolved once, and only when there is a commit to count:
+	// no request at all when nothing is known (no token, GitLab down).
+	var tr trunk
+	var trErr error
+	resolved := false
+	trunkOnce := func() (trunk, error) {
+		if !resolved {
+			resolved = true
+			if tr, trErr = r.trunk(ctx, p, q.Repo); trErr != nil && r.Log != nil {
+				r.Log.Debug("resolve the trunk", "project", p.Path, "err", trErr)
+			}
+		}
+		return tr, trErr
 	}
 	for _, img := range images {
 		res := domain.RunningRelease{}
@@ -173,8 +217,10 @@ func (r *Releases) Running(ctx context.Context, q ports.ReleaseQuery) (map[strin
 			res.Problem = histErr
 			r.guess(ctx, p, img.Tag, &res)
 		}
-		if res.Release.SHA != "" && trErr == nil {
-			res.Count = r.count(ctx, p, q.Repo, img.Workload, res.Release.SHA, tr)
+		if res.Release.SHA != "" {
+			if tr, err := trunkOnce(); err == nil {
+				res.Count = r.count(ctx, p, q.Repo, img.Workload, res.Release.SHA, tr)
+			}
 		}
 		out[img.Digest] = res
 	}

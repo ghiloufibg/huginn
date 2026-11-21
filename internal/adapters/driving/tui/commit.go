@@ -59,6 +59,20 @@ type releases struct {
 	pending bool // a rest is scheduled for target
 	cache   map[relKey]relEntry
 	memo    relMemo
+	drawn   drawnLines
+}
+
+// drawnLines keeps the COMMIT lines last drawn: they change only with the
+// snapshot, the answer or the theme, while the preview is drawn on every
+// frame.
+type drawnLines struct {
+	snap    *ports.CatalogSnapshot
+	key     relKey
+	at      time.Time
+	loading bool
+	theme   string
+	env     string
+	lines   []string
 }
 
 // relMemo keeps the images of the selected service for the snapshot they
@@ -175,6 +189,19 @@ func (r *releases) lines(m *Model, svc domain.ServiceSummary) []string {
 	if key.repo == "" {
 		return nil
 	}
+	e := r.cache[key]
+	d := &r.drawn
+	if d.lines != nil && d.snap == m.snap && d.key == key && d.at.Equal(e.at) && d.loading == e.loading &&
+		d.theme == m.opts.Theme.Name && d.env == m.env.Name {
+		return d.lines
+	}
+	lines := r.draw(m, svc, key, cur, prev)
+	*d = drawnLines{snap: m.snap, key: key, at: e.at, loading: e.loading, theme: m.opts.Theme.Name, env: m.env.Name, lines: lines}
+	return lines
+}
+
+// draw builds the COMMIT lines of svc from the last answer.
+func (r *releases) draw(m *Model, svc domain.ServiceSummary, key relKey, cur, prev []domain.WorkloadImage) []string {
 	t := &m.opts.Theme
 	e, ok := r.cache[key]
 	if !ok || (e.loading && e.res == nil) {

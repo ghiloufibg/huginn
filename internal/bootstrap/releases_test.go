@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ghiloufibg/huginn/internal/adapters/driving/cli"
 	"github.com/ghiloufibg/huginn/internal/core/domain"
@@ -122,4 +123,25 @@ func TestDemoWiresReleases(t *testing.T) {
 		return
 	}
 	t.Fatal("no payment-service in the demo")
+}
+
+func TestTokenReaderSeesARenewalOfTheSameSize(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".env")
+	if err := os.WriteFile(path, []byte("GITLAB_TOKEN=aaaa\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	read := tokenReader(path, ".env", "GITLAB_TOKEN")
+	if tok, err := read(context.Background()); err != nil || tok.Reveal() != "aaaa" {
+		t.Fatalf("token = %q, %v", tok.Reveal(), err)
+	}
+	if err := os.WriteFile(path, []byte("GITLAB_TOKEN=bbbb\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	later := time.Now().Add(time.Second)
+	if err := os.Chtimes(path, later, later); err != nil {
+		t.Fatal(err)
+	}
+	if tok, err := read(context.Background()); err != nil || tok.Reveal() != "bbbb" {
+		t.Errorf("renewed token = %q, %v", tok.Reveal(), err)
+	}
 }

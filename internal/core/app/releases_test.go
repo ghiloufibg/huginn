@@ -375,3 +375,45 @@ func TestReleasesSkipsImagesWithoutDigest(t *testing.T) {
 		t.Errorf("got %+v, %v", got, err)
 	}
 }
+
+// TestReleasesRequestBudget pins what a lookup costs: the numbers are the
+// feature's whole load on GitLab and on the disk.
+func TestReleasesRequestBudget(t *testing.T) {
+	h := &portstest.FakeReleaseHistory{Fixture: portstest.ReleaseFixture{
+		Deployments: map[string][]ports.Deployment{"prd": {deploy("a", 1, "promote-prd", 100)}},
+		Logs:        map[int64]string{10: dig("1")},
+	}}
+	g := &portstest.FakeCommitLog{}
+	r, clock := newReleases(h, g)
+	rm := r.Remotes.(*remotes)
+	q := query(img("payment-service", dig("1"), ""))
+	_, _ = r.Running(context.Background(), q)
+	// A minute later (the TUI asks again while the service stays
+	// selected), nothing changed: one request, the trunk's tip.
+	clock.Advance(time.Minute)
+	_, _ = r.Running(context.Background(), q)
+	pages, lists, logs, _ := h.Calls()
+	calls, _ := g.Calls()
+	if pages != 1 || lists != 0 || logs != 1 {
+		t.Errorf("history: %d pages, %d job lists, %d logs; want 1, 0, 1 in all", pages, lists, logs)
+	}
+	if calls["tip"] != 2 || calls["count"] != 1 || calls["default"] != 1 || calls["commit"] != 0 {
+		t.Errorf("history of the project: %v; want 2 tips, 1 count, 1 default branch", calls)
+	}
+	if len(rm.dirs) != 1 {
+		t.Errorf(".git/config read %d times, want once (reused for a minute)", len(rm.dirs))
+	}
+}
+
+// TestReleasesNoTrunkRequestWithoutACommit: when no commit is known (no
+// token, GitLab down, an unknown image) there is nothing to count, so the
+// trunk is not asked for.
+func TestReleasesNoTrunkRequestWithoutACommit(t *testing.T) {
+	h := &portstest.FakeReleaseHistory{Err: domain.KindError(domain.ErrUnauthorized, "no GitLab token")}
+	g := &portstest.FakeCommitLog{}
+	r, _ := newReleases(h, g)
+	_, _ = r.Running(context.Background(), query(img("payment-service", dig("1"), "2.14.3")))
+	if calls, _ := g.Calls(); calls["tip"] != 0 || calls["default"] != 0 {
+		t.Errorf("calls = %v: no trunk request without a commit to count", calls)
+	}
+}
