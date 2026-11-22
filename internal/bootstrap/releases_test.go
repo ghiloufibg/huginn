@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -50,8 +51,11 @@ func TestTokenNotice(t *testing.T) {
 	if err := os.Chmod(path, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if n := tokenNotice(dir, ".env"); !strings.Contains(n, "readable by others (chmod 600") {
+	// Windows has no such permission bits: the check is Unix only.
+	if n := tokenNotice(dir, ".env"); runtime.GOOS != "windows" && !strings.Contains(n, "readable by others (chmod 600") {
 		t.Errorf("world-readable: %q", n)
+	} else if runtime.GOOS == "windows" && n != "" {
+		t.Errorf("Windows has no permission bits to warn about: %q", n)
 	}
 	if err := os.Chmod(path, 0o600); err != nil {
 		t.Fatal(err)
