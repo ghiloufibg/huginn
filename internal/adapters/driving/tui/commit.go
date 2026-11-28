@@ -91,7 +91,7 @@ type relMemo struct {
 // the current and previous image of each workload, in workload order.
 // They are computed once per snapshot.
 func (r *releases) target(m *Model, svc *domain.ServiceSummary) (key relKey, imgs, cur, prev []domain.WorkloadImage) {
-	if svc == nil || svc.Unassigned || m.opts.Releases == nil {
+	if svc == nil || svc.Unassigned || m.opts.Releases == nil || m.env.NoCommit {
 		return relKey{}, nil, nil, nil
 	}
 	mm := &r.memo

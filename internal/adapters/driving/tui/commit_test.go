@@ -216,6 +216,29 @@ func TestPreviewCommitPerWorkload(t *testing.T) {
 	}
 }
 
+func TestPreviewCommitHiddenForEnvWithoutGitLab(t *testing.T) {
+	m, _ := newTestModel(t, 1, "")
+	m.env.NoCommit = true
+	rel := &fakeReleases{res: map[string]domain.RunningRelease{digest("1"): found(strings.Repeat("a", 40), "feat: new", 0)}}
+	m.opts.Releases = rel
+	snap := mockupSnapshot("rec")
+	for i := range snap.Services {
+		if snap.Services[i].Repo == "catalog-indexer" {
+			snap.Services[i].WorkloadStates = []domain.Workload{workload("catalog-indexer")}
+			snap.Services[i].Pods = []domain.Pod{imgPod("catalog-indexer", "catalog-indexer-a", "h1", "1", digest("1"), time.Hour)}
+			snap.Services[i].Workloads = 1
+		}
+	}
+	snapshot(m, snap)
+	rest(m)
+	// Nothing is scheduled: no rest message ever reaches the lookup.
+	r := &m.stack[0].(*servicesScreen).preview.rel
+	out := ansi.Strip(render(m, 160, 34))
+	if r.pending || r.want.repo != "" || strings.Contains(out, "COMMIT") || len(rel.queries) != 0 {
+		t.Errorf("COMMIT shown or looked up for an environment without gitlab: (%d queries):\n%s", len(rel.queries), out)
+	}
+}
+
 func TestPreviewCommitHiddenWithoutReleases(t *testing.T) {
 	ws := []domain.Workload{workload("catalog-indexer")}
 	pods := []domain.Pod{imgPod("catalog-indexer", "catalog-indexer-a", "h1", "1", digest("1"), time.Hour)}

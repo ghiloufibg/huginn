@@ -4,6 +4,8 @@
 # your kubeconfig (gcloud container clusters get-credentials …).
 version: 1
 
+# gitlab: is optional per environment: one without it shows no COMMIT line
+# and makes no GitLab request (leave it out of dev and rec, say).
 environments:                  # shown in this order by the environment picker (ctrl+e)
   dev:
     context: gke_acme_europe-west1_main

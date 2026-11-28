@@ -12,7 +12,7 @@
           },
           "gitlab": {
             "additionalProperties": false,
-            "description": "The GitLab names of this environment, to find the release running in it (releases.yaml). Without it, the commit is only guessed from the image tag.",
+            "description": "The GitLab names of this environment, to find the release running in it (releases.yaml). Without it, the environment shows no commit and makes no GitLab request.",
             "properties": {
               "environment": {
                 "description": "GitLab environment the pipelines deploy to, e.g. prd. {repo} and {workload} are replaced by the repository and workload names.",

@@ -95,7 +95,7 @@ type Environment struct {
 	Namespaces    []string   `yaml:"namespaces" doc:"Namespaces holding the environment's workloads. Set this or namespace_from."`
 	NamespaceFrom string     `yaml:"namespace_from" doc:"Read the namespace from a sops-encrypted dotenv file instead: sops:<file>#<key>."`
 	Production    bool       `yaml:"production" doc:"Show the production banner."`
-	GitLab        *EnvGitLab `yaml:"gitlab" doc:"The GitLab names of this environment, to find the release running in it (releases.yaml). Without it, the commit is only guessed from the image tag."`
+	GitLab        *EnvGitLab `yaml:"gitlab" doc:"The GitLab names of this environment, to find the release running in it (releases.yaml). Without it, the environment shows no commit and makes no GitLab request."`
 }
 
 // EnvGitLab names an environment in GitLab.

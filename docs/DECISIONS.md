@@ -704,3 +704,9 @@ Status: accepted.
 - **Not verified here.** Per-verb API load on a real cluster (no source on Autopilot without audit logs, see `deploy/gke-qa/M22-QA-REPORT.md`), and `govulncheck` of the new `k8s.io/metrics` module.
 
 Status: accepted, pending the real-cluster QA.
+
+## D-077 COMMIT line only for environments with a `gitlab:` entry
+
+- **Choice.** An environment without `gitlab:` in `environments.yaml` shows no COMMIT section and makes no GitLab request. Before, it still guessed the commit from the image tag through GitLab's API.
+- **Why.** Looking up the deployed commit is wanted in some environments only (prod-like ones, in the owner's setup), and the guess cost API calls for the others.
+- **Config, not code.** Which environments those are stays in the user's `environments.yaml` (CLAUDE.md rule: nothing company-specific in code); the TUI reads `EnvInfo.NoCommit`, set by bootstrap from `gitlab == nil`. Upgrading: an environment that relied on the tag guess needs a `gitlab:` entry.

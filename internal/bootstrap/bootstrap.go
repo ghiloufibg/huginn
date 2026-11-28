@@ -194,7 +194,7 @@ func Build(o cli.Options, e Env, log *slog.Logger) (*App, error) {
 	var current tui.EnvInfo
 	for _, name := range c.Environments.Names {
 		ce := c.Environments.ByName[name]
-		info := tui.EnvInfo{Name: name, Context: ce.Context, Namespaces: ce.Namespaces, Production: ce.Production}
+		info := tui.EnvInfo{Name: name, Context: ce.Context, Namespaces: ce.Namespaces, Production: ce.Production, NoCommit: ce.GitLab == nil}
 		envs = append(envs, info)
 		if name == env.String() {
 			current = info

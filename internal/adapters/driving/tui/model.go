@@ -21,6 +21,9 @@ type EnvInfo struct {
 	Context    string
 	Namespaces []string
 	Production bool
+	// NoCommit hides the COMMIT section and makes no lookup: the environment
+	// has no gitlab: entry in environments.yaml.
+	NoCommit bool
 }
 
 // Options configure the UI. The composition root fills them.
