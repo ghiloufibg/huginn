@@ -99,6 +99,7 @@ func newCatalog(c *config.Config, sc app.ScopeFunc, cluster ports.ClusterClient,
 	return &app.Catalog{
 		Cluster: cluster, Resolver: resolverChain(c, log), Scopes: sc,
 		Filter: filter, Clock: clock, Log: log, Standalone: c.Services.ShowStandalone(),
+		Hide: domain.NameFilter{Patterns: c.Services.HideWorkloads},
 	}
 }
 

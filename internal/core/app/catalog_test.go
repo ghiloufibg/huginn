@@ -109,6 +109,40 @@ func TestCatalogSnapshotsAndUpdates(t *testing.T) {
 	}
 }
 
+func TestCatalogHidesWorkloadsAsIfAbsent(t *testing.T) {
+	clock := portstest.NewFakeClock(t0)
+	fc := portstest.NewFakeCluster()
+	fc.AddWorkload(deployment("ns", "api", "shop", 1, 1))
+	fc.AddWorkload(deployment("ns", "cloud-sql-proxy", "shop", 1, 1)) // shares the app's repository
+	fc.AddWorkload(deployment("ns", "redis-tunnel", "", 1, 1))
+	fc.PutPod(appPod("ns", "api-1", "api", true))
+	fc.PutPod(appPod("ns", "cloud-sql-proxy-1", "cloud-sql-proxy", false))
+	fc.PutPod(appPod("ns", "redis-tunnel-1", "redis-tunnel", true))
+	// A hand-made pod of the proxy: neither a workload row nor a standalone one.
+	debug := appPod("ns", "proxy-debug", "", true)
+	debug.Name = "cloud-sql-proxy-debug"
+	fc.PutPod(debug)
+	cat := newCatalog(fc, clock, "ns")
+	cat.Standalone = true
+	cat.Hide = domain.NameFilter{Patterns: []string{"cloud-sql-proxy*", "redis-tunnel"}}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ch, err := cat.Watch(ctx, domain.Env("rec"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := next(t, ch, clock, func(s ports.CatalogSnapshot) bool { return len(s.Services) > 0 && s.Synced })
+	if len(s.Services) != 1 || s.Services[0].Repo != "shop" || s.Services[0].Workloads != 1 || len(s.Services[0].Pods) != 1 {
+		t.Fatalf("services = %+v; want only shop with its api workload and pod", s.Services)
+	}
+	if s.Services[0].Status != domain.StatusHealthy {
+		t.Errorf("a hidden, unready proxy still counts: %v", s.Services[0].Status)
+	}
+	cancel()
+	for range ch {
+	}
+}
+
 func TestCatalogForbiddenNamespaceDoesNotHideOthers(t *testing.T) {
 	clock := portstest.NewFakeClock(t0)
 	fc := portstest.NewFakeCluster()

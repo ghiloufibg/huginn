@@ -266,6 +266,18 @@ func TestContainersModeAndStandalonePods(t *testing.T) {
 	wantErrors(t, msg, "containers.yaml", "default_mode")
 }
 
+func TestHideWorkloads(t *testing.T) {
+	fs := valid()
+	fs["services.yaml"] = &fstest.MapFile{Data: []byte("version: 1\nresolve: [labels]\nlabel_keys: [app]\nhide_workloads: [cloud-sql-proxy*, redis-tunnel]\n")}
+	c, msg := load(t, fs)
+	if msg != "" || len(c.Services.HideWorkloads) != 2 {
+		t.Fatalf("valid: %q %+v", msg, c.Services)
+	}
+	fs["services.yaml"] = &fstest.MapFile{Data: []byte("version: 1\nresolve: [labels]\nlabel_keys: [app]\nhide_workloads: [\"[bad\", \"\"]\n")}
+	_, msg = load(t, fs)
+	wantErrors(t, msg, `hide_workloads[0]: "[bad"`, `hide_workloads[1]: ""`)
+}
+
 func TestTransform(t *testing.T) {
 	fsys := valid()
 	fsys["formats/app.yaml"].Data = []byte("version: 1\ndecoder: json\nfields: {message: msg}\ntransform:\n  message:\n    pattern: '^(?:\\S+=\\S*\\s+)*-\\s+(?P<message>.*?)\\s+-'\nlayout: basic\n")

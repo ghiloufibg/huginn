@@ -112,7 +112,8 @@ type Services struct {
 	Manifests Manifests     `yaml:"manifests" doc:"Where to find an environment's Kubernetes manifests in a repository (rule manifests)."`
 	Explicit  []RepoMapping `yaml:"explicit" doc:"Repositories and their workloads, listed by hand (rule explicit)."`
 	// StandalonePods is nil when not set: shown by default.
-	StandalonePods *bool `yaml:"standalone_pods" doc:"List the pods no known workload owns (a bare pod, a Job made by hand, pods of an unknown controller) as their own rows, grouped by owner. Default true."`
+	HideWorkloads  []string `yaml:"hide_workloads" doc:"Workloads that are not your services (an ops proxy, a tunnel): their names, exact or shell globs (*, ?, [a-z]) matched against the whole name, case-sensitive, in any namespace. They and all their pods are left out of the TUI as if they were not in the cluster. foo matches only foo; write foo* for a prefix."`
+	StandalonePods *bool    `yaml:"standalone_pods" doc:"List the pods no known workload owns (a bare pod, a Job made by hand, pods of an unknown controller) as their own rows, grouped by owner. Default true."`
 }
 
 // ShowStandalone reports whether standalone pods are listed (default yes).

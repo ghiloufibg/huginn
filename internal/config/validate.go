@@ -201,6 +201,11 @@ func (v *validator) environments() {
 
 func (v *validator) services() {
 	s := v.c.Services
+	for i, pat := range s.HideWorkloads {
+		if _, err := path.Match(pat, ""); err != nil || strings.TrimSpace(pat) == "" {
+			v.add(FileServices, fmt.Sprintf("hide_workloads[%d]", i), "%q is not a workload name or a pattern such as proxy-*", pat)
+		}
+	}
 	uses := func(rule string) bool { return slices.Contains(s.Resolve, rule) }
 	if uses("labels") && len(s.LabelKeys) == 0 {
 		v.add(FileServices, "resolve", "the labels rule needs label_keys")

@@ -10,6 +10,10 @@ resolve: [labels]
 
 label_keys: [app.kubernetes.io/part-of, app.kubernetes.io/name, app]
 
+# Workloads that are not your services (ops proxies, tunnels): by name, exact
+# or shell patterns. They and their pods are left out of the TUI entirely.
+# hide_workloads: [cloud-sql-proxy*, redis-tunnel]
+
 # With resolve: [explicit, labels], list repositories by hand:
 # explicit:
 #   - repo: payment-service

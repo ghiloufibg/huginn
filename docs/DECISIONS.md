@@ -720,3 +720,12 @@ Status: accepted, pending the real-cluster QA.
 - **Not verified on a real GitLab yet:** `parent_ids` in both responses, and `ref_name=<a>..<b>` returning newest first.
 
 Status: accepted, pending the real-GitLab check.
+
+## D-079 `hide_workloads`: ops workloads are left out as if absent
+
+- **Choice.** `services.yaml` `hide_workloads` lists workload names (exact or shell globs, whole name, case-sensitive). `app.Catalog` drops each matching workload and all its pods from every snapshot, so the services list, header totals, usage screen, COMMIT lookup and logs access never see them. No toggle key, no footer count: the owner wants them gone.
+- **Why in the snapshot.** One place serves every screen (the usage screen shares the catalog). Pods are dropped by owner name (a Deployment's pods carry the Deployment's name), a bare pod by its own name, and a selector-owned pod through the hidden workload, all before standalone grouping, or the pods would come back as standalone rows.
+- **Cost of the choice.** A hidden workload that crash-loops is invisible in Huginn; that is the intent for ops pods that are not the team's services. A hidden bare pod only matches by its own name or a hidden workload's selector.
+- **Not done.** No per-environment variant, no match on repository or image (the owner asked for names only), and no demo workload (it would change the demo's totals and goldens).
+
+Status: accepted.

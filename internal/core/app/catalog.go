@@ -33,6 +33,9 @@ type Catalog struct {
 	// Standalone lists the pods no known workload claims, grouped by
 	// owner (domain.StandaloneWorkloads).
 	Standalone bool
+	// Hide names the workloads that are not ours (an ops proxy, a tunnel):
+	// they and their pods are left out of every snapshot, as if absent.
+	Hide domain.NameFilter
 }
 
 var defaultBackoff = []time.Duration{time.Second, 2 * time.Second, 5 * time.Second, 10 * time.Second, 30 * time.Second}
@@ -305,7 +308,19 @@ func (c *Catalog) snapshot(ctx context.Context, env domain.Env, namespaces []str
 	slices.SortFunc(ws, func(a, b domain.Workload) int {
 		return strings.Compare(key(a.Ref.Namespace, a.Ref.Name), key(b.Ref.Namespace, b.Ref.Name))
 	})
-	idx := indexPods(st.pods)
+	pods := st.pods
+	if len(c.Hide.Patterns) > 0 {
+		// Ownership is read with every workload known, before any is dropped:
+		// else the pods of a hidden one would come back as standalone rows.
+		pods = make(map[string]domain.Pod, len(st.pods))
+		for k, p := range st.pods {
+			if !c.Hide.Hides(p, ws) {
+				pods[k] = p
+			}
+		}
+		ws = slices.DeleteFunc(ws, func(w domain.Workload) bool { return c.Hide.Matches(w.Ref.Name) })
+	}
+	idx := indexPods(pods)
 	if c.Standalone {
 		ws = append(ws, domain.StandaloneWorkloads(ws, idx.all)...)
 	}

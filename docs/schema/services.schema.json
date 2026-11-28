@@ -56,6 +56,13 @@
       },
       "type": "array"
     },
+    "hide_workloads": {
+      "description": "Workloads that are not your services (an ops proxy, a tunnel): their names, exact or shell globs (*, ?, [a-z]) matched against the whole name, case-sensitive, in any namespace. They and all their pods are left out of the TUI as if they were not in the cluster. foo matches only foo; write foo* for a prefix.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
     "label_keys": {
       "description": "Workload labels or annotations whose value is the repository name (rule labels).",
       "items": {
