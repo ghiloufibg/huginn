@@ -163,7 +163,9 @@ type FakeCommitLog struct {
 	Behind   map[string]int
 	Off      map[string]bool
 	Capped   bool
-	Err      error
+	// Merged gives, by the second parent of a merge, what Introduced returns.
+	Merged map[string]ports.Commit
+	Err    error
 
 	mu      sync.Mutex
 	calls   map[string]int
@@ -196,6 +198,17 @@ func (g *FakeCommitLog) Commit(_ context.Context, _ ports.ReleaseProject, sha st
 		return ports.Commit{}, domain.KindError(domain.ErrNotFound, "unknown or ambiguous commit "+sha)
 	}
 	return match[0], nil
+}
+
+// Introduced implements ports.CommitLog.
+func (g *FakeCommitLog) Introduced(_ context.Context, _ ports.ReleaseProject, _, second string) (ports.Commit, error) {
+	if err := g.call("introduced"); err != nil {
+		return ports.Commit{}, err
+	}
+	if c, ok := g.Merged[second]; ok {
+		return c, nil
+	}
+	return ports.Commit{}, domain.KindError(domain.ErrNotFound, "no commit but merges")
 }
 
 // Tag implements ports.CommitLog.
@@ -254,8 +267,8 @@ func (g *FakeCommitLog) SetTip(branch, tip string) {
 	g.Branches[branch] = tip
 }
 
-// Calls returns how many times each method ran ("commit", "tag",
-// "default", "tip", "count") and the paths of each Count.
+// Calls returns how many times each method ran ("commit", "introduced",
+// "tag", "default", "tip", "count") and the paths of each Count.
 func (g *FakeCommitLog) Calls() (map[string]int, [][]string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()

@@ -43,11 +43,41 @@ func (c *Commits) Commit(ctx context.Context, p ports.ReleaseProject, sha string
 		Title         string    `json:"title"`
 		AuthorName    string    `json:"author_name"`
 		CommittedDate time.Time `json:"committed_date"`
+		ParentIDs     []string  `json:"parent_ids"`
 	}
 	if _, err := c.Client.getJSONHeader(ctx, p, "/repository/commits/"+url.PathEscape(sha), nil, &raw); err != nil {
 		return ports.Commit{}, notFound(err, "unknown commit "+sha+" in "+p.Path)
 	}
-	return ports.Commit{SHA: raw.ID, Author: raw.AuthorName, Subject: raw.Title, At: raw.CommittedDate}, nil
+	return ports.Commit{SHA: raw.ID, Author: raw.AuthorName, Subject: raw.Title, At: raw.CommittedDate, Parents: raw.ParentIDs}, nil
+}
+
+// introducedWindow is how many commits of a merge are read to find one that
+// is not itself a merge (a branch tip is often "Merge branch 'main' into …").
+const introducedWindow = 20
+
+// Introduced implements ports.CommitLog: the newest commit of first..second
+// with at most one parent. GitLab lists a range newest first.
+func (c *Commits) Introduced(ctx context.Context, p ports.ReleaseProject, first, second string) (ports.Commit, error) {
+	if !domain.IsCommitID(first) || !domain.IsCommitID(second) {
+		return ports.Commit{}, domain.KindError(domain.ErrNotFound, "not a commit id")
+	}
+	var raw []struct {
+		ID            string    `json:"id"`
+		Title         string    `json:"title"`
+		AuthorName    string    `json:"author_name"`
+		CommittedDate time.Time `json:"committed_date"`
+		ParentIDs     []string  `json:"parent_ids"`
+	}
+	q := url.Values{"ref_name": {first + ".." + second}, "per_page": {strconv.Itoa(introducedWindow)}}
+	if _, err := c.Client.getJSONHeader(ctx, p, "/repository/commits", q, &raw); err != nil {
+		return ports.Commit{}, err
+	}
+	for _, r := range raw {
+		if len(r.ParentIDs) <= 1 {
+			return ports.Commit{SHA: r.ID, Author: r.AuthorName, Subject: r.Title, At: r.CommittedDate, Parents: r.ParentIDs}, nil
+		}
+	}
+	return ports.Commit{}, domain.KindError(domain.ErrNotFound, "no commit but merges in "+p.Path)
 }
 
 // Tag implements ports.CommitLog.

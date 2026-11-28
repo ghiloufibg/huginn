@@ -710,3 +710,13 @@ Status: accepted, pending the real-cluster QA.
 - **Choice.** An environment without `gitlab:` in `environments.yaml` shows no COMMIT section and makes no GitLab request. Before, it still guessed the commit from the image tag through GitLab's API.
 - **Why.** Looking up the deployed commit is wanted in some environments only (prod-like ones, in the owner's setup), and the guess cost API calls for the others.
 - **Config, not code.** Which environments those are stays in the user's `environments.yaml` (CLAUDE.md rule: nothing company-specific in code); the TUI reads `EnvInfo.NoCommit`, set by bootstrap from `gitlab == nil`. Upgrading: an environment that relied on the tag guess needs a `gitlab:` entry.
+
+## D-078 A merge commit shows the real commit's message
+
+- **Choice.** When the running commit has more than one parent, the COMMIT line shows the subject and author of the newest commit of `first-parent..second-parent` that is not itself a merge (`CommitLog.Introduced`, GitLab's range listing, 20 commits read). The SHA, the count and the layout do not change.
+- **Why.** GitLab's merge message names only the branch. A branch tip is often "Merge branch 'main' into …", so the tip alone would not do; the range is walked past merges.
+- **Detected by parents, not by text** (nothing company-specific in code; custom merge templates work). Failure, an empty range or only merges keep the merge's own message, with no error shown.
+- **Cost.** `Commit` is now read for each deployed SHA (it carries `parent_ids`), once per session; plus one range request per merge. Rejected: the merge request's title (extra endpoint and token scope, and a setting), and parsing the merge body (depends on a template).
+- **Not verified on a real GitLab yet:** `parent_ids` in both responses, and `ref_name=<a>..<b>` returning newest first.
+
+Status: accepted, pending the real-GitLab check.

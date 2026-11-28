@@ -55,6 +55,27 @@ func subject(repo, version string) string {
 	return strings.Replace(subjects[hashOf(repo, version)%uint64(len(subjects))], "%s", strings.TrimSuffix(repo, "-service"), 1)
 }
 
+// merged tells whether a version was deployed as a merge commit, which a
+// host messages generically: about one version in four.
+func merged(repo, version string) bool { return hashOf(repo, version)%4 == 0 }
+
+// deployedSubject is the message of the commit a version deploys: the
+// generated one of a merge, else the change itself.
+func deployedSubject(repo, version string) string {
+	if merged(repo, version) {
+		return "Merge branch 'feature/" + version + "' into 'main'"
+	}
+	return subject(repo, version)
+}
+
+// parentsOf are a merge's two parents: the trunk before it, and the branch.
+func parentsOf(repo, version string) []string {
+	if !merged(repo, version) {
+		return nil
+	}
+	return []string{commitOf(repo, "trunk before "+version), commitOf(repo, "branch of "+version)}
+}
+
 // Releases is the demo release history: each version a repository runs in
 // an environment was deployed by a pipeline whose promote job printed the
 // image digests of that version.
@@ -119,7 +140,7 @@ func (r *Releases) Deployments(_ context.Context, p ports.ReleaseProject, env st
 			ID: id, SHA: commitOf(repo, v.name), Ref: "main", FinishedAt: v.first.Add(-2 * time.Minute),
 			User: deployers[hashOf(repo, v.name)%uint64(len(deployers))],
 			Job:  ports.Job{ID: id, Name: "promote-" + env}, Pipeline: 40000 + id%10000,
-			Subject: subject(repo, v.name), Author: "Jane Doe", CommittedAt: v.first.Add(-3 * time.Hour),
+			Subject: deployedSubject(repo, v.name), Author: "Jane Doe", CommittedAt: v.first.Add(-3 * time.Hour),
 		})
 	}
 	from := (page - 1) * perPage
@@ -164,10 +185,21 @@ func (Commits) Commit(_ context.Context, p ports.ReleaseProject, sha string) (po
 	repo := path.Base(p.Path)
 	for _, v := range versions(repo) {
 		if full := commitOf(repo, v); strings.HasPrefix(full, sha) {
-			return ports.Commit{SHA: full, Author: "Jane Doe", Subject: subject(repo, v), At: time.Date(2026, 9, 20, 10, 0, 0, 0, time.UTC)}, nil
+			return ports.Commit{SHA: full, Author: "Jane Doe", Subject: deployedSubject(repo, v), Parents: parentsOf(repo, v), At: time.Date(2026, 9, 20, 10, 0, 0, 0, time.UTC)}, nil
 		}
 	}
 	return ports.Commit{}, domain.KindError(domain.ErrNotFound, "unknown commit "+sha)
+}
+
+// Introduced implements ports.CommitLog: the real change of a merged version.
+func (Commits) Introduced(_ context.Context, p ports.ReleaseProject, _, second string) (ports.Commit, error) {
+	repo := path.Base(p.Path)
+	for _, v := range versions(repo) {
+		if merged(repo, v) && commitOf(repo, "branch of "+v) == second {
+			return ports.Commit{SHA: second, Author: "Jane Doe", Subject: subject(repo, v), At: time.Date(2026, 9, 19, 16, 0, 0, 0, time.UTC)}, nil
+		}
+	}
+	return ports.Commit{}, domain.KindError(domain.ErrNotFound, "no commit but merges")
 }
 
 // Tag implements ports.CommitLog: each version is a git tag.

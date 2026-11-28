@@ -87,6 +87,71 @@ func TestReleasesFoundOnFirstLog(t *testing.T) {
 	}
 }
 
+// mergeHistory is a deployment of sha("a"), a merge of branch sha("c") into
+// trunk sha("b"), whose own message is the host's generic one.
+func mergeHistory() (*portstest.FakeReleaseHistory, *portstest.FakeCommitLog) {
+	d := deploy("a", 1, "promote-prd", 100)
+	d.Subject, d.Author = "Merge branch 'feature/x' into 'main'", "Merger"
+	h := &portstest.FakeReleaseHistory{Fixture: portstest.ReleaseFixture{
+		Deployments: map[string][]ports.Deployment{"prd": {d}},
+		Logs:        map[int64]string{10: dig("1")},
+	}}
+	g := &portstest.FakeCommitLog{
+		Commits: map[string]ports.Commit{sha("a"): {Subject: d.Subject, Author: "Merger", Parents: []string{sha("b"), sha("c")}}},
+		Merged:  map[string]ports.Commit{sha("c"): {SHA: sha("d"), Subject: "fix(payment): retry the callback", Author: "Jane"}},
+	}
+	return h, g
+}
+
+func TestReleasesShowTheRealCommitOfAMerge(t *testing.T) {
+	h, g := mergeHistory()
+	r, _ := newReleases(h, g)
+	got, err := r.Running(context.Background(), query(img("payment-service", dig("1"), "2.14.3")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rel := got[dig("1")].Release
+	// The merge is what runs (its SHA is counted from); only the text is the change's.
+	if rel.SHA != sha("a") || rel.Subject != "fix(payment): retry the callback" || rel.Author != "Jane" {
+		t.Errorf("release = %+v", rel)
+	}
+	// Commits never change: the second lookup asks nothing.
+	before, _ := g.Calls()
+	r.mu.Lock()
+	r.found = nil
+	r.mu.Unlock()
+	if _, err := r.Running(context.Background(), query(img("payment-service", dig("1"), "2.14.3"))); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := g.Calls()
+	if after["commit"] != before["commit"] || after["introduced"] != before["introduced"] {
+		t.Errorf("asked again: before %v, after %v", before, after)
+	}
+}
+
+func TestReleasesKeepTheMergeMessageWhenNothingElseIsKnown(t *testing.T) {
+	h, g := mergeHistory()
+	g.Merged = nil // only merges, or the call fails
+	r, _ := newReleases(h, g)
+	got, _ := r.Running(context.Background(), query(img("payment-service", dig("1"), "2.14.3")))
+	if rel := got[dig("1")].Release; rel.Subject != "Merge branch 'feature/x' into 'main'" || rel.Author != "Jane" && rel.Author != "Merger" {
+		t.Errorf("release = %+v", rel)
+	}
+}
+
+func TestReleasesLeaveAPlainCommitAlone(t *testing.T) {
+	h, g := mergeHistory()
+	g.Commits[sha("a")] = ports.Commit{Subject: "squashed", Author: "Merger", Parents: []string{sha("b")}}
+	r, _ := newReleases(h, g)
+	got, _ := r.Running(context.Background(), query(img("payment-service", dig("1"), "2.14.3")))
+	if rel := got[dig("1")].Release; rel.Subject != "Merge branch 'feature/x' into 'main'" {
+		t.Errorf("a one-parent commit was replaced: %+v", rel)
+	}
+	if calls, _ := g.Calls(); calls["introduced"] != 0 {
+		t.Errorf("Introduced asked for a commit that is not a merge: %v", calls)
+	}
+}
+
 func TestReleasesFoundFurtherBackThroughPipelineJobs(t *testing.T) {
 	h := &portstest.FakeReleaseHistory{Fixture: portstest.ReleaseFixture{
 		Deployments: map[string][]ports.Deployment{"prd": {
@@ -383,7 +448,8 @@ func TestReleasesRequestBudget(t *testing.T) {
 		Deployments: map[string][]ports.Deployment{"prd": {deploy("a", 1, "promote-prd", 100)}},
 		Logs:        map[int64]string{10: dig("1")},
 	}}
-	g := &portstest.FakeCommitLog{}
+	// The deployed commit is read once (to tell a merge), then kept.
+	g := &portstest.FakeCommitLog{Commits: map[string]ports.Commit{sha("a"): {Subject: "commit a"}}}
 	r, clock := newReleases(h, g)
 	rm := r.Remotes.(*remotes)
 	q := query(img("payment-service", dig("1"), ""))
@@ -397,8 +463,8 @@ func TestReleasesRequestBudget(t *testing.T) {
 	if pages != 1 || lists != 0 || logs != 1 {
 		t.Errorf("history: %d pages, %d job lists, %d logs; want 1, 0, 1 in all", pages, lists, logs)
 	}
-	if calls["tip"] != 2 || calls["count"] != 1 || calls["default"] != 1 || calls["commit"] != 0 {
-		t.Errorf("history of the project: %v; want 2 tips, 1 count, 1 default branch", calls)
+	if calls["tip"] != 2 || calls["count"] != 1 || calls["default"] != 1 || calls["commit"] != 1 || calls["introduced"] != 0 {
+		t.Errorf("history of the project: %v; want 2 tips, 1 count, 1 default branch, 1 commit", calls)
 	}
 	if len(rm.dirs) != 1 {
 		t.Errorf(".git/config read %d times, want once (reused for a minute)", len(rm.dirs))

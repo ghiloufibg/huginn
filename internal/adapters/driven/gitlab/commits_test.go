@@ -24,7 +24,8 @@ type history struct {
 	branches map[string][]string // branch → commit ids, oldest first
 	touches  map[string][]string // commit id → folders
 	tags     map[string]string
-	parents  map[string]string // for commits off every branch: the parent on main
+	parents  map[string]string   // for commits off every branch: the parent on main
+	merges   map[string][]string // merge commit id → its parent ids
 
 	mu    sync.Mutex
 	paths []string // requests made
@@ -76,7 +77,7 @@ func (h *history) server(t *testing.T) *httptest.Server {
 		q := r.URL.Query()
 		write := func(v any) { _ = json.NewEncoder(w).Encode(v) }
 		commit := func(id string) map[string]any {
-			return map[string]any{"id": id, "title": "subject of " + id[:7], "author_name": "Jane", "committed_date": time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)}
+			return map[string]any{"id": id, "title": "subject of " + id[:7], "author_name": "Jane", "committed_date": time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC), "parent_ids": h.merges[id]}
 		}
 		switch {
 		case path == "":
@@ -136,6 +137,7 @@ func (h *history) server(t *testing.T) *httptest.Server {
 				}
 				ids = append(ids, c)
 			}
+			slices.Reverse(ids) // newest first, as GitLab lists a range
 			// Offset pagination as GitLab documents it: X-Next-Page, and no
 			// X-Total (left out of large lists, so never relied on).
 			perPage, _ := strconv.Atoi(q.Get("per_page"))
@@ -148,7 +150,7 @@ func (h *history) server(t *testing.T) *httptest.Server {
 			ids = ids[from2:min(from2+perPage, len(ids))]
 			var out []map[string]any
 			for _, id := range ids {
-				out = append(out, map[string]any{"id": id})
+				out = append(out, commit(id))
 			}
 			write(out)
 		default:
@@ -163,10 +165,15 @@ func id(c string) string { return strings.Repeat(c, 40) }
 
 func newHistory() *history {
 	return &history{
-		branches: map[string][]string{"main": {id("1"), id("2"), id("3")}, "release/2026": {id("1"), id("5")}},
-		touches:  map[string][]string{id("2"): {"svc/a.go"}, id("3"): {"other/b.go"}},
-		tags:     map[string]string{"v1.0": id("1")},
-		parents:  map[string]string{id("4"): id("1")},
+		branches: map[string][]string{
+			"main": {id("1"), id("2"), id("3")}, "release/2026": {id("1"), id("5")},
+			// feature ends with "Merge main into feature"; mergeonly holds nothing else.
+			"feature": {id("1"), id("6"), id("7")}, "mergeonly": {id("1"), id("9")},
+		},
+		merges:  map[string][]string{id("7"): {id("6"), id("3")}, id("9"): {id("1"), id("3")}},
+		touches: map[string][]string{id("2"): {"svc/a.go"}, id("3"): {"other/b.go"}},
+		tags:    map[string]string{"v1.0": id("1")},
+		parents: map[string]string{id("4"): id("1")},
 	}
 }
 
@@ -188,6 +195,36 @@ func bigRange(h *history, n int) {
 	h.branches["big"] = append([]string{id("1")}, many...)
 	for _, m := range many {
 		h.touches[m] = []string{"svc/x"}
+	}
+}
+
+func TestCommitReadsItsParents(t *testing.T) {
+	srv := newHistory().server(t)
+	c := &Commits{Client: &Client{Token: token}}
+	p := ports.ReleaseProject{BaseURL: srv.URL, Path: "g/p"}
+	if got, err := c.Commit(context.Background(), p, id("7")); err != nil || !slices.Equal(got.Parents, []string{id("6"), id("3")}) {
+		t.Errorf("merge parents = %v, %v", got.Parents, err)
+	}
+	if got, err := c.Commit(context.Background(), p, id("2")); err != nil || len(got.Parents) > 1 {
+		t.Errorf("plain commit parents = %v, %v", got.Parents, err)
+	}
+}
+
+func TestIntroducedSkipsMerges(t *testing.T) {
+	srv := newHistory().server(t)
+	c := &Commits{Client: &Client{Token: token}}
+	p := ports.ReleaseProject{BaseURL: srv.URL, Path: "g/p"}
+	// The branch tip is a merge: the newest real commit is the one before.
+	got, err := c.Introduced(context.Background(), p, id("3"), id("7"))
+	if err != nil || got.SHA != id("6") || got.Subject != "subject of "+id("6")[:7] || got.Author != "Jane" {
+		t.Errorf("Introduced = %+v, %v; want %s", got, err, id("6")[:7])
+	}
+	// Nothing but merges: not found, the caller keeps the merge's own message.
+	if _, err := c.Introduced(context.Background(), p, id("3"), id("9")); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("only merges: %v", err)
+	}
+	if _, err := c.Introduced(context.Background(), p, "../x", id("7")); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("bad id: %v", err)
 	}
 }
 
